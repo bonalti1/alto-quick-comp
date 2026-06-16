@@ -1,0 +1,16 @@
+# ── Secrets — never commit real API keys ──
+.env
+.env.*
+*.local
+# keep templates / examples (no real values)
+!.env.example
+!.env.*.example
+
+# ── Dependencies & build output ──
+node_modules/
+dist/
+build/
+
+# ── OS / editor noise ──
+.DS_Store
+*.log

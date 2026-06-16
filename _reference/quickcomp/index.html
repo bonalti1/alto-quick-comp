@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Quick Comp</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { font-family:'Inter',sans-serif; background:#F0F4FA; color:#1B2A5C; min-height:100vh; padding-bottom:80px; }
+
+  /* HEADER */
+  .header {
+    background:linear-gradient(135deg,#07162D 0%,#111B42 62%,#1D2F5A 100%);
+    padding:10px 20px 9px;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; z-index:1;
+    box-shadow:0 10px 26px rgba(17,27,66,0.16);
+  }
+  .header::after {
+    content:''; position:absolute; left:0; right:0; bottom:0; height:2px;
+    background:linear-gradient(90deg,transparent,rgba(230,191,106,0.92),rgba(201,151,58,0.78),transparent);
+  }
+  .header img { height:78px; width:min(78vw, 280px); object-fit:contain; border-radius:0; }
+  .brand-lockup { display:flex; flex-direction:column; align-items:center; gap:8px; animation:brandIntro 0.9s cubic-bezier(.2,.8,.2,1) both; }
+  .brand-tagline { color:#D7B665; font-size:11px; font-weight:900; letter-spacing:0.18em; text-transform:uppercase; text-align:center; }
+  .header-tag {
+    font-size:11px; font-weight:700; color:rgba(255,255,255,0.5);
+    letter-spacing:0.12em; text-transform:uppercase;
+  }
+  @keyframes brandIntro {
+    0% { opacity:0; transform:translateY(-8px) scale(.9); filter:blur(4px); box-shadow:0 0 0 rgba(255,255,255,0); }
+    62% { opacity:1; transform:translateY(1px) scale(1.035); filter:blur(0); box-shadow:0 16px 34px rgba(255,255,255,0.16); }
+    100% { opacity:1; transform:translateY(0) scale(1); filter:blur(0); box-shadow:0 8px 18px rgba(0,0,0,0.12); }
+  }
+
+  /* SEARCH SECTION */
+  .search-wrap {
+    background:#fff;
+    border-bottom:1px solid #dde4f0;
+    padding:18px 20px;
+    box-shadow:0 2px 8px rgba(27,42,92,0.06);
+  }
+  .search-label {
+    font-size:10px; font-weight:700; color:#6b7db3;
+    letter-spacing:0.18em; text-transform:uppercase; margin-bottom:10px;
+  }
+  .search-row { display:flex; gap:8px; }
+  .gps-btn {
+    width:48px; height:48px; flex-shrink:0;
+    background:#F0F4FA; border:1.5px solid #dde4f0;
+    border-radius:12px; font-size:18px; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:all 0.15s; color:#1B2A5C;
+  }
+  .gps-btn:hover { background:#e4ecf8; border-color:#1B2A5C; }
+  .gps-btn:active { transform:scale(0.95); }
+  .ac-wrap { position:relative; flex:1; }
+  .search-input {
+    width:100%; background:#F0F4FA; border:1.5px solid #dde4f0;
+    border-radius:12px; padding:13px 16px; font-size:15px;
+    font-family:'Inter',sans-serif; color:#1B2A5C; font-weight:600;
+    transition:all 0.2s;
+  }
+  .search-input::placeholder { color:#9aaac8; font-weight:500; }
+  .search-input:focus { outline:none; border-color:#1B2A5C; background:#fff; box-shadow:0 0 0 3px rgba(27,42,92,0.1); }
+  .ac-list {
+    position:absolute; top:calc(100% + 6px); left:0; right:0;
+    background:#fff; border:1.5px solid #dde4f0; border-radius:14px;
+    box-shadow:0 8px 24px rgba(27,42,92,0.12); z-index:100; overflow:hidden; display:none;
+  }
+  .ac-list.open { display:block; }
+
+  /* DEMO BANNER */
+  #demo-banner {
+    display:none; align-items:center; gap:10px;
+    background:#FFF8E7; border-bottom:2px solid #FFD700;
+    padding:10px 20px; font-size:12px; font-weight:600; color:#7a5c00;
+  }
+  #demo-banner span { font-size:16px; }
+  #demo-banner strong { color:#5a4000; }
+  .ac-item {
+    padding:11px 14px; font-size:13px; font-weight:600; cursor:pointer;
+    border-bottom:1px solid #F0F4FA; display:flex; align-items:center; gap:10px;
+    transition:background 0.12s; color:#1B2A5C;
+  }
+  .ac-item:last-child { border-bottom:none; }
+  .ac-item:hover { background:#F0F4FA; }
+  .ac-main { font-weight:700; }
+  .ac-sub { font-size:10px; color:#9aaac8; margin-top:1px; }
+
+  .radius-row { display:flex; gap:6px; margin-top:10px; align-items:center; flex-wrap:wrap; }
+  .radius-btn {
+    background:#F0F4FA; border:1.5px solid #dde4f0;
+    border-radius:8px; padding:5px 12px; font-size:11px;
+    font-weight:700; cursor:pointer; color:#9aaac8; transition:all 0.15s;
+  }
+  .radius-btn.active { background:#1B2A5C; border-color:#1B2A5C; color:#fff; }
+
+  /* DAILY BRIEFING */
+  .briefing {
+    background:#fff; border-top:1px solid #dde4f0;
+    padding:16px 20px 18px; box-shadow:0 2px 8px rgba(27,42,92,0.05);
+  }
+  .briefing-inner { max-width:720px; margin:0 auto; }
+  .briefing-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+  .briefing-title { font-size:14px; font-weight:800; color:#1B2A5C; }
+  .briefing-sub { font-size:11px; color:#9aaac8; font-weight:600; margin-top:2px; }
+  .briefing-controls { display:flex; gap:8px; flex-shrink:0; }
+  .briefing-controls input {
+    width:92px; background:#F0F4FA; border:1.5px solid #dde4f0;
+    border-radius:10px; padding:9px 10px; font-size:13px;
+    font-family:'Inter',sans-serif; color:#1B2A5C; font-weight:700;
+  }
+  .briefing-controls button {
+    background:#1B2A5C; color:#fff; border:none; border-radius:10px;
+    padding:9px 12px; font-family:'Inter',sans-serif; font-size:12px;
+    font-weight:800; cursor:pointer;
+  }
+  .briefing-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:10px; }
+  .brief-stat { background:#F0F4FA; border:1px solid #dde4f0; border-radius:10px; padding:10px; }
+  .brief-stat .bv { font-size:15px; font-weight:800; color:#1B2A5C; }
+  .brief-stat .bl { font-size:8px; font-weight:800; color:#9aaac8; text-transform:uppercase; letter-spacing:0.08em; margin-top:3px; }
+  .brief-points { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .brief-point { background:#fff; border:1px solid #dde4f0; border-left:3px solid #1B2A5C; border-radius:10px; padding:10px; }
+  .brief-point .pl { font-size:9px; font-weight:800; color:#6b7db3; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:4px; }
+  .brief-point .pt { font-size:12px; line-height:1.5; font-weight:600; color:#4a5a7a; }
+  .brief-loading { font-size:12px; color:#9aaac8; font-weight:600; padding:8px 0; }
+
+  /* CTA BUTTON */
+  .cta-wrap { padding:14px 20px 6px; }
+  .cta-btn {
+    width:100%; background:#1B2A5C; color:#fff; border:none;
+    border-radius:12px; padding:15px; font-family:'Inter',sans-serif;
+    font-size:16px; font-weight:700; cursor:pointer; letter-spacing:0.02em;
+    transition:all 0.15s; display:flex; align-items:center; justify-content:center; gap:8px;
+    box-shadow:0 4px 14px rgba(27,42,92,0.3);
+  }
+  .cta-btn:hover { background:#243570; transform:translateY(-1px); box-shadow:0 6px 18px rgba(27,42,92,0.35); }
+  .cta-btn:active { transform:translateY(1px); box-shadow:0 2px 8px rgba(27,42,92,0.2); }
+  .cta-btn:disabled { opacity:0.55; cursor:not-allowed; transform:none; }
+
+  /* MAIN */
+  .main { padding:16px 20px; max-width:720px; margin:0 auto; }
+
+  /* EMPTY */
+  .empty { text-align:center; padding:48px 20px; }
+  .empty-icon { font-size:52px; margin-bottom:14px; display:block; }
+  .empty h2 { font-size:20px; font-weight:800; color:#1B2A5C; margin-bottom:8px; }
+  .empty p { font-size:13px; color:#9aaac8; line-height:1.75; max-width:300px; margin:0 auto; font-weight:500; }
+
+  /* SUBJECT CARD */
+  .subject-card {
+    background:#1B2A5C; border-radius:16px; padding:20px;
+    margin-bottom:14px; color:#fff;
+    box-shadow:0 4px 20px rgba(27,42,92,0.3);
+  }
+  .subject-card.hidden { display:none; }
+  .s-eyebrow { font-size:9px; font-weight:700; opacity:0.45; letter-spacing:0.2em; text-transform:uppercase; margin-bottom:5px; }
+  .s-addr { font-size:16px; font-weight:800; line-height:1.3; margin-bottom:14px; }
+  .s-photo {
+    width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:12px;
+    margin-bottom:14px; border:1px solid rgba(255,255,255,0.14);
+    background:rgba(255,255,255,0.08);
+  }
+  .s-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .s-box { background:rgba(255,255,255,0.08); border-radius:10px; padding:10px 12px; border:1px solid rgba(255,255,255,0.08); }
+  .s-box .sv { font-size:17px; font-weight:800; }
+  .s-box .sl { font-size:9px; font-weight:700; opacity:0.45; text-transform:uppercase; letter-spacing:0.1em; margin-top:2px; }
+
+  /* STAT STRIP */
+  .strip { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:14px; }
+  .strip.hidden { display:none; }
+  .strip-card {
+    background:#fff; border-radius:12px; padding:12px 10px;
+    text-align:center; border:1px solid #dde4f0;
+    box-shadow:0 2px 8px rgba(27,42,92,0.06);
+    transition:transform 0.15s;
+  }
+  .strip-card:hover { transform:translateY(-2px); }
+  .strip-card .sv { font-size:17px; font-weight:800; color:#1B2A5C; }
+  .strip-card .sl { font-size:9px; font-weight:700; color:#9aaac8; text-transform:uppercase; letter-spacing:0.1em; margin-top:3px; }
+
+  /* AI CARD */
+  .ai-card {
+    background:#fff; border-radius:16px; padding:18px 20px;
+    margin-bottom:14px; border:1px solid #dde4f0;
+    border-left:4px solid #1B2A5C;
+    box-shadow:0 2px 10px rgba(27,42,92,0.07);
+  }
+  .ai-card.hidden { display:none; }
+  .ai-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+  .ai-dot {
+    width:32px; height:32px; background:#1B2A5C; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+    flex-shrink:0;
+  }
+  .ai-title { font-size:13px; font-weight:800; color:#1B2A5C; }
+  .ai-badge {
+    margin-left:auto; font-size:9px; font-weight:700;
+    background:#F0F4FA; color:#6b7db3; padding:3px 10px;
+    border-radius:20px; text-transform:uppercase; letter-spacing:0.1em;
+    border:1px solid #dde4f0;
+  }
+  .ai-text { font-size:13px; line-height:1.8; color:#4a5a7a; font-weight:500; }
+  .analysis-section { margin-bottom:12px; }
+  .analysis-section:last-child { margin-bottom:0; }
+  .analysis-section h4 {
+    font-size:10px; font-weight:900; color:#111B42; letter-spacing:0.12em;
+    text-transform:uppercase; margin-bottom:4px;
+  }
+  .analysis-section p { font-size:13px; line-height:1.75; color:#4a5a7a; font-weight:500; }
+  .print-note { color:#66759D!important; font-size:12px!important; }
+
+  /* REPORT MAP */
+  .report-map-card {
+    background:#fff; border:1px solid #D9E1EF; border-radius:12px;
+    padding:14px; margin-bottom:14px; box-shadow:none;
+  }
+  .report-map-card.hidden { display:none; }
+  .report-map-head {
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    margin-bottom:10px;
+  }
+  .report-map-title { font-size:14px; font-weight:900; color:#111B42; }
+  .report-map-sub { font-size:11px; color:#66759D; font-weight:700; }
+  #report-map-container {
+    height:260px; border-radius:10px; overflow:hidden; background:#F0F4FA;
+    border:1px solid #D9E1EF;
+  }
+
+  /* COMPS */
+  .comps-header {
+    display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+  }
+  .comps-header.hidden { display:none; }
+  .comps-header h2 { font-size:15px; font-weight:800; color:#1B2A5C; }
+  .pdf-btn {
+    background:#fff; border:1.5px solid #dde4f0; color:#1B2A5C;
+    border-radius:10px; padding:7px 14px; font-family:'Inter',sans-serif;
+    font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s;
+    box-shadow:0 2px 6px rgba(27,42,92,0.08);
+  }
+  .pdf-btn:hover { background:#1B2A5C; color:#fff; border-color:#1B2A5C; }
+
+  .comp-card {
+    background:#fff; border-radius:14px; padding:16px;
+    margin-bottom:10px; border:1px solid #dde4f0;
+    box-shadow:0 2px 8px rgba(27,42,92,0.06);
+    transition:all 0.15s; cursor:default;
+  }
+  .comp-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(27,42,92,0.12); }
+  .comp-photo {
+    width:100%; aspect-ratio:16/9; object-fit:cover; display:block;
+    border-radius:10px; margin-bottom:12px; background:#F0F4FA;
+    border:1px solid #dde4f0;
+  }
+  .comp-top { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; margin-bottom:10px; }
+  .comp-rank {
+    width:26px; height:26px; border-radius:8px; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:800;
+  }
+  .comp-addr-wrap { flex:1; padding:0 8px; }
+  .comp-addr { font-size:13px; font-weight:700; color:#1B2A5C; line-height:1.4; }
+  .comp-date { font-size:10px; color:#9aaac8; margin-top:2px; font-weight:500; }
+  .comp-price { font-size:20px; font-weight:800; text-align:right; }
+  .comp-psf { font-size:10px; color:#9aaac8; font-weight:500; text-align:right; }
+
+  .comp-tags { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .comp-tag {
+    background:#F0F4FA; border:1px solid #dde4f0;
+    border-radius:8px; padding:4px 10px; font-size:11px; font-weight:700;
+    color:#4a5a7a;
+  }
+
+  /* match bar */
+  .match-wrap { display:flex; align-items:center; gap:8px; }
+  .match-bar { flex:1; background:#F0F4FA; border-radius:20px; height:6px; overflow:hidden; }
+  .match-fill { height:100%; border-radius:20px; transition:width 0.6s ease; }
+  .match-pct { font-size:10px; font-weight:700; color:#9aaac8; white-space:nowrap; }
+
+  /* status badge */
+  .status-badge {
+    font-size:9px; font-weight:700; padding:2px 8px;
+    border-radius:6px; white-space:nowrap;
+  }
+
+  /* HISTORY SHEET */
+  .sheet-bg { display:none; position:fixed; inset:0; background:rgba(27,42,92,0.5); z-index:200; backdrop-filter:blur(4px); }
+  .sheet-bg.open { display:flex; align-items:flex-end; justify-content:center; }
+  .sheet {
+    background:#fff; border-radius:20px 20px 0 0; width:100%; max-width:680px;
+    max-height:80vh; overflow-y:auto; padding:20px;
+    border-top:3px solid #1B2A5C;
+    box-shadow:0 -8px 30px rgba(27,42,92,0.2);
+  }
+  .sheet-handle { width:36px; height:4px; background:#dde4f0; border-radius:2px; margin:0 auto 16px; }
+  .sheet h3 { font-size:17px; font-weight:800; color:#1B2A5C; margin-bottom:3px; }
+  .sheet-sub { font-size:12px; color:#9aaac8; font-weight:500; margin-bottom:16px; }
+  .h-item {
+    background:#F8FAFD; border:1px solid #D9E1EF; border-radius:14px;
+    padding:10px; margin-bottom:8px; cursor:pointer;
+    transition:all 0.15s; display:grid; grid-template-columns:64px 1fr auto; align-items:center; gap:10px;
+  }
+  .h-item:hover { border-color:#1B2A5C; background:#fff; }
+  .h-thumb { width:64px; height:52px; border-radius:10px; object-fit:cover; background:#E9EEF6; border:1px solid #D9E1EF; }
+  .h-type { display:inline-flex; align-items:center; border-radius:999px; padding:3px 7px; background:#EEF3FB; color:#52648E; font-size:9px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px; }
+  .h-addr { font-size:13px; font-weight:700; color:#1B2A5C; }
+  .h-meta { font-size:11px; color:#9aaac8; margin-top:2px; font-weight:500; }
+  .h-price { font-size:15px; font-weight:800; color:#1B2A5C; white-space:nowrap; }
+  .workspace-filters { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-bottom:12px; }
+  .workspace-filter {
+    min-height:34px; border:1px solid #D9E1EF; background:#F8FAFD; color:#66759D; border-radius:10px;
+    font-family:'Inter',sans-serif; font-size:10px; font-weight:900; letter-spacing:0.08em; text-transform:uppercase; cursor:pointer;
+  }
+  .workspace-filter.active { background:#111B42; color:#fff; border-color:#111B42; }
+  .sheet-btn {
+    width:100%; border:none; border-radius:12px; padding:13px;
+    font-family:'Inter',sans-serif; font-size:14px; font-weight:700; cursor:pointer; margin-top:8px;
+  }
+  .sheet-btn.primary { background:#1B2A5C; color:#fff; box-shadow:0 4px 12px rgba(27,42,92,0.25); }
+  .sheet-btn.secondary { background:#F0F4FA; color:#9aaac8; border:1px solid #dde4f0; }
+
+  /* BOTTOM NAV */
+  .bottom-nav {
+    position:fixed; bottom:0; left:0; right:0;
+    background:#fff; border-top:1px solid #dde4f0;
+    display:flex; padding:8px 0 env(safe-area-inset-bottom);
+    z-index:100; box-shadow:0 -4px 16px rgba(27,42,92,0.08);
+  }
+  .nav-item {
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:2px;
+    cursor:pointer; padding:6px 0;
+    font-size:10px; font-weight:700; color:#9aaac8;
+    text-transform:uppercase; letter-spacing:0.08em; transition:color 0.15s;
+  }
+  .nav-item .ni { font-size:20px; }
+  .nav-item.active { color:#1B2A5C; }
+
+  /* EXECUTIVE POLISH */
+  body { background:#E9EEF6; color:#15224B; }
+  @keyframes fadeUp {
+    from { opacity:0; transform:translateY(10px); }
+    to { opacity:1; transform:translateY(0); }
+  }
+  @keyframes shimmer {
+    0% { transform:translateX(-100%); }
+    100% { transform:translateX(100%); }
+  }
+  .header {
+    background:linear-gradient(135deg,#07162D 0%,#111B42 62%,#1D2F5A 100%); padding:10px 28px 9px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 10px 26px rgba(17,27,66,0.16);
+  }
+  .header img {
+    height:78px; width:min(76vw, 280px); object-fit:contain; border-radius:0; background:transparent; padding:0;
+    box-shadow:none;
+    animation:none;
+  }
+  .brand-lockup { gap:8px; animation:brandIntro 0.9s cubic-bezier(.2,.8,.2,1) both; }
+  .brand-tagline {
+    color:#D7B665; font-size:11px; font-weight:900; letter-spacing:0.18em; text-transform:uppercase; text-align:center;
+    text-shadow:0 1px 0 rgba(0,0,0,0.12);
+  }
+  .header-tag { display:none; }
+  .search-wrap {
+    background:#F8FAFD; padding:18px 24px 16px; border-bottom:1px solid #D9E1EF;
+    box-shadow:0 10px 30px rgba(17,27,66,0.06);
+  }
+  .workspace-head { max-width:920px; margin:0 auto 10px; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+  .workspace-kicker { display:none; }
+  .workspace-title { font-size:22px; line-height:1.1; font-weight:900; color:#111B42; }
+  .workspace-sub { display:none; }
+  .workspace-status { display:none; }
+  .trust-pill {
+    background:#fff; border:1px solid #D9E1EF; color:#44557F; border-radius:999px;
+    padding:7px 10px; font-size:10px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+  }
+  .search-panel {
+    max-width:920px; margin:0 auto; background:#fff; border:1px solid #D9E1EF; border-top:3px solid #C9973A;
+    border-radius:16px; padding:18px; box-shadow:0 18px 38px rgba(17,27,66,0.12);
+  }
+  .search-label { color:#111B42; margin-bottom:9px; font-size:13px; font-weight:900; letter-spacing:0; text-transform:none; }
+  .gps-btn { width:60px; border-radius:12px; font-size:11px; font-weight:900; letter-spacing:0.08em; background:#F8FAFD; }
+  .search-input { min-height:60px; background:#F8FAFD; border-color:#BFCBE1; border-radius:12px; font-size:17px; box-shadow:inset 0 1px 0 rgba(255,255,255,0.8); }
+  .criteria-wrap {
+    display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; padding-top:14px;
+    border-top:1px solid #EEF2F7;
+  }
+  .criteria-group { min-width:0; }
+  .criteria-label {
+    font-size:12px; font-weight:900; color:#111B42; letter-spacing:0;
+    text-transform:none; margin-bottom:7px;
+  }
+  .radius-row { margin-top:0; gap:7px; }
+  .radius-row > span { display:none; }
+  .radius-btn { border-radius:999px; padding:7px 12px; color:#66759D; background:#F8FAFD; border-color:#D9E1EF; }
+  .radius-btn.active { background:linear-gradient(135deg,#111B42,#1E2F61); border-color:#C9973A; color:#fff; box-shadow:0 0 0 1px rgba(201,151,58,0.24),0 8px 16px rgba(17,27,66,0.16); }
+  .comps-header-left { min-width:0; }
+  .criteria-status {
+    font-size:10px; font-weight:800; color:#7081AD; letter-spacing:0.04em; text-transform:uppercase;
+    margin-top:3px;
+  }
+  .cta-wrap { max-width:920px; margin:0 auto; padding:14px 24px 8px; }
+  .cta-btn { background:#111B42; border-radius:10px; min-height:54px; box-shadow:0 12px 28px rgba(17,27,66,0.22); border:1px solid rgba(201,151,58,0.55); }
+  .cta-btn:hover { background:#172655; box-shadow:0 14px 30px rgba(17,27,66,0.26); }
+  .cta-btn:active { transform:translateY(2px) scale(0.995); }
+  .loading-panel {
+    position:relative; overflow:hidden; background:#fff; border:1px solid #D9E1EF;
+    border-radius:14px; padding:26px; margin-top:4px;
+  }
+  .loading-panel:before {
+    content:''; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.78),transparent);
+    animation:shimmer 1.1s infinite;
+  }
+  .loading-line { height:12px; background:#E5EBF5; border-radius:999px; margin:12px auto; max-width:420px; }
+  .loading-line.short { max-width:260px; }
+  .empty .loading-panel { padding:26px; }
+  .main { max-width:920px; }
+  .empty {
+    background:#fff; border:1px dashed #CAD5E7; border-radius:14px; padding:34px 22px; margin-top:4px;
+  }
+  .empty-icon { display:none; }
+  .empty h2 { font-size:18px; color:#111B42; }
+  .empty p { max-width:520px; color:#66759D; }
+  .subject-card {
+    background:linear-gradient(135deg,#162655,#223B72); border-radius:16px; padding:18px;
+    box-shadow:0 18px 38px rgba(17,27,66,0.18); animation:fadeUp 0.36s ease both;
+  }
+  .subject-layout { display:grid; grid-template-columns:minmax(220px,0.9fr) 1.1fr; gap:16px; align-items:stretch; }
+  .subject-copy { min-width:0; }
+  .s-photo { margin:0; height:100%; min-height:220px; border-radius:10px; }
+  .value-story { margin-bottom:16px; }
+  .value-kicker { font-size:11px; font-weight:900; color:#E6BF6A; letter-spacing:0.11em; text-transform:uppercase; }
+  .value-number { font-size:42px; line-height:1; font-weight:900; color:#fff; margin:8px 0 8px; letter-spacing:0; }
+  .value-context { font-size:13px; line-height:1.55; color:rgba(255,255,255,0.76); font-weight:650; max-width:520px; }
+  .s-grid { grid-template-columns:1fr 1fr; margin-top:14px; }
+  .s-box { border-radius:8px; }
+  .strip { grid-template-columns:repeat(4,1fr); }
+  .strip-card { border-radius:10px; box-shadow:none; animation:fadeUp 0.36s ease both; transition:transform 0.18s ease, box-shadow 0.18s ease; }
+  .strip-card:nth-child(2) { animation-delay:0.04s; }
+  .strip-card:nth-child(3) { animation-delay:0.08s; }
+  .strip-card:nth-child(4) { animation-delay:0.12s; }
+  .strip-card:hover { transform:translateY(-2px); box-shadow:0 10px 24px rgba(17,27,66,0.08); }
+  .strip-card { border-top:2px solid rgba(201,151,58,0.42); }
+  .strip-card .sv { color:#111B42; }
+  .strip-card .sl { color:#A47B2F; }
+  .ai-card { border-radius:12px; border-left:none; box-shadow:none; animation:fadeUp 0.38s ease both; }
+  .ai-dot { display:none; }
+  .ai-title { font-size:14px; color:#111B42; }
+  .ai-badge { border-radius:999px; }
+  .comps-header { margin-top:6px; }
+  .comps-header h2 { color:#111B42; font-size:16px; }
+  .pdf-btn { border-radius:9px; box-shadow:none; }
+  .comp-card { border-radius:12px; padding:14px; box-shadow:none; animation:fadeUp 0.32s ease both; transition:transform 0.18s ease, box-shadow 0.18s ease; }
+  .comp-card:hover { transform:none; box-shadow:0 10px 24px rgba(17,27,66,0.08); }
+  .comp-card-inner { display:grid; grid-template-columns:220px 1fr; gap:14px; align-items:start; }
+  .comp-photo { margin:0; border-radius:9px; }
+  .comp-rank { border-radius:999px; }
+  .comp-price { color:#111B42; }
+  .status-badge { border-radius:999px; padding:4px 9px; }
+  .briefing {
+    max-width:920px; margin:12px auto 0; background:#fff; border:1px solid #D9E1EF;
+    border-radius:14px; box-shadow:0 10px 28px rgba(17,27,66,0.06);
+  }
+  .briefing-title { color:#111B42; }
+  .brief-stat, .brief-point { border-radius:9px; }
+  .bottom-nav { max-width:520px; left:50%; right:auto; transform:translateX(-50%); bottom:12px; border:1px solid #D9E1EF; border-radius:18px; padding:6px; box-shadow:0 18px 36px rgba(17,27,66,0.18); }
+  .nav-item { border-radius:12px; padding:8px 0; color:#66759D; }
+  .nav-item.active { background:#111B42; color:#fff; box-shadow:inset 0 2px 0 rgba(230,191,106,0.76); }
+  .nav-item .ni { font-size:14px; font-weight:900; }
+
+  .tools-view {
+    max-width:920px; margin:0 auto; padding:18px 20px 92px;
+  }
+  .payment-card {
+    background:#fff; border:1px solid #D9E1EF; border-radius:16px; padding:16px;
+    box-shadow:0 14px 32px rgba(17,27,66,0.08); animation:fadeUp 0.32s ease both;
+  }
+  .optional-property {
+    background:#fff; border:1px solid #D9E1EF; border-radius:16px; padding:14px;
+    margin-bottom:12px; box-shadow:0 10px 26px rgba(17,27,66,0.06);
+  }
+  .optional-label {
+    font-size:10px; font-weight:900; color:#7081AD; letter-spacing:0.12em;
+    text-transform:uppercase; margin-bottom:8px;
+  }
+  .tool-address-row { display:flex; gap:8px; }
+  .tool-address-wrap { position:relative; flex:1; min-width:0; }
+  .tool-address-row input {
+    width:100%; background:#F8FAFD; border:1px solid #D9E1EF; border-radius:12px;
+    padding:13px 14px; font-family:'Inter',sans-serif; font-size:14px; font-weight:800; color:#111B42;
+  }
+  .tool-address-row button,.report-btn {
+    border:none; background:#111B42; color:#fff; border-radius:12px; padding:0 14px;
+    font-family:'Inter',sans-serif; font-size:12px; font-weight:900; cursor:pointer;
+  }
+  .property-preview {
+    display:none; grid-template-columns:180px 1fr; gap:12px; margin-top:12px;
+    border:1px solid #E3E9F4; border-radius:14px; padding:10px; background:#F8FAFD;
+  }
+  .property-preview.open { display:grid; }
+  .property-preview img { width:100%; height:130px; object-fit:cover; border-radius:10px; border:1px solid #D9E1EF; background:#E9EEF6; }
+  .property-preview h3 { font-size:15px; line-height:1.35; color:#111B42; margin-bottom:8px; }
+  .property-facts { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; }
+  .property-fact { background:#fff; border:1px solid #E3E9F4; border-radius:9px; padding:8px; }
+  .property-fact .fv { font-size:14px; font-weight:900; color:#111B42; }
+  .property-fact .fl { font-size:8px; font-weight:900; color:#8391B4; text-transform:uppercase; letter-spacing:0.08em; margin-top:2px; }
+  .payment-result {
+    background:linear-gradient(135deg,#162655,#223B72); color:#fff; border-radius:14px;
+    padding:18px; display:flex; align-items:flex-start; justify-content:space-between; gap:14px;
+    margin-bottom:14px;
+  }
+  .payment-label {
+    font-size:10px; font-weight:900; color:rgba(255,255,255,0.66);
+    letter-spacing:0.12em; text-transform:uppercase;
+  }
+  .payment-total { font-size:38px; line-height:1; font-weight:900; letter-spacing:0; margin-top:7px; }
+  .payment-note { font-size:12px; line-height:1.5; color:rgba(255,255,255,0.72); font-weight:650; margin-top:8px; }
+  .ghost-btn {
+    border:1px solid rgba(255,255,255,0.26); background:rgba(255,255,255,0.1);
+    color:#fff; border-radius:999px; padding:9px 12px; font-family:'Inter',sans-serif;
+    font-size:11px; font-weight:900; cursor:pointer; white-space:nowrap;
+  }
+  .payment-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .slider-stack { display:grid; gap:10px; margin-bottom:12px; }
+  .slider-card {
+    background:#F8FAFD; border:1px solid #D9E1EF; border-radius:12px; padding:12px;
+  }
+  .slider-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .slider-label { font-size:11px; font-weight:900; color:#7081AD; }
+  .slider-value { font-size:17px; font-weight:900; color:#111B42; letter-spacing:0; }
+  .tool-slider { width:100%; accent-color:#111B42; cursor:pointer; }
+  .tool-field {
+    position:relative; background:#F8FAFD; border:1px solid #D9E1EF; border-radius:12px;
+    padding:10px 12px;
+  }
+  .tool-field label {
+    display:block; font-size:10px; font-weight:900; color:#7081AD; margin-bottom:6px;
+  }
+  .tool-field input,.tool-field select {
+    width:100%; border:none; outline:none; background:transparent; color:#111B42;
+    font-family:'Inter',sans-serif; font-size:16px; font-weight:900; padding-right:36px;
+  }
+  .tool-field span {
+    position:absolute; right:12px; bottom:12px; font-size:11px; font-weight:900; color:#7081AD;
+  }
+  .payment-breakdown {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px;
+  }
+  .pay-stat { background:#F8FAFD; border:1px solid #E3E9F4; border-radius:10px; padding:10px; }
+  .pay-stat .pv { font-size:15px; font-weight:900; color:#111B42; }
+  .pay-stat .pl { font-size:8px; font-weight:900; color:#A47B2F; letter-spacing:0.08em; text-transform:uppercase; margin-top:3px; }
+  .report-btn { width:100%; min-height:48px; margin-top:12px; box-shadow:0 12px 24px rgba(17,27,66,0.16); }
+  .client-report {
+    display:none; background:#fff; border:1px solid #D9E1EF; border-radius:16px;
+    margin-top:12px; overflow:hidden; animation:fadeUp 0.3s ease both;
+  }
+  .client-report.open { display:block; }
+  .client-report-hero { display:grid; grid-template-columns:220px 1fr; gap:16px; padding:16px; }
+  .client-report-hero img { width:100%; min-height:170px; object-fit:cover; border-radius:12px; border:1px solid #D9E1EF; background:#E9EEF6; }
+  .client-report-kicker { font-size:10px; font-weight:900; color:#7081AD; letter-spacing:0.12em; text-transform:uppercase; }
+  .client-report-title { font-size:20px; line-height:1.2; font-weight:900; color:#111B42; margin:6px 0; }
+  .client-report-payment { font-size:40px; line-height:1; font-weight:900; color:#111B42; letter-spacing:0; margin-top:10px; }
+  .client-report-sub { font-size:13px; color:#66759D; font-weight:700; line-height:1.55; margin-top:8px; }
+  .client-report-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:0 16px 16px; }
+  .report-actions {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; padding:0 16px 16px;
+  }
+  .report-action {
+    border:none; border-radius:12px; min-height:46px; font-family:'Inter',sans-serif;
+    font-size:12px; font-weight:900; cursor:pointer;
+  }
+  .report-action.primary { background:#111B42; color:#fff; }
+  .report-action.secondary { background:#F8FAFD; color:#111B42; border:1px solid #D9E1EF; }
+  .tax-view { max-width:920px; margin:0 auto; padding:18px 20px 92px; }
+  .tax-card {
+    background:#fff; border:1px solid #D9E1EF; border-radius:16px; padding:14px;
+    box-shadow:0 14px 32px rgba(17,27,66,0.08); animation:fadeUp 0.32s ease both;
+  }
+  .tax-result { display:none; margin-top:12px; border:1px solid #E3E9F4; border-radius:14px; overflow:hidden; background:#F8FAFD; }
+  .tax-result.open { display:block; }
+  .tax-hero { display:grid; grid-template-columns:220px 1fr; gap:14px; padding:12px; }
+  .tax-hero img { width:100%; min-height:160px; object-fit:cover; border-radius:12px; border:1px solid #D9E1EF; background:#E9EEF6; }
+  .tax-kicker { font-size:10px; font-weight:900; color:#7081AD; letter-spacing:0.12em; text-transform:uppercase; }
+  .tax-address { font-size:19px; line-height:1.25; font-weight:900; color:#111B42; margin:6px 0 10px; }
+  .tax-main { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .tax-main-card { background:#fff; border:1px solid #E3E9F4; border-top:2px solid rgba(201,151,58,0.55); border-radius:10px; padding:10px; }
+  .tax-main-card .tv { font-size:20px; font-weight:900; color:#111B42; }
+  .tax-main-card .tl { font-size:8px; font-weight:900; color:#A47B2F; letter-spacing:0.08em; text-transform:uppercase; margin-top:3px; }
+  .tax-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; padding:0 12px 12px; }
+  .tax-note { padding:0 12px 12px; font-size:11px; line-height:1.5; color:#7081AD; font-weight:700; }
+  .tax-analysis { display:none; margin:0 12px 12px; background:#fff; border:1px solid #E3E9F4; border-radius:12px; padding:14px; }
+  .tax-analysis.open { display:block; }
+  .tax-analysis h4 { margin:0 0 6px; color:#111B42; font-size:13px; font-weight:900; }
+  .tax-analysis p { margin:0 0 12px; color:#52648E; font-size:12px; font-weight:700; line-height:1.55; }
+  .tax-analysis p:last-child { margin-bottom:0; }
+  .payment-analysis { display:none; margin:0 16px 16px; background:#fff; border:1px solid #E3E9F4; border-radius:12px; padding:14px; }
+  .payment-analysis.open { display:block; }
+  .payment-analysis h4 { margin:0 0 6px; color:#111B42; font-size:13px; font-weight:900; }
+  .payment-analysis p { margin:0 0 12px; color:#52648E; font-size:12px; font-weight:700; line-height:1.55; }
+  .payment-analysis p:last-child { margin-bottom:0; }
+
+  .spinner { display:inline-block; width:15px; height:15px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.7s linear infinite; vertical-align:middle; margin-right:6px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .cl-field { margin-bottom:12px; }
+  .cl-field label { font-size:10px;font-weight:700;color:#6b7db3;letter-spacing:0.12em;text-transform:uppercase;display:block;margin-bottom:4px; }
+  .cl-field input, .cl-field select { width:100%;background:#F0F4FA;border:1.5px solid #dde4f0;border-radius:10px;padding:11px 14px;font-size:14px;font-family:'Inter',sans-serif;color:#1B2A5C;font-weight:600;transition:border-color 0.2s; }
+  .cl-field input:focus, .cl-field select:focus { outline:none;border-color:#1B2A5C;background:#fff; }
+  .cl-field input.filled { border-color:#22803D;background:#f0fdf4; }
+  #mic-btn.recording { background:linear-gradient(135deg,#E8442E,#c0392b)!important;animation:pulse-btn 1s infinite; }
+  @keyframes pulse-btn { 0%,100%{box-shadow:0 2px 0 #6b1208,0 4px 14px rgba(232,68,46,0.3)} 50%{box-shadow:0 2px 0 #6b1208,0 4px 20px rgba(232,68,46,0.5)} }
+
+  @media(max-width:520px) { .strip { grid-template-columns:1fr 1fr; } }
+  @media(max-width:720px) {
+    .workspace-head { align-items:flex-start; flex-direction:column; }
+    .workspace-status { justify-content:flex-start; }
+    .workspace-title { font-size:21px; }
+    .criteria-wrap { grid-template-columns:1fr; }
+    .subject-layout { grid-template-columns:1fr; }
+    .s-photo { min-height:190px; }
+    .comp-card-inner { grid-template-columns:1fr; }
+    .briefing-top { align-items:flex-start; flex-direction:column; }
+    .briefing-grid { grid-template-columns:1fr 1fr; }
+    .brief-points { grid-template-columns:1fr; }
+    .payment-result { flex-direction:column; }
+    .payment-grid,.payment-breakdown,.property-facts,.client-report-grid,.tax-grid,.tax-main { grid-template-columns:1fr 1fr; }
+    .property-preview,.client-report-hero,.tax-hero { grid-template-columns:1fr; }
+    .tool-address-row { flex-direction:column; }
+    .tool-address-row button { min-height:44px; }
+    .bottom-nav { max-width:none; left:8px; right:8px; transform:none; bottom:8px; }
+  }
+  @media print {
+    .header,.search-wrap,.cta-wrap,.bottom-nav,.sheet-bg,.pdf-btn { display:none!important; }
+    body { background:#fff; padding:0; }
+    .comp-card,.ai-card,.subject-card { box-shadow:none!important; }
+    body.payment-report-ready .optional-property,
+    body.payment-report-ready .payment-card,
+    body.payment-report-ready .briefing,
+    body.payment-report-ready .main { display:none!important; }
+    body.payment-report-ready #tab-checklist { display:block!important; padding:0!important; }
+    body.payment-report-ready .client-report { display:block!important; border:none!important; margin:0!important; border-radius:0!important; }
+    body.payment-report-ready .report-actions { display:none!important; }
+    body.tax-report-ready .main,
+    body.tax-report-ready .briefing,
+    body.tax-report-ready #tab-cma,
+    body.tax-report-ready #tab-checklist,
+    body.tax-report-ready #tab-history { display:none!important; }
+    body.tax-report-ready #tab-tax { display:block!important; padding:0!important; max-width:none!important; }
+    body.tax-report-ready .tax-card,
+    body.tax-report-ready .tax-result { border:none!important; box-shadow:none!important; margin:0!important; border-radius:0!important; }
+    body.tax-report-ready .report-actions,
+    body.tax-report-ready .tool-address-row,
+    body.tax-report-ready .optional-label { display:none!important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- DEMO BANNER -->
+<div id="demo-banner" style="display:none;align-items:center;gap:10px;background:#FFF8E7;border-bottom:2px solid #FFD700;padding:10px 20px;font-size:12px;font-weight:600;color:#7a5c00;">
+  <span style="font-size:18px;">🎬</span>
+  <div><strong>Demo Mode</strong> — Live API not connected yet. This preview shows exactly how comps will look once the API is active.</div>
+</div>
+
+<div class="header">
+  <div class="brand-lockup">
+    <img src="quick-comp-brand-header.png" alt="Quick Comp" />
+  </div>
+</div>
+
+<div class="search-wrap" id="search-wrap">
+  <div class="workspace-head">
+    <div>
+      <div class="workspace-title">Price the property with confidence.</div>
+    </div>
+  </div>
+  <div class="search-panel">
+    <div class="search-label">Property Address</div>
+    <div class="search-row">
+      <button class="gps-btn" onclick="useGPS()" title="Use current location">GPS</button>
+      <div class="ac-wrap">
+        <input class="search-input" id="addr-input" type="text" autocomplete="off"
+          placeholder="Enter a property address..."
+          oninput="onInput()" onkeydown="onKey(event)" />
+        <div class="ac-list" id="ac-list"></div>
+      </div>
+    </div>
+    <div class="criteria-wrap">
+      <div class="criteria-group">
+        <div class="criteria-label">Search Radius</div>
+        <div class="radius-row distance-row">
+          <span>Search radius:</span>
+          <div class="radius-btn active" onclick="setR(this,2)">2 mi</div>
+          <div class="radius-btn" onclick="setR(this,5)">5 mi</div>
+          <div class="radius-btn" onclick="setR(this,10)">10 mi</div>
+        </div>
+      </div>
+      <div class="criteria-group">
+        <div class="criteria-label">Recently Sold Nearby</div>
+        <div class="radius-row">
+          <span>Sold within:</span>
+          <div class="radius-btn lookback-btn active" onclick="setLookback(this,183,'6 months')">6 mo</div>
+          <div class="radius-btn lookback-btn" onclick="setLookback(this,365,'1 year')">1 yr</div>
+          <div class="radius-btn lookback-btn" onclick="setLookback(this,730,'2 years')">2 yr</div>
+          <div class="radius-btn lookback-btn" onclick="setLookback(this,1095,'3 years')">3 yr</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cta-wrap" id="cta-wrap">
+  <button class="cta-btn" id="run-btn" onclick="runComp()">Get Market Value</button>
+</div>
+
+<div class="main">
+  <div id="empty" class="empty">
+    <span class="empty-icon">🏘️</span>
+    <h2>Ready to build a clear value story.</h2>
+    <p>Start with a property address. Quick Comp will find nearby sales and shape them into a client-ready market opinion.</p>
+  </div>
+
+  <div class="subject-card hidden" id="subject-card">
+    <div class="subject-layout">
+      <img class="s-photo" id="s-photo" alt="Subject property street view" />
+      <div class="subject-copy">
+        <div class="value-story" id="value-story"></div>
+        <div class="s-eyebrow">Property Reviewed</div>
+        <div class="s-addr" id="s-addr"></div>
+        <div class="s-grid" id="s-stats"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="strip hidden" id="strip"></div>
+
+  <div class="ai-card hidden" id="ai-card">
+    <div class="ai-header">
+      <div class="ai-dot">🤖</div>
+      <div class="ai-title">Market Analysis</div>
+      <div class="ai-badge">Client Ready</div>
+    </div>
+    <div class="ai-text" id="ai-text"></div>
+  </div>
+
+  <div class="comps-header hidden" id="comps-header">
+    <div class="comps-header-left">
+      <h2>Sold Comparables <span id="comp-count" style="color:#9aaac8;font-weight:600;font-size:12px;"></span></h2>
+      <div class="criteria-status" id="criteria-status"></div>
+    </div>
+    <button class="pdf-btn" onclick="window.print()">Export PDF</button>
+  </div>
+  <div id="comps-list"></div>
+
+  <div class="report-map-card hidden" id="report-map-card">
+    <div class="report-map-head">
+      <div class="report-map-title">Comparable Map</div>
+      <div class="report-map-sub" id="report-map-sub">Subject and sold comparables</div>
+    </div>
+    <div id="report-map-container"></div>
+  </div>
+</div>
+
+<div class="briefing" id="briefing-section">
+  <div class="briefing-inner">
+    <div class="briefing-top">
+      <div>
+        <div class="briefing-title">Daily Market Briefing</div>
+        <div class="briefing-sub" id="briefing-sub">Local pulse, rates, and client talking points</div>
+      </div>
+      <div class="briefing-controls">
+        <input id="briefing-zip" maxlength="5" inputmode="numeric" placeholder="ZIP" />
+        <button onclick="loadBriefing()">Refresh</button>
+      </div>
+    </div>
+    <div id="briefing-body">
+      <div class="brief-loading">Enter your market ZIP to load today’s briefing.</div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="sheet-bg" onclick="if(event.target===this)closeHistory()">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <h3>Workspace</h3>
+    <div class="sheet-sub">Recent comp searches and saved work</div>
+    <div class="workspace-filters">
+      <button class="workspace-filter active" onclick="setWorkspaceFilter('all',this)">All</button>
+      <button class="workspace-filter" onclick="setWorkspaceFilter('comps',this)">Comps</button>
+      <button class="workspace-filter" onclick="setWorkspaceFilter('lending',this)">Lending</button>
+      <button class="workspace-filter" onclick="setWorkspaceFilter('tax',this)">Tax</button>
+    </div>
+    <div id="h-list"></div>
+    <button class="sheet-btn secondary" onclick="clearHistory()" style="margin-top:4px;">Clear Workspace</button>
+    <button class="sheet-btn primary" onclick="closeHistory()">Close</button>
+  </div>
+</div>
+
+<div class="bottom-nav">
+  <div class="nav-item active" id="nav-search" onclick="showTab('search')"><span class="ni">01</span>Comps</div>
+  <div class="nav-item" id="nav-checklist" onclick="showTab('checklist')"><span class="ni">02</span>Lending</div>
+  <div class="nav-item" id="nav-tax" onclick="showTab('tax')"><span class="ni">03</span>Tax</div>
+  <div class="nav-item" id="nav-history" onclick="openHistory()"><span class="ni">04</span>Workspace</div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- TOOLS VIEW -->
+<div id="tab-checklist" class="tools-view" style="display:none;">
+  <div class="optional-property">
+    <div class="optional-label">Optional Property Preview</div>
+    <div class="tool-address-row">
+      <div class="tool-address-wrap">
+        <input id="tool-address" type="text" autocomplete="off" placeholder="Add property address for client presentation..." oninput="onToolAddressInput()" onkeydown="onToolAddressKey(event)" />
+        <div class="ac-list" id="tool-ac-list"></div>
+      </div>
+      <button onclick="loadToolProperty()">Preview</button>
+    </div>
+    <div class="property-preview" id="tool-property-preview"></div>
+  </div>
+
+  <div class="payment-card">
+    <div class="payment-result">
+      <div>
+        <div class="payment-label">Estimated Monthly Payment</div>
+        <div class="payment-total" id="payment-total">$0</div>
+        <div class="payment-note" id="payment-note">Principal, interest, taxes, insurance, and HOA.</div>
+      </div>
+      <button class="ghost-btn" onclick="useCmaValue()">Use CMA Value</button>
+    </div>
+
+    <div class="slider-stack">
+      <div class="slider-card">
+        <div class="slider-top"><div class="slider-label">Purchase Price</div><div class="slider-value" id="calc-price-label">$300,000</div></div>
+        <input class="tool-slider" id="calc-price-slider" type="range" min="100000" max="1500000" step="5000" value="300000" oninput="syncSlider('price',this.value)" />
+      </div>
+      <div class="slider-card">
+        <div class="slider-top"><div class="slider-label">Down Payment</div><div class="slider-value" id="calc-down-label">5%</div></div>
+        <input class="tool-slider" id="calc-down-slider" type="range" min="0" max="30" step="1" value="5" oninput="syncSlider('down',this.value)" />
+      </div>
+      <div class="slider-card">
+        <div class="slider-top"><div class="slider-label">Interest Rate</div><div class="slider-value" id="calc-rate-label">6.75%</div></div>
+        <input class="tool-slider" id="calc-rate-slider" type="range" min="4" max="10" step="0.125" value="6.75" oninput="syncSlider('rate',this.value)" />
+      </div>
+    </div>
+
+    <div class="payment-grid">
+      <div class="tool-field">
+        <label>Purchase Price</label>
+        <input id="calc-price" type="number" inputmode="numeric" value="300000" oninput="syncInput('price',this.value)" />
+      </div>
+      <div class="tool-field">
+        <label>Down Payment</label>
+        <input id="calc-down" type="number" inputmode="numeric" value="5" oninput="syncInput('down',this.value)" />
+        <span>%</span>
+      </div>
+      <div class="tool-field">
+        <label>Interest Rate</label>
+        <input id="calc-rate" type="number" inputmode="decimal" step="0.01" value="6.75" oninput="syncInput('rate',this.value)" />
+        <span>%</span>
+      </div>
+      <div class="tool-field">
+        <label>Loan Term</label>
+        <select id="calc-term" onchange="calcPayment()">
+          <option value="30">30 years</option>
+          <option value="20">20 years</option>
+          <option value="15">15 years</option>
+        </select>
+      </div>
+      <div class="tool-field">
+        <label>Property Tax</label>
+        <input id="calc-tax" type="number" inputmode="decimal" step="0.01" value="1.25" oninput="calcPayment()" />
+        <span>%/yr</span>
+      </div>
+      <div class="tool-field">
+        <label>Insurance</label>
+        <input id="calc-ins" type="number" inputmode="numeric" value="1200" oninput="calcPayment()" />
+        <span>/yr</span>
+      </div>
+      <div class="tool-field">
+        <label>HOA</label>
+        <input id="calc-hoa" type="number" inputmode="numeric" value="0" oninput="calcPayment()" />
+        <span>/mo</span>
+      </div>
+    </div>
+
+    <div class="payment-breakdown" id="payment-breakdown"></div>
+    <button class="report-btn" onclick="generatePaymentReport()">Generate Client Payment Report</button>
+  </div>
+
+  <div class="client-report" id="client-payment-report"></div>
+</div>
+
+<!-- TAX VIEW -->
+<div id="tab-tax" class="tax-view" style="display:none;">
+  <div class="tax-card">
+    <div class="optional-label">Tax Snapshot</div>
+    <div class="tool-address-row">
+      <div class="tool-address-wrap">
+        <input id="tax-address" type="text" autocomplete="off" placeholder="Enter property address..." oninput="onTaxAddressInput()" onkeydown="onTaxAddressKey(event)" />
+        <div class="ac-list" id="tax-ac-list"></div>
+      </div>
+      <button onclick="loadTaxSnapshot()">Search</button>
+    </div>
+    <div class="tax-result" id="tax-result"></div>
+  </div>
+</div>
+
+<script>
+  let radius=2,effectiveRadius=2,daysOld=183,lookbackLabel='6 months',effectiveLookback='6 months',autoExpand=false,searchExpanded=false,acResults=[],acIdx=-1,acTimer=null
+  let toolAcResults=[],toolAcIdx=-1,toolAcTimer=null
+  let taxAcResults=[],taxAcIdx=-1,taxAcTimer=null
+  let currentCmaValue=null,currentCmaMetrics=null,currentToolProperty=null,currentTaxProperty=null,currentTab='search'
+
+  function fmt$(n){return n==null||Number.isNaN(Number(n))?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)}
+  function fmtN(n){return n==null?'—':new Intl.NumberFormat('en-US',{maximumFractionDigits:0}).format(n)}
+  function fmtPct(n){return n==null?'—':Number(n).toFixed(2)+'%'}
+  function countUp(el,end,format=fmtN,duration=700){
+    if(!el||!end){if(el)el.textContent=format(end);return}
+    const start=performance.now()
+    const step=now=>{
+      const p=Math.min(1,(now-start)/duration)
+      const eased=1-Math.pow(1-p,3)
+      el.textContent=format(Math.round(end*eased))
+      if(p<1)requestAnimationFrame(step)
+    }
+    requestAnimationFrame(step)
+  }
+  function setR(el,v){document.querySelectorAll('.distance-row .radius-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');radius=v}
+  function setLookback(el,v,label){document.querySelectorAll('.lookback-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');daysOld=v;lookbackLabel=label;effectiveLookback=label}
+  function setAutoExpand(checked){autoExpand=checked}
+
+  async function loadBriefing(){
+    const zipInput=document.getElementById('briefing-zip')
+    const zip=(zipInput.value||'').trim()
+    const body=document.getElementById('briefing-body')
+    if(!/^\d{5}$/.test(zip)){body.innerHTML='<div class="brief-loading">Enter a valid 5-digit ZIP code.</div>';return}
+    localStorage.setItem('qc_brief_zip',zip)
+    body.innerHTML='<div class="brief-loading">Loading today’s market pulse...</div>'
+    try{
+      const r=await fetch(`/api/briefing?zipCode=${encodeURIComponent(zip)}`)
+      const data=await r.json()
+      if(!r.ok)throw new Error(data.error||'Could not load briefing')
+      renderBriefing(data)
+    }catch(e){
+      body.innerHTML=`<div class="brief-loading">Briefing unavailable: ${e.message}</div>`
+    }
+  }
+  function renderBriefing(data){
+    const m=data.market||{},r=data.rates||{},p=data.talkingPoints||{}
+    const updated=m.lastUpdatedDate?new Date(m.lastUpdatedDate).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'today'
+    document.getElementById('briefing-sub').textContent=`ZIP ${data.zipCode} · Updated ${updated}`
+    document.getElementById('briefing-body').innerHTML=`
+      <div class="briefing-grid">
+        <div class="brief-stat"><div class="bv">${fmt$(m.medianPrice)}</div><div class="bl">Median List</div></div>
+        <div class="brief-stat"><div class="bv">${fmtN(m.totalListings)}</div><div class="bl">Active Listings</div></div>
+        <div class="brief-stat"><div class="bv">${fmtN(m.newListings)}</div><div class="bl">New Listings</div></div>
+        <div class="brief-stat"><div class="bv">${m.medianDaysOnMarket?Math.round(m.medianDaysOnMarket):'—'}</div><div class="bl">Median DOM</div></div>
+        <div class="brief-stat"><div class="bv">${m.medianPricePerSquareFoot?'$'+Math.round(m.medianPricePerSquareFoot):'—'}</div><div class="bl">Median $/SF</div></div>
+        <div class="brief-stat"><div class="bv">${fmtPct(r.mortgage30)}</div><div class="bl">30-Year Fixed</div></div>
+        <div class="brief-stat"><div class="bv">${fmtPct(r.mortgage15)}</div><div class="bl">15-Year Fixed</div></div>
+        <div class="brief-stat"><div class="bv">${r.date?new Date(r.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'—'}</div><div class="bl">Rate Date</div></div>
+      </div>
+      <div class="brief-points">
+        <div class="brief-point"><div class="pl">Buyer</div><div class="pt">${p.buyer||'Review payment comfort before touring.'}</div></div>
+        <div class="brief-point"><div class="pl">Seller</div><div class="pt">${p.seller||'Price against current competition.'}</div></div>
+        <div class="brief-point"><div class="pl">Trend</div><div class="pt">${p.trend||'Use fresh local comps before advising.'}</div></div>
+      </div>
+    `
+  }
+  document.addEventListener('DOMContentLoaded',()=>{
+    const zip=localStorage.getItem('qc_brief_zip')||'78582'
+    document.getElementById('briefing-zip').value=zip
+    loadBriefing()
+  })
+
+  function useGPS(){
+    const btn=document.querySelector('.gps-btn');btn.textContent='⏳'
+    if(!navigator.geolocation){btn.textContent='📍';return}
+    navigator.geolocation.getCurrentPosition(async pos=>{
+      const{latitude:lat,longitude:lon}=pos.coords
+      const r=await fetch(`/api/geocode?latlng=${lat},${lon}`)
+      const d=await r.json()
+      const addr=d.results?.[0]?.formatted_address || ''
+      document.getElementById('addr-input').value=addr;btn.textContent='📍';if(addr)runComp()
+    },()=>{btn.textContent='📍'},{timeout:10000})
+  }
+
+  function onInput(){const v=document.getElementById('addr-input').value.trim();clearTimeout(acTimer);if(v.length<4){closeAC();return};acTimer=setTimeout(()=>fetchAC(v),280)}
+  async function fetchAC(q){try{const r=await fetch(`/api/geocode?mode=autocomplete&input=${encodeURIComponent(q)}`);const d=await r.json();acResults=d.predictions||[];renderAC()}catch(e){closeAC()}}
+  function renderAC(){const list=document.getElementById('ac-list');if(!acResults.length){closeAC();return};list.innerHTML=acResults.map((r,i)=>{const pts=r.description.split(', ');return`<div class="ac-item" onclick="pickAC(${i})"><span style="color:#1B2A5C">📍</span><div><div class="ac-main">${pts.slice(0,2).join(', ')}</div><div class="ac-sub">${pts.slice(2).join(', ')}</div></div></div>`}).join('');list.classList.add('open');acIdx=-1}
+  function pickAC(i){const r=acResults[i];if(!r)return;document.getElementById('addr-input').value=r.description;closeAC();runComp()}
+  function closeAC(){document.getElementById('ac-list').classList.remove('open')}
+  function onKey(e){const items=document.getElementById('ac-list').querySelectorAll('.ac-item');if(e.key==='ArrowDown'){acIdx=Math.min(acIdx+1,items.length-1);hlAC(items);e.preventDefault()}else if(e.key==='ArrowUp'){acIdx=Math.max(acIdx-1,-1);hlAC(items);e.preventDefault()}else if(e.key==='Enter'){if(acIdx>=0&&items[acIdx])items[acIdx].click();else{closeAC();runComp()}}else if(e.key==='Escape')closeAC()}
+  function hlAC(items){items.forEach((it,i)=>it.style.background=i===acIdx?'#F0F4FA':'')}
+  function onToolAddressInput(){
+    const v=document.getElementById('tool-address').value.trim()
+    clearTimeout(toolAcTimer)
+    if(v.length<4){closeToolAC();return}
+    toolAcTimer=setTimeout(()=>fetchToolAC(v),280)
+  }
+  async function fetchToolAC(q){
+    try{
+      const r=await fetch(`/api/geocode?mode=autocomplete&input=${encodeURIComponent(q)}`)
+      const d=await r.json()
+      toolAcResults=d.predictions||[]
+      renderToolAC()
+    }catch(e){closeToolAC()}
+  }
+  function renderToolAC(){
+    const list=document.getElementById('tool-ac-list')
+    if(!toolAcResults.length){closeToolAC();return}
+    list.innerHTML=toolAcResults.map((r,i)=>{
+      const pts=r.description.split(', ')
+      return`<div class="ac-item" onclick="pickToolAC(${i})"><span style="color:#1B2A5C">📍</span><div><div class="ac-main">${pts.slice(0,2).join(', ')}</div><div class="ac-sub">${pts.slice(2).join(', ')}</div></div></div>`
+    }).join('')
+    list.classList.add('open')
+    toolAcIdx=-1
+  }
+  function pickToolAC(i){
+    const r=toolAcResults[i]
+    if(!r)return
+    document.getElementById('tool-address').value=r.description
+    closeToolAC()
+    loadToolProperty()
+  }
+  function closeToolAC(){
+    const list=document.getElementById('tool-ac-list')
+    if(list)list.classList.remove('open')
+  }
+  function onToolAddressKey(e){
+    const items=document.getElementById('tool-ac-list').querySelectorAll('.ac-item')
+    if(e.key==='ArrowDown'){toolAcIdx=Math.min(toolAcIdx+1,items.length-1);hlToolAC(items);e.preventDefault()}
+    else if(e.key==='ArrowUp'){toolAcIdx=Math.max(toolAcIdx-1,-1);hlToolAC(items);e.preventDefault()}
+    else if(e.key==='Enter'){if(toolAcIdx>=0&&items[toolAcIdx])items[toolAcIdx].click();else{closeToolAC();loadToolProperty()}}
+    else if(e.key==='Escape')closeToolAC()
+  }
+  function hlToolAC(items){items.forEach((it,i)=>it.style.background=i===toolAcIdx?'#F0F4FA':'')}
+  function onTaxAddressInput(){
+    const v=document.getElementById('tax-address').value.trim()
+    clearTimeout(taxAcTimer)
+    if(v.length<4){closeTaxAC();return}
+    taxAcTimer=setTimeout(()=>fetchTaxAC(v),280)
+  }
+  async function fetchTaxAC(q){
+    try{
+      const r=await fetch(`/api/geocode?mode=autocomplete&input=${encodeURIComponent(q)}`)
+      const d=await r.json()
+      taxAcResults=d.predictions||[]
+      renderTaxAC()
+    }catch(e){closeTaxAC()}
+  }
+  function renderTaxAC(){
+    const list=document.getElementById('tax-ac-list')
+    if(!taxAcResults.length){closeTaxAC();return}
+    list.innerHTML=taxAcResults.map((r,i)=>{
+      const pts=r.description.split(', ')
+      return`<div class="ac-item" onclick="pickTaxAC(${i})"><span style="color:#1B2A5C">📍</span><div><div class="ac-main">${pts.slice(0,2).join(', ')}</div><div class="ac-sub">${pts.slice(2).join(', ')}</div></div></div>`
+    }).join('')
+    list.classList.add('open')
+    taxAcIdx=-1
+  }
+  function pickTaxAC(i){
+    const r=taxAcResults[i]
+    if(!r)return
+    document.getElementById('tax-address').value=r.description
+    closeTaxAC()
+    loadTaxSnapshot()
+  }
+  function closeTaxAC(){
+    const list=document.getElementById('tax-ac-list')
+    if(list)list.classList.remove('open')
+  }
+  function onTaxAddressKey(e){
+    const items=document.getElementById('tax-ac-list').querySelectorAll('.ac-item')
+    if(e.key==='ArrowDown'){taxAcIdx=Math.min(taxAcIdx+1,items.length-1);hlTaxAC(items);e.preventDefault()}
+    else if(e.key==='ArrowUp'){taxAcIdx=Math.max(taxAcIdx-1,-1);hlTaxAC(items);e.preventDefault()}
+    else if(e.key==='Enter'){if(taxAcIdx>=0&&items[taxAcIdx])items[taxAcIdx].click();else{closeTaxAC();loadTaxSnapshot()}}
+    else if(e.key==='Escape')closeTaxAC()
+  }
+  function hlTaxAC(items){items.forEach((it,i)=>it.style.background=i===taxAcIdx?'#F0F4FA':'')}
+  document.addEventListener('click',e=>{if(!e.target.closest('.ac-wrap'))closeAC();if(!e.target.closest('.tool-address-wrap')){closeToolAC();closeTaxAC()}})
+
+  // ── TAB SWITCHING ──
+  function showTab(tab) {
+    currentTab=tab
+    const tabs = ['search','checklist','tax']
+    tabs.forEach(t => {
+      const el = document.getElementById('tab-'+t)
+      if (el) el.style.display = t===tab?'block':'none'
+    })
+    // search tab elements
+    const searchEls = ['search-wrap','cta-wrap','empty','subject-card','strip','ai-card','report-map-card','comps-header','comps-list','briefing-section']
+    searchEls.forEach(id => {
+      const el = document.getElementById(id)
+      if (el) el.style.display = tab==='search' ? (id==='empty'&&document.getElementById('subject-card')&&!document.getElementById('subject-card').classList.contains('hidden')?'none':'') : 'none'
+    })
+    if (tab === 'search') {
+      ['subject-card','strip','ai-card','report-map-card','comps-header'].forEach(id => {
+        const el = document.getElementById(id)
+        if (el && !el.classList.contains('hidden')) el.style.display = ''
+      })
+      document.getElementById('empty').style.display = document.getElementById('subject-card').classList.contains('hidden') ? 'block' : 'none'
+      document.getElementById('comps-list').style.display = ''
+      document.getElementById('briefing-section').style.display = document.getElementById('subject-card').classList.contains('hidden') ? '' : 'none'
+      document.getElementById('search-wrap').style.display = ''
+      document.getElementById('cta-wrap').style.display = ''
+    }
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
+    document.getElementById('nav-'+tab)?.classList.add('active')
+    if (tab === 'checklist') initChecklist()
+    if (tab === 'tax') initTax()
+  }
+
+  // ── MAP ──
+  let mapComps = [], mapAddress = '', mapSubject = null, reportMapInstance = null
+  function createStaticCompMap(containerId){
+    const container=document.getElementById(containerId)
+    if(!container)return
+    const points=[]
+    if(mapSubject?.latitude&&mapSubject?.longitude)points.push({type:'subject',lat:mapSubject.latitude,lng:mapSubject.longitude,label:'Subject'})
+    mapComps.slice(0,10).forEach((c,i)=>{if(c.latitude&&c.longitude)points.push({type:'comp',lat:c.latitude,lng:c.longitude,label:String(i+1),price:c.soldPrice})})
+    if(points.length<2){
+      container.innerHTML='<div style="height:100%;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:#66759D;font-size:13px;font-weight:700;">Map will appear when location coordinates are available.</div>'
+      return
+    }
+    const minLat=Math.min(...points.map(p=>p.lat)),maxLat=Math.max(...points.map(p=>p.lat))
+    const minLng=Math.min(...points.map(p=>p.lng)),maxLng=Math.max(...points.map(p=>p.lng))
+    const spanLat=maxLat-minLat||0.01,spanLng=maxLng-minLng||0.01
+    const dot=p=>{
+      const left=8+((p.lng-minLng)/spanLng)*84
+      const top=8+(1-((p.lat-minLat)/spanLat))*84
+      if(p.type==='subject')return `<div title="Subject" style="position:absolute;left:${left}%;top:${top}%;transform:translate(-50%,-50%);width:18px;height:18px;border-radius:50%;background:#E8442E;border:3px solid #fff;box-shadow:0 4px 12px rgba(17,27,66,0.22);"></div>`
+      return `<div title="Comp ${p.label}" style="position:absolute;left:${left}%;top:${top}%;transform:translate(-50%,-50%);min-width:26px;height:22px;border-radius:999px;background:#111B42;color:#fff;border:2px solid #fff;box-shadow:0 4px 12px rgba(17,27,66,0.18);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:900;">${p.label}</div>`
+    }
+    container.innerHTML=`
+      <div style="position:relative;height:100%;overflow:hidden;background:
+        linear-gradient(90deg,rgba(207,216,234,.55) 1px,transparent 1px),
+        linear-gradient(rgba(207,216,234,.55) 1px,transparent 1px),
+        linear-gradient(135deg,#F8FAFD,#E9EEF6);background-size:42px 42px;border-radius:10px;">
+        <div style="position:absolute;inset:14px;border:1px solid rgba(112,129,173,.28);border-radius:10px;"></div>
+        ${points.map(dot).join('')}
+        <div style="position:absolute;left:14px;bottom:12px;background:rgba(255,255,255,.9);border:1px solid #D9E1EF;border-radius:999px;padding:6px 10px;font-size:10px;font-weight:900;color:#4F608B;">Subject + ${points.filter(p=>p.type==='comp').length} comps</div>
+      </div>`
+  }
+  function createCompMap(containerId, mapRefSetter, popupPrefix='') {
+    const container = document.getElementById(containerId)
+    if (!container || !mapAddress) return
+    if (!window.L) { createStaticCompMap(containerId); return }
+    container.innerHTML = ''
+    const instance = L.map(container, { scrollWheelZoom:false }).setView([0,0], 14)
+    mapRefSetter(instance)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    }).addTo(instance)
+
+    const subjectPromise = mapSubject?.latitude && mapSubject?.longitude
+      ? Promise.resolve({results:[{geometry:{location:{lat:mapSubject.latitude,lng:mapSubject.longitude}}}]})
+      : fetch(`/api/geocode?address=${encodeURIComponent(mapAddress)}`).then(r=>r.json())
+    subjectPromise.then(data => {
+      const bounds = []
+      const subjectGeo = data.results?.[0]?.geometry?.location
+      if (subjectGeo) {
+        const lat = subjectGeo.lat, lng = subjectGeo.lng
+        bounds.push([lat,lng])
+        const icon = L.divIcon({className:'', html:'<div style="background:#E8442E;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>', iconSize:[16,16], iconAnchor:[8,8]})
+        L.marker([lat,lng],{icon}).addTo(instance).bindPopup(`<strong>Subject Property</strong><br>${mapAddress}`)
+      }
+      const compPromises = mapComps.slice(0,10).map(c =>
+        c.latitude && c.longitude
+          ? Promise.resolve({comp:c, geo:{lat:c.latitude,lng:c.longitude}})
+          : fetch(`/api/geocode?address=${encodeURIComponent(c.address)}`)
+            .then(r=>r.json()).then(d => ({comp:c, geo:d.results?.[0]?.geometry?.location})).catch(()=>({comp:c,geo:null}))
+      )
+      Promise.all(compPromises).then(results => {
+        results.forEach((r,i) => {
+          if (!r.geo) return
+          const lat = r.geo.lat, lng = r.geo.lng
+          bounds.push([lat,lng])
+          const fmt = n => !n?'—':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(n)
+          const icon = L.divIcon({className:'', html:`<div style="background:#1B2A5C;color:#fff;font-size:10px;font-weight:800;padding:4px 8px;border-radius:20px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.25);white-space:nowrap;">${fmt(r.comp.soldPrice)}</div>`, iconSize:[80,28], iconAnchor:[40,14]})
+          L.marker([lat,lng],{icon}).addTo(instance)
+            .bindPopup(`<strong>${popupPrefix}#${i+1} ${r.comp.address}</strong><br>Sold: ${fmt(r.comp.soldPrice)}${r.comp.sqft?`<br>${r.comp.sqft.toLocaleString()} sqft`:''}${r.comp.beds?`<br>${r.comp.beds}bd/${r.comp.baths}ba`:''}`)
+        })
+        if (bounds.length > 0) {
+          instance.fitBounds(bounds, {padding:[24,24]})
+          setTimeout(()=>instance.invalidateSize(),150)
+        }
+      })
+    }).catch(() => {})
+  }
+  function initReportMap() {
+    document.getElementById('report-map-sub').textContent = `${mapComps.length} sold comps near the subject property`
+    if (reportMapInstance) { reportMapInstance.remove(); reportMapInstance = null }
+    setTimeout(() => createCompMap('report-map-container', map => { reportMapInstance = map }), 100)
+  }
+
+  // ── CHECKLIST ──
+  const CHECKLIST = {
+    cl: [
+      {id:'cl_name', label:'Full Legal Name', placeholder:'John & Jane Smith'},
+      {id:'cl_phone', label:'Phone Number', placeholder:'(555) 555-5555'},
+      {id:'cl_email', label:'Email Address', placeholder:'email@example.com'},
+      {id:'cl_agent', label:'Representing Agent', placeholder:'Agent name'},
+      {id:'cl_type', label:'Transaction Type', type:'select', options:['-- Select --','Buyer','Seller','Both']},
+    ],
+    prop: [
+      {id:'prop_address', label:'Property Address', placeholder:'123 Main St, City, TX 78000'},
+      {id:'prop_type', label:'Property Type', type:'select', options:['-- Select --','Single Family','Condo','Townhouse','Multi-Family','Land','Commercial']},
+      {id:'prop_sqft', label:'Square Footage', placeholder:'e.g. 2,400'},
+      {id:'prop_beds', label:'Bedrooms', placeholder:'e.g. 4'},
+      {id:'prop_baths', label:'Bathrooms', placeholder:'e.g. 2.5'},
+      {id:'prop_year', label:'Year Built', placeholder:'e.g. 2015'},
+      {id:'prop_lot', label:'Lot Size', placeholder:'e.g. 0.25 acres'},
+    ],
+    fin: [
+      {id:'fin_price', label:'Asking / Offer Price', placeholder:'e.g. $385,000'},
+      {id:'fin_down', label:'Down Payment', placeholder:'e.g. $40,000 or 10%'},
+      {id:'fin_loan', label:'Loan Type', type:'select', options:['-- Select --','Conventional','FHA','VA','Cash','Other']},
+      {id:'fin_earnest', label:'Earnest Money', placeholder:'e.g. $5,000'},
+      {id:'fin_contingencies', label:'Contingencies', placeholder:'e.g. Financing, Inspection, Appraisal'},
+    ],
+    time: [
+      {id:'time_close', label:'Desired Closing Date', placeholder:'e.g. 45 days from contract'},
+      {id:'time_possession', label:'Possession Date', placeholder:'e.g. At closing'},
+      {id:'time_inspection', label:'Inspection Period', placeholder:'e.g. 10 days'},
+    ]
+  }
+
+  function renderFields(fields, containerId) {
+    document.getElementById(containerId).innerHTML = fields.map(f => {
+      if (f.type === 'select') {
+        return `<div class="cl-field"><label>${f.label}</label><select id="${f.id}"><option>${f.options.join('</option><option>')}</option></select></div>`
+      }
+      return `<div class="cl-field"><label>${f.label}</label><input type="text" id="${f.id}" placeholder="${f.placeholder}" /></div>`
+    }).join('')
+  }
+
+  function initChecklist() {
+    initPaymentTools()
+  }
+
+  function initPaymentTools(){
+    const toolAddress=document.getElementById('tool-address')
+    const mainAddress=document.getElementById('addr-input')?.value?.trim()
+    if(toolAddress&&!toolAddress.value&&mainAddress)toolAddress.value=mainAddress
+    if(currentCmaValue)useCmaValue(false)
+    calcPayment()
+  }
+
+  function syncToolFromCma(address,subject){
+    const toolAddress=document.getElementById('tool-address')
+    if(toolAddress)toolAddress.value=address
+    currentToolProperty={
+      address,
+      bedrooms:subject?.bedrooms??subject?.beds??null,
+      bathrooms:subject?.bathrooms??subject?.baths??null,
+      squareFootage:subject?.squareFootage||subject?.livingArea||null,
+      yearBuilt:subject?.yearBuilt||null,
+      latitude:subject?.latitude||null,
+      longitude:subject?.longitude||null
+    }
+    renderToolProperty()
+  }
+
+  function getNum(id,fallback=0){
+    const el=document.getElementById(id)
+    const n=Number(el?.value)
+    return Number.isFinite(n)?n:fallback
+  }
+
+  function setCalcValue(id,value){
+    const el=document.getElementById(id)
+    if(el&&value!=null)el.value=Math.round(value)
+  }
+
+  function syncSlider(kind,value){
+    const map={price:'calc-price',down:'calc-down',rate:'calc-rate'}
+    const el=document.getElementById(map[kind])
+    if(el)el.value=value
+    calcPayment()
+  }
+
+  function syncInput(kind,value){
+    const map={price:'calc-price-slider',down:'calc-down-slider',rate:'calc-rate-slider'}
+    const slider=document.getElementById(map[kind])
+    if(slider)slider.value=value
+    calcPayment()
+  }
+
+  function updatePaymentLabels(){
+    const price=getNum('calc-price',300000)
+    const down=getNum('calc-down',5)
+    const rate=getNum('calc-rate',6.75)
+    const priceLabel=document.getElementById('calc-price-label')
+    const downLabel=document.getElementById('calc-down-label')
+    const rateLabel=document.getElementById('calc-rate-label')
+    if(priceLabel)priceLabel.textContent=fmt$(price)
+    if(downLabel)downLabel.textContent=`${down}%`
+    if(rateLabel)rateLabel.textContent=`${rate.toFixed(3).replace(/0+$/,'').replace(/\.$/,'')}%`
+  }
+
+  function paymentFor(price){
+    const downPct=Math.max(0,Math.min(100,getNum('calc-down',5)))
+    const rate=Math.max(0,getNum('calc-rate',6.75))/100/12
+    const months=Math.max(1,getNum('calc-term',30)*12)
+    const taxRate=Math.max(0,getNum('calc-tax',1.25))/100
+    const insurance=Math.max(0,getNum('calc-ins',1200))/12
+    const hoa=Math.max(0,getNum('calc-hoa',0))
+    const loan=price*(1-downPct/100)
+    const principalInterest=rate===0?loan/months:loan*(rate*Math.pow(1+rate,months))/(Math.pow(1+rate,months)-1)
+    const taxes=price*taxRate/12
+    return {price,downPct,loan,principalInterest,taxes,insurance,hoa,total:principalInterest+taxes+insurance+hoa}
+  }
+
+  function calcPayment(){
+    const price=Math.max(0,getNum('calc-price',300000))
+    updatePaymentLabels()
+    const p=paymentFor(price)
+    const total=document.getElementById('payment-total')
+    if(total)total.textContent=fmt$(Math.round(p.total))
+    const breakdown=document.getElementById('payment-breakdown')
+    if(breakdown)breakdown.innerHTML=`
+      <div class="pay-stat"><div class="pv">${fmt$(p.principalInterest)}</div><div class="pl">Principal & Interest</div></div>
+      <div class="pay-stat"><div class="pv">${fmt$(p.taxes)}</div><div class="pl">Taxes</div></div>
+      <div class="pay-stat"><div class="pv">${fmt$(p.insurance)}</div><div class="pl">Insurance</div></div>
+      <div class="pay-stat"><div class="pv">${fmt$(p.hoa)}</div><div class="pl">HOA</div></div>
+    `
+    const note=document.getElementById('payment-note')
+    if(note)note.textContent=`Based on ${p.downPct}% down, ${getNum('calc-rate',6.75).toFixed(2)}% interest, and a ${getNum('calc-term',30)}-year loan.`
+  }
+
+  function useCmaValue(showNotice=true){
+    if(!currentCmaValue){
+      if(showNotice)alert('Run a CMA first, or type a purchase price manually.')
+      return
+    }
+    setCalcValue('calc-price',currentCmaValue)
+    syncInput('price',currentCmaValue)
+    calcPayment()
+  }
+
+  function initTax(){
+    const taxAddress=document.getElementById('tax-address')
+    const mainAddress=document.getElementById('addr-input')?.value?.trim()
+    if(taxAddress&&!taxAddress.value&&mainAddress)taxAddress.value=mainAddress
+  }
+
+  function taxValue(value){
+    if(Array.isArray(value))return value.length?value.join(', '):'—'
+    return value||'—'
+  }
+
+  async function loadTaxSnapshot(){
+    const input=document.getElementById('tax-address')
+    const address=(input?.value||'').trim()
+    const result=document.getElementById('tax-result')
+    if(!address||!result)return
+    result.classList.add('open')
+    result.innerHTML='<div style="padding:22px;color:#66759D;font-weight:800;">Loading tax snapshot...</div>'
+    let property={address}
+    try{
+      const r=await fetch(`/api/property?address=${encodeURIComponent(address)}`)
+      const data=await r.json()
+      if(!r.ok)throw new Error(data.error||'Could not load tax data')
+      property=data.property||property
+    }catch(e){}
+    currentTaxProperty=property
+    saveWorkspaceItem({
+      type:'tax',
+      address:property.address||address,
+      key:fmt$(property.annualTax),
+      meta:`${fmt$(property.assessedValue)} assessed`,
+      property
+    })
+    renderTaxSnapshot(property)
+  }
+
+  function renderTaxSnapshot(p){
+    const result=document.getElementById('tax-result')
+    if(!result)return
+    result.classList.add('open')
+    const sale=p.lastSaleDate?new Date(p.lastSaleDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):null
+    result.innerHTML=`
+      <div class="tax-hero">
+        <img src="${streetViewUrl(p)}" alt="Street view of ${escapeHTML(p.address||'property')}">
+        <div>
+          <div class="tax-kicker">Property Tax Snapshot</div>
+          <div class="tax-address">${escapeHTML(p.address||'Selected property')}</div>
+          <div class="tax-main">
+            <div class="tax-main-card"><div class="tv">${fmt$(p.annualTax)}</div><div class="tl">Annual Tax</div></div>
+            <div class="tax-main-card"><div class="tv">${fmt$(p.assessedValue)}</div><div class="tl">Assessed Value</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="tax-grid">
+        <div class="pay-stat"><div class="pv">${fmt$(p.landValue)}</div><div class="pl">Land Value</div></div>
+        <div class="pay-stat"><div class="pv">${fmt$(p.improvementValue)}</div><div class="pl">Improvement</div></div>
+        <div class="pay-stat"><div class="pv">${p.taxYear||'—'}</div><div class="pl">Tax Bill Year</div></div>
+        <div class="pay-stat"><div class="pv">${p.assessmentYear||'—'}</div><div class="pl">Assessment Year</div></div>
+        <div class="pay-stat"><div class="pv">${p.county?escapeHTML(p.county):'—'}</div><div class="pl">County</div></div>
+        <div class="pay-stat"><div class="pv">${p.ownerName?escapeHTML(p.ownerName):'—'}</div><div class="pl">Owner</div></div>
+        <div class="pay-stat"><div class="pv">${p.parcelNumber?escapeHTML(p.parcelNumber):'—'}</div><div class="pl">Parcel / APN</div></div>
+        <div class="pay-stat"><div class="pv">${p.ownerOccupied===null||p.ownerOccupied===undefined?'—':(p.ownerOccupied?'Yes':'No')}</div><div class="pl">Owner Occupied</div></div>
+        <div class="pay-stat"><div class="pv">${taxValue(p.exemptions)}</div><div class="pl">Exemptions</div></div>
+        <div class="pay-stat"><div class="pv">${fmt$(p.lastSalePrice)}</div><div class="pl">Last Sale</div></div>
+        <div class="pay-stat"><div class="pv">${sale||'—'}</div><div class="pl">Sale Date</div></div>
+      </div>
+      <div class="tax-analysis" id="tax-analysis"></div>
+      <div class="tax-note">Verify tax amounts, exemptions, and ownership with county records before giving final advice.</div>
+      <div class="report-actions">
+        <button class="report-action primary" onclick="exportTaxReport()">Generate PDF Report</button>
+        <button class="report-action secondary" onclick="loadTaxAnalysis()">Add Property Summary</button>
+        <button class="report-action secondary" onclick="shareTaxReport()">Share Summary</button>
+      </div>
+    `
+  }
+
+  function renderTaxAnalysis(analysis){
+    const box=document.getElementById('tax-analysis')
+    if(!box)return
+    const sections=[
+      ['Tax Snapshot',analysis.summary],
+      ['Assessment',analysis.assessment],
+      ['Buyer Note',analysis.buyerNote],
+      ['Verification',analysis.verify]
+    ]
+    box.classList.add('open')
+    box.innerHTML=sections.filter(([,text])=>text).map(([title,text])=>`
+      <h4>${escapeHTML(title)}</h4>
+      <p>${escapeHTML(text)}</p>
+    `).join('')
+  }
+
+  async function loadTaxAnalysis(){
+    if(!currentTaxProperty){
+      await loadTaxSnapshot()
+      if(!currentTaxProperty)return
+    }
+    const box=document.getElementById('tax-analysis')
+    if(box){
+      box.classList.add('open')
+      box.innerHTML='<p>Preparing property summary...</p>'
+    }
+    const fallback={
+      summary:`${currentTaxProperty.address||'This property'} shows an annual tax amount of ${fmt$(currentTaxProperty.annualTax)} for ${currentTaxProperty.taxYear||'the latest available tax year'}.`,
+      assessment:`The assessed value shown is ${fmt$(currentTaxProperty.assessedValue)}, with land and improvement values included when available.`,
+      buyerNote:'This gives the client a quick ownership-cost reference, but future taxes may change after purchase, exemption changes, or reassessment.',
+      verify:'Confirm tax amounts, exemptions, ownership, and parcel details with the county before final advice.'
+    }
+    try{
+      const res=await fetch('/api/tax-analysis',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({property:currentTaxProperty})
+      })
+      const data=await res.json()
+      if(!res.ok)throw new Error(data.error||'Could not create summary')
+      renderTaxAnalysis(data.analysis||fallback)
+    }catch(e){
+      renderTaxAnalysis(fallback)
+    }
+  }
+
+  function taxReportText(){
+    const p=currentTaxProperty||{address:(document.getElementById('tax-address')?.value||'Selected property')}
+    return `${p.address||'Selected property'}\nAnnual tax: ${fmt$(p.annualTax)}\nAssessed value: ${fmt$(p.assessedValue)}\nTax bill year: ${p.taxYear||'—'}\nAssessment year: ${p.assessmentYear||'—'}\nCounty: ${p.county||'—'}\nParcel/APN: ${p.parcelNumber||'—'}\nOwner occupied: ${p.ownerOccupied===null||p.ownerOccupied===undefined?'—':(p.ownerOccupied?'Yes':'No')}\nVerify final tax details with county records.`
+  }
+
+  function exportTaxReport(){
+    if(!currentTaxProperty)loadTaxSnapshot()
+    document.body.classList.add('tax-report-ready')
+    window.print()
+  }
+
+  async function shareTaxReport(){
+    const text=taxReportText()
+    if(navigator.share){
+      try{
+        await navigator.share({title:'Property Tax Snapshot',text})
+        return
+      }catch(e){}
+    }
+    await navigator.clipboard?.writeText(text).catch(()=>{})
+    alert('Tax summary copied. Use Generate PDF Report to save or send a PDF.')
+  }
+
+  function clearChecklist() {
+    [...CHECKLIST.cl,...CHECKLIST.prop,...CHECKLIST.fin,...CHECKLIST.time].forEach(f => {
+      const el = document.getElementById(f.id)
+      if (el) { el.value = ''; el.classList.remove('filled') }
+    })
+  }
+
+  function fillFieldFromAI(text) {
+    const t = text.toLowerCase()
+    const allFields = [...CHECKLIST.cl,...CHECKLIST.prop,...CHECKLIST.fin,...CHECKLIST.time]
+    // Simple keyword matching
+    const map = {
+      cl_name: ['my name is','name is','the name is','client name','buyer name','seller name'],
+      cl_phone: ['phone','number is','call me at','my number'],
+      cl_email: ['email','my email','email is'],
+      prop_address: ['address is','located at','property at','the house is at','the home is at'],
+      prop_sqft: ['square feet','sq ft','sqft','square footage'],
+      prop_beds: ['bedroom','bed room','beds'],
+      prop_baths: ['bathroom','bath room','baths'],
+      prop_year: ['built in','year built','built'],
+      fin_price: ['asking price','list price','price is','offer price','selling for','listed at'],
+      fin_down: ['down payment','putting down'],
+      fin_loan: ['fha','va loan','conventional','paying cash','financing'],
+      time_close: ['close in','closing date','want to close'],
+    }
+    Object.entries(map).forEach(([id, keywords]) => {
+      if (keywords.some(kw => t.includes(kw))) {
+        const el = document.getElementById(id)
+        if (el && !el.value) {
+          // Extract value after keyword
+          let val = text
+          keywords.forEach(kw => { const i = t.indexOf(kw); if(i>-1) val = text.slice(i+kw.length).trim() })
+          val = val.replace(/^[,\s:is]+/,'').split(/[,\.]/)[0].trim()
+          if (val) { el.value = val; el.classList.add('filled') }
+        }
+      }
+    })
+  }
+
+  // Voice recognition
+  let recognition = null
+  function startVoice() {
+    const btn = document.getElementById('mic-btn')
+    const status = document.getElementById('voice-status')
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) { status.textContent = 'Voice not supported on this browser. Type manually.'; return }
+    if (recognition) { recognition.stop(); recognition = null; btn.innerHTML = 'Start Voice Fill'; btn.classList.remove('recording'); return }
+    recognition = new SpeechRecognition()
+    recognition.continuous = true; recognition.interimResults = true; recognition.lang = 'en-US'
+    recognition.onstart = () => { btn.innerHTML = 'Stop'; btn.classList.add('recording'); status.textContent = 'Listening... speak naturally' }
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r=>r[0].transcript).join(' ')
+      status.textContent = `Heard: "${transcript}"`
+      if (e.results[e.results.length-1].isFinal) {
+        // Parse transcript into checklist fields.
+        parseWithAI(transcript)
+      }
+    }
+    recognition.onerror = () => { status.textContent = 'Could not hear clearly. Try again.'; btn.innerHTML = 'Start Voice Fill'; btn.classList.remove('recording') }
+    recognition.onend = () => { btn.innerHTML = 'Start Voice Fill'; btn.classList.remove('recording'); recognition = null }
+    recognition.start()
+  }
+
+  async function parseWithAI(transcript) {
+    const status = document.getElementById('voice-status')
+    status.textContent = 'Filling the form...'
+    try {
+      const res = await fetch('/api/parse-checklist', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ transcript })
+      })
+      const data = await res.json()
+      const fields = data.fields || {}
+      let filled = 0
+      Object.entries(fields).forEach(([id,val]) => {
+        const el = document.getElementById(id)
+        if (el && val) { el.value = val; el.classList.add('filled'); filled++ }
+      })
+      status.textContent = `Filled ${filled} field${filled!==1?'s':''} from your voice`
+    } catch(e) {
+      fillFieldFromAI(transcript)
+      status.textContent = 'Fields updated from your voice'
+    }
+  }
+
+  function exportChecklist() {
+    const allFields = [...CHECKLIST.cl,...CHECKLIST.prop,...CHECKLIST.fin,...CHECKLIST.time]
+    const data = allFields.map(f => ({ label: f.label, value: document.getElementById(f.id)?.value || '' })).filter(f => f.value)
+    if (!data.length) { alert('Please fill in at least some fields first.'); return }
+    window.print()
+  }
+
+  let workspaceFilter='all'
+  function workspaceItems(){
+    const saved=JSON.parse(localStorage.getItem('qc_workspace')||'[]')
+    if(saved.length)return saved
+    const old=JSON.parse(localStorage.getItem('qc_h')||'[]')
+    return old.map(e=>({type:'comps',address:e.address,date:e.date,key:fmt$(e.avgPrice),meta:`${e.count} comps`,avgPrice:e.avgPrice,count:e.count}))
+  }
+  function saveWorkspaceItem(item){
+    const address=item.address||'Selected property'
+    const type=item.type||'comps'
+    const items=workspaceItems().filter(x=>!(x.type===type&&x.address===address))
+    items.unshift({
+      id:`${type}-${Date.now()}`,
+      type,
+      address,
+      date:new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),
+      ts:Date.now(),
+      ...item
+    })
+    localStorage.setItem('qc_workspace',JSON.stringify(items.slice(0,30)))
+  }
+  function saveH(addr,comps){
+    const avg=comps.length?Math.round(comps.reduce((s,c)=>s+(c.soldPrice||0),0)/comps.length):0
+    saveWorkspaceItem({
+      type:'comps',
+      address:addr,
+      key:fmt$(avg),
+      meta:`${comps.length} sold comps`,
+      avgPrice:avg,
+      count:comps.length,
+      radius:effectiveRadius,
+      lookback:effectiveLookback,
+      subject:mapSubject
+    })
+  }
+  function setWorkspaceFilter(type,btn){
+    workspaceFilter=type
+    document.querySelectorAll('.workspace-filter').forEach(b=>b.classList.remove('active'))
+    btn?.classList.add('active')
+    renderWorkspace()
+  }
+  function openHistory(){
+    document.getElementById('sheet-bg').classList.add('open')
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+    document.getElementById('nav-history')?.classList.add('active')
+    renderWorkspace()
+  }
+  function closeHistory(){
+    document.getElementById('sheet-bg').classList.remove('open')
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+    document.getElementById('nav-'+currentTab)?.classList.add('active')
+  }
+  function renderWorkspace(){
+    const list=document.getElementById('h-list')
+    if(!list)return
+    const items=workspaceItems().filter(e=>workspaceFilter==='all'||e.type===workspaceFilter)
+    list.innerHTML=!items.length
+      ?'<p style="text-align:center;color:#9aaac8;padding:30px 0;">No saved work yet</p>'
+      :items.map((e,i)=>`
+        <div class="h-item" onclick="loadWorkspaceItem(${i})">
+          <img class="h-thumb" src="${streetViewUrl(e.subject||e.property||e)}" alt="Property image">
+          <div>
+            <div class="h-type">${workspaceLabel(e.type)}</div>
+            <div class="h-addr">${escapeHTML(e.address||'Selected property')}</div>
+            <div class="h-meta">${escapeHTML(e.meta||e.date||'Saved work')} · ${escapeHTML(e.date||'')}</div>
+          </div>
+          <div class="h-price">${escapeHTML(e.key||'Open')}</div>
+        </div>
+      `).join('')
+  }
+  function workspaceLabel(type){return type==='lending'?'Lending':type==='tax'?'Tax':'Comps'}
+  function clearHistory(){localStorage.removeItem('qc_workspace');localStorage.removeItem('qc_h');renderWorkspace()}
+  function loadWorkspaceItem(index){
+    const items=workspaceItems().filter(e=>workspaceFilter==='all'||e.type===workspaceFilter)
+    const item=items[index]
+    if(!item)return
+    closeHistory()
+    if(item.type==='lending'){
+      showTab('checklist')
+      if(item.property)currentToolProperty=item.property
+      document.getElementById('tool-address').value=item.address||''
+      if(item.payment){
+        setCalcValue('calc-price',item.payment.price)
+        document.getElementById('calc-down').value=item.payment.downPct??getNum('calc-down',5)
+        document.getElementById('calc-rate').value=item.payment.rate??getNum('calc-rate',6.75)
+        document.getElementById('calc-term').value=item.payment.term??getNum('calc-term',30)
+        document.getElementById('calc-tax').value=item.payment.taxRate??getNum('calc-tax',1.25)
+        document.getElementById('calc-ins').value=item.payment.annualInsurance??getNum('calc-ins',1200)
+        document.getElementById('calc-hoa').value=item.payment.hoa??getNum('calc-hoa',0)
+      }
+      renderToolProperty()
+      generatePaymentReport()
+      return
+    }
+    if(item.type==='tax'){
+      showTab('tax')
+      if(item.property)currentTaxProperty=item.property
+      document.getElementById('tax-address').value=item.address||''
+      item.property?renderTaxSnapshot(item.property):loadTaxSnapshot()
+      return
+    }
+    showTab('search')
+    document.getElementById('addr-input').value=item.address||''
+    runComp()
+  }
+
+  async function runComp(){
+    const address=document.getElementById('addr-input').value.trim();if(!address)return
+    closeAC()
+    const btn=document.getElementById('run-btn');btn.innerHTML='<span class="spinner"></span>Building value story...';btn.disabled=true
+    document.getElementById('demo-banner').style.display='none'
+    document.getElementById('briefing-section').style.display='none'
+    document.getElementById('empty').style.display='block'
+    document.getElementById('empty').innerHTML='<div class="loading-panel"><div class="loading-line short"></div><div class="loading-line"></div><div class="loading-line"></div></div>'
+    ;['subject-card','strip','ai-card','report-map-card','comps-header'].forEach(id=>document.getElementById(id).classList.add('hidden'))
+    document.getElementById('comps-list').innerHTML=''
+    try{
+      const comps=await fetchComps(address)
+      if(!comps.length)showEmpty('','No results found',`No sold properties within ${radius} mi and ${effectiveLookback}. Try a wider search.`)
+      else{saveH(address,comps);renderResults(address,comps)}
+    }catch(e){showEmpty('','Connection error',e.message)}
+    btn.innerHTML='Get Market Value';btn.disabled=false
+  }
+  function showEmpty(icon,title,msg){const el=document.getElementById('empty');el.style.display='block';el.innerHTML=`<span class="empty-icon">${icon}</span><h2>${title}</h2><p>${msg}</p>`}
+  function streetViewUrl(item,size='640x360'){
+    const params = new URLSearchParams({ size })
+    if (item?.latitude && item?.longitude) {
+      params.set('lat', item.latitude)
+      params.set('lng', item.longitude)
+    } else {
+      params.set('address', item?.address || '')
+    }
+    return `/api/streetview?${params.toString()}`
+  }
+  async function loadToolProperty(){
+    const input=document.getElementById('tool-address')
+    const address=(input?.value||'').trim()
+    if(!address)return
+    const preview=document.getElementById('tool-property-preview')
+    preview.classList.add('open')
+    preview.innerHTML='<div style="grid-column:1/-1;padding:20px;color:#66759D;font-weight:800;">Loading property preview...</div>'
+    try{
+      const r=await fetch(`/api/property?address=${encodeURIComponent(address)}`)
+      const data=await r.json()
+      if(!r.ok)throw new Error(data.error||'Could not load property')
+      currentToolProperty=data.property||{address}
+    }catch(e){
+      currentToolProperty={address}
+    }
+    renderToolProperty()
+  }
+  function renderToolProperty(){
+    if(!currentToolProperty)return
+    const preview=document.getElementById('tool-property-preview')
+    if(!preview)return
+    const p=currentToolProperty
+    preview.classList.add('open')
+    preview.innerHTML=`
+      <img src="${streetViewUrl(p)}" alt="Street view of ${escapeHTML(p.address||'property')}">
+      <div>
+        <h3>${escapeHTML(p.address||'Selected property')}</h3>
+        <div class="property-facts">
+          <div class="property-fact"><div class="fv">${p.bedrooms??'—'}</div><div class="fl">Beds</div></div>
+          <div class="property-fact"><div class="fv">${p.bathrooms??'—'}</div><div class="fl">Baths</div></div>
+          <div class="property-fact"><div class="fv">${p.squareFootage?fmtN(p.squareFootage):'—'}</div><div class="fl">Sq Ft</div></div>
+          <div class="property-fact"><div class="fv">${p.yearBuilt||'—'}</div><div class="fl">Built</div></div>
+        </div>
+      </div>
+    `
+  }
+  function generatePaymentReport(){
+    const report=document.getElementById('client-payment-report')
+    if(!report)return
+    if(!currentToolProperty){
+      const address=(document.getElementById('tool-address')?.value||'').trim()
+      currentToolProperty=address?{address}:null
+    }
+    const p=currentToolProperty||{address:'Selected property'}
+    const payment=paymentFor(Math.max(0,getNum('calc-price',300000)))
+    saveWorkspaceItem({
+      type:'lending',
+      address:p.address||'Selected property',
+      key:`${fmt$(payment.total)}/mo`,
+      meta:`${fmt$(payment.price)} · ${payment.downPct}% down`,
+      property:p,
+      payment:{
+        ...payment,
+        rate:getNum('calc-rate',6.75),
+        term:getNum('calc-term',30),
+        taxRate:getNum('calc-tax',1.25),
+        annualInsurance:getNum('calc-ins',1200)
+      }
+    })
+    report.classList.add('open')
+    report.innerHTML=`
+      <div class="client-report-hero">
+        <img src="${streetViewUrl(p)}" alt="Street view of ${escapeHTML(p.address||'property')}">
+        <div>
+          <div class="client-report-kicker">Client Payment Summary</div>
+          <div class="client-report-title">${escapeHTML(p.address||'Selected property')}</div>
+          <div class="client-report-payment">${fmt$(payment.total)}/mo</div>
+          <div class="client-report-sub">Estimated payment based on ${payment.downPct}% down, ${getNum('calc-rate',6.75).toFixed(2)}% interest, ${getNum('calc-term',30)}-year term, taxes, insurance, and HOA.</div>
+        </div>
+      </div>
+      <div class="client-report-grid">
+        <div class="pay-stat"><div class="pv">${fmt$(payment.price)}</div><div class="pl">Price</div></div>
+        <div class="pay-stat"><div class="pv">${fmt$(payment.principalInterest)}</div><div class="pl">Principal & Interest</div></div>
+        <div class="pay-stat"><div class="pv">${fmt$(payment.taxes)}</div><div class="pl">Taxes</div></div>
+        <div class="pay-stat"><div class="pv">${fmt$(payment.insurance+payment.hoa)}</div><div class="pl">Ins / HOA</div></div>
+      </div>
+      <div class="payment-analysis" id="payment-analysis"></div>
+      <div class="report-actions">
+        <button class="report-action primary" onclick="exportPaymentReport()">Export PDF</button>
+        <button class="report-action secondary" onclick="loadPaymentAnalysis()">Add Buyer Summary</button>
+        <button class="report-action secondary" onclick="sharePaymentReport()">Share Summary</button>
+      </div>
+    `
+    report.scrollIntoView({behavior:'smooth',block:'start'})
+  }
+  function paymentPayload(){
+    return paymentFor(Math.max(0,getNum('calc-price',300000)))
+  }
+  function renderPaymentAnalysis(analysis){
+    const box=document.getElementById('payment-analysis')
+    if(!box)return
+    const sections=[
+      ['Payment Summary',analysis.summary],
+      ['Breakdown',analysis.paymentBreakdown],
+      ['Buyer Note',analysis.buyerNote],
+      ['Next Step',analysis.nextStep]
+    ]
+    box.classList.add('open')
+    box.innerHTML=sections.filter(([,text])=>text).map(([title,text])=>`
+      <h4>${escapeHTML(title)}</h4>
+      <p>${escapeHTML(text)}</p>
+    `).join('')
+  }
+  async function loadPaymentAnalysis(){
+    if(!document.getElementById('client-payment-report')?.classList.contains('open'))generatePaymentReport()
+    const box=document.getElementById('payment-analysis')
+    if(box){
+      box.classList.add('open')
+      box.innerHTML='<p>Preparing buyer summary...</p>'
+    }
+    const property=currentToolProperty||{address:(document.getElementById('tool-address')?.value||'Selected property')}
+    const payment=paymentPayload()
+    const fallback={
+      summary:`For ${property.address||'this property'}, the estimated monthly payment is ${fmt$(payment.total)} based on the current calculator inputs.`,
+      paymentBreakdown:'This estimate includes principal and interest, estimated property taxes, insurance, and HOA when entered.',
+      buyerNote:'The final payment can change based on lender terms, credit profile, taxes, insurance quotes, HOA dues, and closing details.',
+      nextStep:'Use this as a planning number, then confirm the full payment scenario with the buyer’s lender before making final decisions.'
+    }
+    try{
+      const res=await fetch('/api/payment-analysis',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({property,payment})
+      })
+      const data=await res.json()
+      if(!res.ok)throw new Error(data.error||'Could not create summary')
+      renderPaymentAnalysis(data.analysis||fallback)
+    }catch(e){
+      renderPaymentAnalysis(fallback)
+    }
+  }
+  function paymentReportText(){
+    const p=currentToolProperty||{address:'Selected property'}
+    const payment=paymentFor(Math.max(0,getNum('calc-price',300000)))
+    return `${p.address||'Selected property'}\nEstimated monthly payment: ${fmt$(payment.total)}/mo\nPrice: ${fmt$(payment.price)}\nDown payment: ${payment.downPct}%\nRate: ${getNum('calc-rate',6.75).toFixed(2)}%\nTerm: ${getNum('calc-term',30)} years\nIncludes estimated taxes, insurance, and HOA.`
+  }
+  function exportPaymentReport(){
+    if(!document.getElementById('client-payment-report')?.classList.contains('open'))generatePaymentReport()
+    document.body.classList.add('payment-report-ready')
+    window.print()
+  }
+  async function sharePaymentReport(){
+    if(!document.getElementById('client-payment-report')?.classList.contains('open'))generatePaymentReport()
+    const text=paymentReportText()
+    if(navigator.share){
+      try{
+        await navigator.share({title:'Client Payment Summary',text})
+        return
+      }catch(e){}
+    }
+    await navigator.clipboard?.writeText(text).catch(()=>{})
+    alert('Payment summary copied. Use Export PDF to save or send a PDF from your phone.')
+  }
+  function escapeHTML(value){
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))
+  }
+  function renderClientAnalysis(analysis){
+    const sections=[
+      ['Overview',analysis.overview],
+      ['Pricing',analysis.pricing],
+      ['Comparable Support',analysis.compSupport],
+      ['Recommendation',analysis.recommendation],
+      ['Important Note',analysis.note]
+    ]
+    document.getElementById('ai-text').innerHTML=sections.filter(([,text])=>text).map(([title,text])=>`
+      <div class="analysis-section">
+        <h4>${escapeHTML(title)}</h4>
+        <p class="${title==='Important Note'?'print-note':''}">${escapeHTML(text)}</p>
+      </div>
+    `).join('')
+  }
+  async function loadClientAnalysis(address,comps,metrics){
+    try{
+      const res=await fetch('/api/client-analysis',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({address,comps,metrics})
+      })
+      const data=await res.json()
+      if(!res.ok)throw new Error(data.error||'Could not create analysis')
+      renderClientAnalysis(data.analysis||{})
+    }catch(e){
+      // Keep the fallback analysis already rendered.
+    }
+  }
+
+  function generateDemoComps(address){
+    // Realistic RGV-area demo data seeded from address string for variety
+    const seed=address.split('').reduce((s,c)=>s+c.charCodeAt(0),0)
+    const rng=(min,max,offset=0)=>min+((seed+offset)%(max-min+1))
+    const streets=['Oak Ridge Dr','Pecan Blvd','Sunridge Ln','Chaparral Ct','Mockingbird Ave','Paloma Dr','Mesquite St','San Carlos Blvd','Rio Grande Dr','Cactus Ln']
+    const cities=['Mission, TX','McAllen, TX','Edinburg, TX','Pharr, TX','Weslaco, TX','Hidalgo, TX']
+    const base=rng(180000,280000,0)
+    const now=new Date()
+    const ago=(d)=>{const dt=new Date(now);dt.setDate(dt.getDate()-d);return dt.toISOString()}
+    return[
+      {address:`${rng(100,9999,1)} ${streets[rng(0,9,1)]}, ${cities[rng(0,5,1)]} ${rng(78500,78599,1)}`,soldPrice:base+rng(-5000,15000,2),sqft:rng(1400,1900,2),beds:rng(3,4,2),baths:rng(2,3,2),soldDate:ago(rng(5,30,2)),yearBuilt:rng(2018,2024,2),distance:0.18+rng(0,30,2)/100},
+      {address:`${rng(100,9999,3)} ${streets[rng(0,9,3)]}, ${cities[rng(0,5,3)]} ${rng(78500,78599,3)}`,soldPrice:base+rng(-15000,8000,3),sqft:rng(1350,1800,3),beds:rng(3,4,3),baths:rng(2,3,3),soldDate:ago(rng(31,60,3)),yearBuilt:rng(2015,2023,3),distance:0.25+rng(0,40,3)/100},
+      {address:`${rng(100,9999,4)} ${streets[rng(0,9,4)]}, ${cities[rng(0,5,4)]} ${rng(78500,78599,4)}`,soldPrice:base+rng(-20000,5000,4),sqft:rng(1300,1750,4),beds:3,baths:2,soldDate:ago(rng(61,90,4)),yearBuilt:rng(2014,2022,4),distance:0.40+rng(0,50,4)/100},
+      {address:`${rng(100,9999,5)} ${streets[rng(0,9,5)]}, ${cities[rng(0,5,5)]} ${rng(78500,78599,5)}`,soldPrice:base+rng(5000,25000,5),sqft:rng(1500,2100,5),beds:4,baths:rng(2,3,5),soldDate:ago(rng(30,75,5)),yearBuilt:rng(2019,2025,5),distance:0.55+rng(0,60,5)/100},
+      {address:`${rng(100,9999,6)} ${streets[rng(0,9,6)]}, ${cities[rng(0,5,6)]} ${rng(78500,78599,6)}`,soldPrice:base+rng(-25000,0,6),sqft:rng(1250,1650,6),beds:3,baths:2,soldDate:ago(rng(45,95,6)),yearBuilt:rng(2012,2020,6),distance:0.72+rng(0,70,6)/100},
+      {address:`${rng(100,9999,7)} ${streets[rng(0,9,7)]}, ${cities[rng(0,5,7)]} ${rng(78500,78599,7)}`,soldPrice:base+rng(10000,30000,7),sqft:rng(1600,2200,7),beds:4,baths:3,soldDate:ago(rng(15,50,7)),yearBuilt:rng(2020,2025,7),distance:0.88+rng(0,80,7)/100},
+      {address:`${rng(100,9999,8)} ${streets[rng(0,9,8)]}, ${cities[rng(0,5,8)]} ${rng(78500,78599,8)}`,soldPrice:base+rng(-30000,-5000,8),sqft:rng(1200,1550,8),beds:3,baths:2,soldDate:ago(rng(60,110,8)),yearBuilt:rng(2010,2018,8),distance:1.05+rng(0,90,8)/100},
+    ]
+  }
+
+  async function fetchComps(address){
+    effectiveRadius = radius
+    effectiveLookback = lookbackLabel
+    searchExpanded = false
+    const r=await fetch(`/api/comps?address=${encodeURIComponent(address)}&radius=${radius}&daysOld=${daysOld}&compCount=12&autoExpand=${autoExpand}`)
+    const data=await r.json()
+    if(!r.ok)throw new Error(data.error||'Could not load live comps')
+    mapSubject = data.subject || null
+    effectiveRadius = data.radius || radius
+    effectiveLookback = data.lookbackLabel || effectiveLookback
+    searchExpanded = !!data.expanded
+    return rankComps(data.comps || [])
+  }
+
+  function rankComps(comps){
+    const subjectYear=mapSubject?.yearBuilt
+    return comps.map((c,i)=>{
+      const yearDiff=subjectYear&&c.yearBuilt?Math.abs(c.yearBuilt-subjectYear):null
+      const yearPenalty=yearDiff==null?4:Math.min(yearDiff,40)
+      return {...c,_originalIndex:i,_yearDiff:yearDiff,_sortScore:(c.distance??99)*12+yearPenalty}
+    }).sort((a,b)=>a._sortScore-b._sortScore)
+  }
+
+  function renderResults(address,comps){
+    document.getElementById('empty').style.display='none'
+    const prices=comps.filter(c=>c.soldPrice)
+    const valid=comps.filter(c=>c.soldPrice&&c.sqft)
+    const avg=prices.reduce((s,c)=>s+c.soldPrice,0)/prices.length
+    const avgPsf=valid.length?valid.reduce((s,c)=>s+c.soldPrice/c.sqft,0)/valid.length:null
+    const high=Math.max(...prices.map(c=>c.soldPrice))
+    const low=Math.min(...prices.map(c=>c.soldPrice))
+
+    document.getElementById('s-addr').textContent=address
+    document.getElementById('s-photo').src=streetViewUrl({
+      address,
+      latitude: mapSubject?.latitude,
+      longitude: mapSubject?.longitude
+    })
+    document.getElementById('value-story').innerHTML=`
+      <div class="value-kicker">Estimated Market Value</div>
+      <div class="value-number" id="value-number">${fmt$(avg)}</div>
+      <div class="value-context">Based on ${comps.length} nearby comparable sales within ${effectiveRadius} mi over the past ${effectiveLookback}.</div>
+    `
+    document.getElementById('s-stats').innerHTML=`
+      <div class="s-box"><div class="sv">${fmt$(low)}</div><div class="sl">Low Comp</div></div>
+      <div class="s-box"><div class="sv">${avgPsf?'$'+Math.round(avgPsf)+'/sf':'—'}</div><div class="sl">Price per Sq Ft</div></div>
+      <div class="s-box"><div class="sv">${fmt$(high)}</div><div class="sl">High Comp</div></div>
+      <div class="s-box"><div class="sv">${mapSubject?.yearBuilt||'—'}</div><div class="sl">Year Built</div></div>
+    `
+    document.getElementById('subject-card').classList.remove('hidden')
+    countUp(document.getElementById('value-number'),Math.round(avg),fmt$,850)
+
+    const top3=prices.slice(0,3).reduce((s,c)=>s+c.soldPrice,0)/Math.min(3,prices.length)
+    document.getElementById('strip').innerHTML=`
+      <div class="strip-card"><div class="sv">${comps.length}</div><div class="sl">Comps</div></div>
+      <div class="strip-card"><div class="sv">${fmt$(top3)}</div><div class="sl">Top 3 Avg</div></div>
+      <div class="strip-card"><div class="sv">${avgPsf?'$'+Math.round(avgPsf)+'/sf':'—'}</div><div class="sl">Mkt Rate</div></div>
+      <div class="strip-card"><div class="sv">${effectiveRadius} mi</div><div class="sl">Search Area</div></div>
+    `
+    document.getElementById('strip').classList.remove('hidden')
+
+    const metrics={
+      avg:Math.round(avg),
+      avgPsf:avgPsf?Math.round(avgPsf):null,
+      high,
+      low,
+      top3:Math.round(top3),
+      radius:effectiveRadius,
+      lookback:effectiveLookback,
+      listLow:Math.round(avg*0.97/1000)*1000,
+      listHigh:Math.round(avg*1.03/1000)*1000,
+      subjectYear:mapSubject?.yearBuilt||null
+    }
+    currentCmaValue=metrics.avg
+    currentCmaMetrics=metrics
+    syncToolFromCma(address,mapSubject)
+    const criteriaText = `${searchExpanded?'Expanded to':'Exact criteria'}: ${effectiveRadius} mi · sold within ${effectiveLookback}`
+    renderClientAnalysis({
+      overview:`${address} was reviewed against ${comps.length} recent sold comparable properties within ${effectiveRadius} mi and ${effectiveLookback}${mapSubject?.yearBuilt?`, with year built compared against the subject property built in ${mapSubject.yearBuilt}`:''}.`,
+      pricing:`The comparable set supports an estimated market value near ${fmt$(avg)}${avgPsf?` at approximately $${Math.round(avgPsf)} per square foot`:''}. Observed comparable sales range from ${fmt$(low)} to ${fmt$(high)}.`,
+      compSupport:`The three strongest comparable sales average ${fmt$(top3)}, which provides the primary support for the indicated value opinion.`,
+      recommendation:`A practical client discussion range is ${fmt$(metrics.listLow)} to ${fmt$(metrics.listHigh)}, with final positioning adjusted for property condition, updates, and current competition.`,
+      note:`Street View is used where MLS photos are unavailable. ${searchExpanded?'The app expanded from the selected filters because nearby sales were limited.':'This report uses the criteria selected by the user without widening distance or sold date.'}`
+    })
+    document.getElementById('ai-card').classList.remove('hidden')
+    loadClientAnalysis(address,comps,metrics)
+
+    // Store for map
+    mapComps = comps; mapAddress = address
+    document.getElementById('report-map-card').classList.remove('hidden')
+    initReportMap()
+
+    document.getElementById('comp-count').textContent=`(${comps.length} properties)`
+    document.getElementById('criteria-status').textContent=criteriaText
+    document.getElementById('comps-header').classList.remove('hidden')
+
+    document.getElementById('comps-list').innerHTML=comps.map((c,i)=>{
+      const psf=c.sqft&&c.soldPrice?Math.round(c.soldPrice/c.sqft):null
+      const sold=c.soldDate?new Date(c.soldDate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—'
+      const sim=Math.max(40,98-i*5)
+      const isGold=i===0,isSilver=i===1,isBronze=i===2
+      const rankBg=isGold?'linear-gradient(135deg,#FFD700,#FFA500)':isSilver?'linear-gradient(135deg,#C0C0C0,#A0A0A0)':isBronze?'linear-gradient(135deg,#CD7F32,#8B5A00)':'#F0F4FA'
+      const rankTxt=isGold||isSilver||isBronze?'#1B2A5C':'#9aaac8'
+      const barColor=isGold?'#FFD700':i<=2?'#1B2A5C':'#dde4f0'
+      const cardStyle=isGold?'border-color:#FFD700;border-width:2px;':''
+      const isBelowMkt=c.soldPrice&&c.soldPrice<avg*0.95
+      const reason=i===0?'Closest signal':i===1?'Strong support':i===2?'Secondary support':'Market evidence'
+      const badge=isBelowMkt
+        ?`<span class="status-badge" style="background:#EEF6FF;color:#1B2A5C;border:1px solid #c0d4f0;">Below Market</span>`
+        :isGold?`<span class="status-badge" style="background:#FFFBEA;color:#8A6A00;border:1px solid #ffe08a;">Closest Comp</span>`:''
+      return`<div class="comp-card" style="${cardStyle}">
+        <div class="comp-card-inner">
+          <img class="comp-photo" src="${streetViewUrl(c)}" alt="Street view of ${c.address}">
+          <div>
+            <div class="comp-top">
+              <div class="comp-rank" style="background:${rankBg};color:${rankTxt};">${i+1}</div>
+              <div class="comp-addr-wrap">
+                <div class="comp-addr">${c.address}</div>
+                <div class="comp-date">${reason} · Sold ${sold}${c.distance?' · '+c.distance.toFixed(2)+' mi':''}</div>
+              </div>
+              <div>
+                <div class="comp-price" style="color:${isGold?'#8A6A00':'#111B42'};">${fmt$(c.soldPrice)}</div>
+                <div class="comp-psf">${psf?'$'+psf+'/sqft':''}</div>
+              </div>
+            </div>
+            <div class="comp-tags">
+              ${c.sqft?`<span class="comp-tag">${c.sqft.toLocaleString()} sf</span>`:''}
+              ${c.beds?`<span class="comp-tag">${c.beds} bed</span>`:''}
+              ${c.baths?`<span class="comp-tag">${c.baths} bath</span>`:''}
+              ${c.yearBuilt?`<span class="comp-tag">Built ${c.yearBuilt}</span>`:''}
+              ${badge}
+            </div>
+            <div class="match-wrap">
+              <div class="match-bar"><div class="match-fill" style="width:${sim}%;background:${barColor};"></div></div>
+              <div class="match-pct">${sim}% match</div>
+            </div>
+          </div>
+        </div>
+      </div>`
+    }).join('')
+  }
+</script>
+</body>
+</html>

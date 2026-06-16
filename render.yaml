@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: tradetechpro
+    runtime: node
+    rootDir: tradetechpro
+    buildCommand: npm install && npm run build
+    startCommand: npm run server
+    plan: free
+    envVars:
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: REGRID_API_KEY
+        sync: false
+      - key: RENTCAST_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: STRIPE_PAYMENT_LINK
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CLOSER_KEY
+        sync: false
+      - key: CS_KEY
+        sync: false
+      - key: CF_API_TOKEN
+        sync: false
+      - key: CF_ZONE_ID
+        sync: false
+      - key: CF_CNAME_TARGET
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: HL_WEBHOOK_SECRET
+        sync: false

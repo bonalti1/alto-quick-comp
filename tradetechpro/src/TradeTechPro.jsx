@@ -628,6 +628,12 @@ export default function TradeTechPro() {
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
+  const [mapSat, setMapSat] = useState(true); // comparables map: satellite vs roadmap
+  const openInMaps = (lat, lng, addr) => {
+    const q = lat != null && lng != null ? `${lat},${lng}` : encodeURIComponent(addr || "");
+    if (q) window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank", "noopener");
+  };
+
   /* Quick Comp tabs: lending calculator inputs + saved-work history */
   const [lendPrice, setLendPrice] = useState(null); // null = follow the comp value
   const [lendDownPct, setLendDownPct] = useState(20);
@@ -1485,12 +1491,16 @@ export default function TradeTechPro() {
               <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out ? 0.55 : 1 }}>
                 <div className="flex items-start gap-3 mb-2.5">
                   {c.latitude != null && c.longitude != null && (
-                    <img
-                      src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
-                      alt={c.address}
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12, display: "block", flexShrink: 0, background: QC.bg }}
-                    />
+                    <button onClick={() => openInMaps(c.latitude, c.longitude, c.address)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
+                      className="relative shrink-0 active:scale-95 transition-transform" style={{ padding: 0, border: "none", background: "none", lineHeight: 0 }}>
+                      <img
+                        src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
+                        alt={c.address}
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12, display: "block", background: QC.bg }}
+                      />
+                      <span className="absolute flex items-center justify-center" style={{ right: -5, bottom: -5, width: 20, height: 20, borderRadius: 10, background: QC.navy, color: "#fff", fontSize: 10, border: "2px solid #fff" }}>📍</span>
+                    </button>
                   )}
                   <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
                     <div className="flex items-start gap-2 min-w-0">
@@ -1531,27 +1541,38 @@ export default function TradeTechPro() {
           })}
 
           {/* Map */}
-          {mapView && (
-            <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line2}` }}>
-              <div className="flex items-center justify-between mb-2.5">
-                <p style={{ color: QC.navyDeep, fontSize: 14, fontWeight: 900 }}>{t.cmpMap}</p>
-                <p style={{ color: "#66759D", fontSize: 11, fontWeight: 700 }}>{comps.length} {lang === "es" ? "comps cercanas" : "sold comps nearby"}</p>
+          {mapView && (() => {
+            const markerPts = [];
+            if (sLat != null && sLng != null) markerPts.push(`${sLat},${sLng},S`);
+            comps.forEach((c, i) => {
+              if (c.latitude == null || c.longitude == null) return;
+              markerPts.push(`${c.latitude},${c.longitude},${i + 1 <= 9 ? i + 1 : ""}`);
+            });
+            const ptsParam = encodeURIComponent(markerPts.join(";"));
+            return (
+              <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line2}` }}>
+                <div className="flex items-center justify-between mb-2.5">
+                  <p style={{ color: QC.navyDeep, fontSize: 14, fontWeight: 900 }}>{t.cmpMap}</p>
+                  <div className="flex rounded-full overflow-hidden" style={{ border: `1.5px solid ${QC.line2}` }}>
+                    {[["sat", lang === "es" ? "Satélite" : "Satellite"], ["map", lang === "es" ? "Mapa" : "Map"]].map(([k, lbl]) => {
+                      const on = (k === "sat") === mapSat;
+                      return <button key={k} onClick={() => setMapSat(k === "sat")} className="px-3 py-1 text-xs font-bold"
+                        style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.muted2, border: "none" }}>{lbl}</button>;
+                    })}
+                  </div>
+                </div>
+                <div className="relative w-full overflow-hidden" style={{ aspectRatio: "640/360", background: QC.bg, borderRadius: 10, border: `1px solid ${QC.line2}` }}>
+                  <img src={`/api/compmap?maptype=${mapSat ? "satellite" : "roadmap"}&pts=${ptsParam}`} alt={t.cmpMap}
+                    className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                </div>
+                <button onClick={() => openInMaps(sLat, sLng, subj.address || R.addr)} className="w-full mt-2.5 active:translate-y-px transition-transform"
+                  style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line2}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 700 }}>
+                  📍 {lang === "es" ? "Abrir en Google Maps" : "Open in Google Maps"}
+                </button>
+                <p className="text-center mt-2" style={{ color: QC.muted, fontSize: 10, fontWeight: 600 }}>{lang === "es" ? "Toca una comparable para verla en el mapa" : "Tap a comparable to view it on the map"}</p>
               </div>
-              <div className="relative w-full overflow-hidden" style={{ aspectRatio: "1280/800", background: QC.bg, borderRadius: 10, border: `1px solid ${QC.line2}` }}>
-                <img src={`/api/roofimg?lat=${mapView.lat}&lng=${mapView.lng}&zoom=${mapView.zoom}`} alt=""
-                  className="absolute inset-0 w-full h-full" onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                {sLat != null && sLng != null && (() => {
-                  const [x, y] = llToPx([sLat, sLng], mapView);
-                  return <div className="absolute flex items-center justify-center rounded-full text-white font-extrabold" style={{ left: `${(x / TRACE_W) * 100}%`, top: `${(y / TRACE_H) * 100}%`, width: 26, height: 26, marginLeft: -13, marginTop: -13, background: QC.red, border: "3px solid #fff", fontSize: 11, boxShadow: "0 2px 6px rgba(0,0,0,.3)" }}>S</div>;
-                })()}
-                {comps.map((c, i) => {
-                  if (c.latitude == null || c.longitude == null) return null;
-                  const [x, y] = llToPx([c.latitude, c.longitude], mapView);
-                  return <div key={i} className="absolute flex items-center justify-center rounded-full text-white font-extrabold" style={{ left: `${(x / TRACE_W) * 100}%`, top: `${(y / TRACE_H) * 100}%`, width: 22, height: 22, marginLeft: -11, marginTop: -11, background: QC.navy, border: "2px solid #fff", fontSize: 11, boxShadow: "0 2px 6px rgba(0,0,0,.3)" }}>{i + 1}</div>;
-                })}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           <p className="mb-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {t.cmpDisc}</p>
           <button onClick={() => setScreen("report")} className="w-full active:translate-y-px transition-transform mb-2.5"

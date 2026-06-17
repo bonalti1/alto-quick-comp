@@ -37,6 +37,12 @@ const Logo = ({ size = 44, color = null }) => {
 
 /* ─── Google Maps JS loader (loaded once, key fetched from the server) ─── */
 let _gmapsPromise = null;
+let _gmapsAuthFailed = false;
+const _authFailListeners = new Set();
+if (typeof window !== "undefined") {
+  // Google calls this globally when the key is invalid/unauthorized.
+  window.gm_authFailure = () => { _gmapsAuthFailed = true; _authFailListeners.forEach((fn) => fn()); };
+}
 function loadGoogleMaps() {
   if (_gmapsPromise) return _gmapsPromise;
   _gmapsPromise = fetch("/api/mapconfig")
@@ -60,7 +66,14 @@ function loadGoogleMaps() {
 function CompMap({ subjectLL, comps, satellite, focus, lang, fallbackSrc }) {
   const elRef = useRef(null);
   const st = useRef({ map: null, maps: null, markers: [], info: null, dirSvc: null, dirRend: null });
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(_gmapsAuthFailed);
+
+  useEffect(() => {
+    // Fall back to the static map if Google rejects the key (auth failure).
+    const onAuthFail = () => setFailed(true);
+    _authFailListeners.add(onAuthFail);
+    return () => { _authFailListeners.delete(onAuthFail); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

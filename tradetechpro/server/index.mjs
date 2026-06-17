@@ -1023,6 +1023,41 @@ app.get("/api/streetview", async (req, res) => {
   }
 });
 
+/* Comparables map: a static map with markers baked in by Google (subject =
+ * red "S", comps = numbered navy pins). Google auto-frames to fit all points.
+ * pts = "lat,lng,LABEL;lat,lng,LABEL;..." — label is a single char or empty. */
+app.get("/api/compmap", async (req, res) => {
+  const { pts, maptype } = req.query;
+  if (!GOOGLE_KEY || !pts) return res.status(404).end();
+  const cmIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`cm:${cmIp}`, 120)) return res.status(429).end();
+  try {
+    const type = maptype === "roadmap" ? "roadmap" : "satellite";
+    let url = `https://maps.googleapis.com/maps/api/staticmap?size=640x360&scale=2&maptype=${type}&key=${GOOGLE_KEY}`;
+    for (const it of String(pts).split(";").slice(0, 30)) {
+      const [la, ln, label] = it.split(",");
+      const lat = Number(la), lng = Number(ln);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const isSubj = label === "S";
+      const color = isSubj ? "red" : "0x1B2A5C";
+      // Static Maps labels accept one alphanumeric char only; skip otherwise.
+      const lbl = label && /^[A-Z0-9]$/.test(label) ? `label:${label}|` : "";
+      url += `&markers=${isSubj ? "size:mid|" : ""}color:${color}|${lbl}${lat.toFixed(6)},${lng.toFixed(6)}`;
+    }
+    const r = await fetch(url);
+    if (!r.ok) {
+      console.error("compmap failed:", r.status, (await r.text()).slice(0, 200));
+      return res.status(404).end();
+    }
+    res.set("Content-Type", r.headers.get("content-type") || "image/png");
+    res.set("Cache-Control", "public, max-age=86400");
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (e) {
+    console.error("compmap failed:", e.message);
+    res.status(404).end();
+  }
+});
+
 /* ── Accounts, login, and saved data ── */
 
 // who is calling? (session token in the Authorization header)

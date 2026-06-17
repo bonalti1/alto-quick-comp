@@ -1130,19 +1130,19 @@ const csOk = (req) => {
 
 function loginPage(title, action, wrong) {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ALTO Pro · ${title}</title><link rel="icon" href="/icon-192.png"><style>
+<title>Quick Comp · ${title}</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0}
-body{background:#101B30;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+body{background:#15244C;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .card{background:#fff;border-radius:22px;padding:36px 30px;width:100%;max-width:380px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.45)}
-img{height:52px;margin-bottom:14px}
-h1{font-size:18px;color:#101B30;margin-bottom:4px}
-p{color:#67718A;font-size:13px;font-weight:600;margin-bottom:18px}
+img{height:58px;margin-bottom:14px}
+h1{font-size:18px;color:#15244C;margin-bottom:4px}
+p{color:#6E7891;font-size:13px;font-weight:600;margin-bottom:18px}
 input{width:100%;padding:14px;border-radius:12px;border:1.5px solid #DDE3EE;font-size:16px;font-weight:600;outline:none;text-align:center}
-input:focus{border-color:#F8B408}
-button{width:100%;margin-top:10px;padding:14px;border:none;border-radius:12px;background:#F8B408;color:#101B30;font-size:16px;font-weight:800;cursor:pointer}
+input:focus{border-color:#C9973A}
+button{width:100%;margin-top:10px;padding:14px;border:none;border-radius:12px;background:#C9973A;color:#fff;font-size:16px;font-weight:800;cursor:pointer}
 .err{color:#D93025;font-size:13px;font-weight:700;margin-top:10px}
 </style></head><body><form class="card" method="get" action="${action}">
-<img src="/brand-logo.png" alt="ALTO Pro">
+<img src="/brand-logo.png" alt="Quick Comp">
 <h1>${title}</h1>
 <p>Escribe tu clave para entrar</p>
 <input name="key" type="password" placeholder="Clave / Password" autofocus autocomplete="current-password">
@@ -1377,7 +1377,7 @@ td .pill{margin:2px 3px 2px 0}
 .lbtns{display:flex;gap:6px;flex-shrink:0}
 @media(max-width:620px){.lprev{display:none}}
 </style></head><body>
-<header><img src="/brand-logo.png" alt=""><b>ALTO <em>PRO</em> · Admin</b><span class="tag"><a href="/admin/economics" style="color:#F8B408">🧮 Calculadora</a> · <a href="/cs" style="color:#9DA8C4">🎧 Servicio</a> · <a href="/admin?logout" style="color:#9DA8C4">salir</a></span></header>
+<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Admin</b><span class="tag"><a href="/admin/economics" style="color:#F8B408">🧮 Calculadora</a> · <a href="/cs" style="color:#9DA8C4">🎧 Servicio</a> · <a href="/admin?logout" style="color:#9DA8C4">salir</a></span></header>
 <div class="wrap">
 
 <div class="cards">
@@ -1637,7 +1637,7 @@ h1{font-size:25px;font-weight:700;letter-spacing:-0.03em}
 .vnote b{color:#7a5600}
 </style></head><body>
 <div class="appheader">
-  <img src="/brand-logo.png" alt=""><b>ALTO <em>PRO</em> · ${tr("Centro de mando", "Command center")}</b>
+  <img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · ${tr("Centro de mando", "Command center")}</b>
   <div class="right"><a href="/admin">← Admin</a><a href="/admin/economics?lang=${en ? "es" : "en"}">${en ? "🇲🇽 Español" : "🇺🇸 English"}</a><a class="dark" href="/admin?logout">${tr("salir", "log out")}</a></div>
 </div>
 <div class="wrap">
@@ -1891,7 +1891,7 @@ img{height:48px;margin-bottom:12px}h1{font-size:19px;color:#101B30;margin-bottom
 p{color:#5A6478;font-size:14px;font-weight:600;line-height:1.6}
 a{display:inline-block;margin-top:18px;background:#F8B408;color:#101B30;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px}
 </style></head><body><div class="card">
-<img src="/brand-logo.png" alt="ALTO Pro">
+<img src="/brand-logo.png" alt="Quick Comp">
 <h1>⏳ Tu cuenta se está activando</h1>
 <p>Se activa sola en cuanto se confirme tu pago — normalmente toma <b>1 minuto</b>.<br><br>Guarda este link (es tu llave 🔑) y vuelve a tocarlo en un momento.</p>
 <a href="">Intentar de nuevo</a>
@@ -2408,7 +2408,7 @@ footer a{color:#8A94A8}
 </style></head><body>
 <a class="langpill" href="${langHref}">${L.langBtn}</a>
 <div class="wrap">
-<nav><span class="lg"><img src="/brand-logo.png" alt="ALTO Pro"></span></nav>
+<nav><span class="lg"><img src="/brand-logo.png" alt="Quick Comp"></span></nav>
 <div class="hero">
   <h1>${L.h1}</h1>
   <p>${L.sub}</p>
@@ -3020,7 +3020,7 @@ td a{color:#B07A00;font-weight:700;text-decoration:none}
 .guide .gb ol{margin:6px 0 0 18px}.guide .gb li{margin:3px 0}
 </style></head><body>
 <div class="appheader">
-  <img src="/brand-logo.png" alt=""><b>ALTO <em>PRO</em> · Servicio al cliente</b>
+  <img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Servicio al cliente</b>
   <div class="right"><a href="/cs?logout">salir</a></div>
 </div>
 <div class="wrap">
@@ -3137,7 +3137,7 @@ h1{font-size:20px;margin-bottom:6px}.sub{color:#67718A;font-size:14px;font-weigh
 .row a{background:#F8B408;color:#101B30;text-decoration:none;font-weight:800;border-radius:10px;padding:9px 16px;font-size:13px}
 .empty{color:#8A94A8;font-weight:600;text-align:center;padding:30px}
 </style></head><body>
-<header><img src="/brand-logo.png" alt=""><b>ALTO <em>PRO</em> · Onboarding</b></header>
+<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Onboarding</b></header>
 <div class="wrap">
 <h1>¿Para qué cliente es la página?</h1>
 <p class="sub">Elige el cliente que ya creaste. Si no aparece, créalo primero en el portal del closer.</p>
@@ -3265,7 +3265,7 @@ textarea.big{min-height:150px;font-size:16px}
 </style></head><body>
 <div class="layout">
 <aside>
-  <div class="sb-brand"><img src="/brand-logo.png" alt=""><b>ALTO <em>PRO</em></b></div>
+  <div class="sb-brand"><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em></b></div>
   <div class="sb-label">Onboarding · ${esc(c.name)}</div>
   <nav id="nav">
     <button class="nav-it on" onclick="go(0)"><span class="no">1</span>Bienvenida</button>
@@ -4285,7 +4285,7 @@ body{max-width:none;margin:0;padding:0}
 </style></head><body>
 <div class="appheader">
   <img src="/brand-logo.png" alt="">
-  <b>ALTO <em>PRO</em> · ${en ? "Closer" : "Closer"}</b>
+  <b>QUICK <em>COMP</em> · ${en ? "Closer" : "Closer"}</b>
   <div class="right">
     <a href="/closer?logout">${en ? "log out" : "salir"}</a>
     <a class="dark" href="/closer${en ? "" : "?lang=en"}">${L.langBtn}</a>
@@ -4657,14 +4657,14 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 <a class="langpill" href="${L.langHref}">${L.langBtn}</a>
 <div class="layout">
 <aside id="sb">
-  <div class="sb-brand"><img src="/brand-logo.png" alt="ALTO Pro"></div>
+  <div class="sb-brand"><img src="/brand-logo.png" alt="Quick Comp"></div>
   <div class="sb-label">${L.presentation}</div>
   <nav id="nav"></nav>
   <div class="sb-foot">${L.forClients}</div>
 </aside>
 <div class="scrim" id="scrim" onclick="toggleSb(false)"></div>
 <main>
-<div class="mtop"><button class="mt-b" onclick="toggleSb(true)">${L.menu}</button><b>ALTO <em>PRO</em></b><span style="width:64px"></span></div>
+<div class="mtop"><button class="mt-b" onclick="toggleSb(true)">${L.menu}</button><b>QUICK <em>COMP</em></b><span style="width:64px"></span></div>
 <div class="stage" id="stage">
 
 <section class="slide" data-t="${L.t1}">

@@ -560,7 +560,8 @@ const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 export default function TradeTechPro() {
   const [lang, setLang] = useState(savedProfile.lang || "es");
   const t = TR[lang];
-  const [screen, setScreen] = useState(WANT_ROOF ? "home" : "comps");
+  const welcomedInit = (() => { try { return !!localStorage.getItem("qc_welcomed"); } catch { return false; } })();
+  const [screen, setScreen] = useState(WANT_ROOF ? "home" : (welcomedInit ? "comps" : "welcome"));
   const [trade, setTrade] = useState(savedProfile.trade || "roofing");
   const [userName, setUserName] = useState(savedProfile.name || (DEMO_ROOF ? "José" : ""));
   const [bizName, setBizName] = useState(savedProfile.biz || (DEMO_ROOF ? "Techos García (Demo)" : ""));
@@ -674,7 +675,7 @@ export default function TradeTechPro() {
         // Real accounts start clean — no demo data
         setCustomers(j.state?.customers || []);
         setJobs(j.state?.jobs || []);
-        if (!WANT_ROOF) setScreen("comps");
+        if (!WANT_ROOF && welcomedInit) setScreen("comps");
         setCloudReady(true);
       } catch { /* offline — local data keeps working */ }
     })();
@@ -2057,6 +2058,53 @@ export default function TradeTechPro() {
     );
   };
 
+  /* ── First-login welcome (captures name + brokerage for report branding) ── */
+  const Welcome = () => {
+    const finish = () => {
+      saveProfile({ name: userName, biz: bizName });
+      try { localStorage.setItem("qc_welcomed", "1"); } catch { /* private mode */ }
+      setScreen("comps");
+    };
+    const tabs = [
+      ["01", lang === "es" ? "Comps" : "Comps", lang === "es" ? "Valor + ventas comparables" : "Value + sold comparables"],
+      ["02", lang === "es" ? "Crédito" : "Lending", lang === "es" ? "Pago mensual estimado" : "Monthly payment estimate"],
+      ["03", lang === "es" ? "Impuestos" : "Tax", lang === "es" ? "Resumen fiscal de la propiedad" : "Property tax snapshot"],
+      ["04", lang === "es" ? "Trabajo" : "Workspace", lang === "es" ? "Guarda y reabre tu trabajo" : "Save & reopen your work"],
+    ];
+    return (
+      <div className="flex-1 overflow-y-auto" style={{ background: QC.bg }}>
+        <div className="px-6 pt-8 pb-6 text-center" style={{ background: QC.headGrad }}>
+          <img src="/quick-comp-lockup-white.png" alt="Quick Comp" style={{ height: 64, objectFit: "contain", margin: "0 auto 14px" }} />
+          <p className="text-white font-extrabold" style={{ fontSize: 22, lineHeight: 1.2 }}>{lang === "es" ? "Bienvenido a Quick Comp" : "Welcome to Quick Comp"}</p>
+          <p style={{ color: "rgba(255,255,255,0.78)", fontSize: 13, fontWeight: 600, marginTop: 6 }}>{lang === "es" ? "Valúa cualquier propiedad en minutos." : "Value any property in minutes."}</p>
+        </div>
+        <div className="px-5 pt-5">
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Tu perfil" : "Your profile"}</p>
+            <p className="font-bold mb-3" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Aparece como “Presentado por” en tus informes." : "Shown as “Presented by” on your client reports."}</p>
+            <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder={lang === "es" ? "Tu nombre" : "Your name"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <input value={bizName} onChange={(e) => setBizName(e.target.value)} placeholder={lang === "es" ? "Inmobiliaria / Brokerage" : "Brokerage"}
+              className="w-full rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+          </div>
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 10 }}>{lang === "es" ? "Tus 4 herramientas" : "Your 4 tools"}</p>
+            {tabs.map(([n, name, desc]) => (
+              <div key={n} className="flex items-center gap-3 py-2" style={{ borderTop: n !== "01" ? `1px solid ${QC.line}` : "none" }}>
+                <span className="flex items-center justify-center shrink-0 font-extrabold" style={{ width: 34, height: 34, borderRadius: 10, background: QC.bg, color: QC.navy, fontSize: 12 }}>{n}</span>
+                <span className="min-w-0"><span className="block font-bold" style={{ color: QC.navyDeep, fontSize: 14 }}>{name}</span><span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{desc}</span></span>
+              </div>
+            ))}
+          </div>
+          <button onClick={finish} className="w-full active:translate-y-px transition-transform mb-6"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 16, fontSize: 16, fontWeight: 800, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
+            {lang === "es" ? "Empezar →" : "Get started →"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const PickCustomer = () => (
     <div className="flex-1 px-5">
       <p className="font-extrabold mb-4" style={{ color: C.navy, fontFamily: "'Inter', sans-serif", fontSize: 26 }}>{t.forWho}</p>
@@ -2635,9 +2683,10 @@ export default function TradeTechPro() {
           </div>
         )}
         {tabScreens.includes(screen) && <BrandHeader />}
-        {screen !== "onboard" && screen !== "trade" && screen !== "home" && !tabScreens.includes(screen) && (
+        {screen !== "onboard" && screen !== "trade" && screen !== "home" && screen !== "welcome" && !tabScreens.includes(screen) && (
           <div className="no-print"><Header title={titles[screen] || ""} back={() => setScreen(backMap[screen] || "comps")} /></div>
         )}
+        {screen === "welcome" && Welcome()}
         {screen === "onboard" && Onboard()}
         {screen === "settings" && Settings()}
         {screen === "trade" && TradePicker()}

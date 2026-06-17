@@ -1483,17 +1483,27 @@ export default function TradeTechPro() {
             const belowMkt = c.soldPrice && c.soldPrice < R.value * 0.95;
             return (
               <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out ? 0.55 : 1 }}>
-                <div className="flex items-start justify-between gap-2 mb-2.5">
-                  <div className="flex items-start gap-2 min-w-0">
-                    <span className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: 8, fontSize: 11, fontWeight: 800, background: rankBg, color: rankTxt }}>{i + 1}</span>
-                    <div className="min-w-0">
-                      <p className="font-bold" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.4 }}>{c.address}</p>
-                      <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500, marginTop: 2 }}>{reasons[Math.min(i, 3)]} · {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}</p>
+                <div className="flex items-start gap-3 mb-2.5">
+                  {c.latitude != null && c.longitude != null && (
+                    <img
+                      src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
+                      alt={c.address}
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12, display: "block", flexShrink: 0, background: QC.bg }}
+                    />
+                  )}
+                  <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <span className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: 8, fontSize: 11, fontWeight: 800, background: rankBg, color: rankTxt }}>{i + 1}</span>
+                      <div className="min-w-0">
+                        <p className="font-bold" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.4 }}>{c.address}</p>
+                        <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500, marginTop: 2 }}>{reasons[Math.min(i, 3)]} · {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p style={{ color: i === 0 ? "#8A6A00" : QC.navyDeep, fontSize: 20, fontWeight: 800 }}>{fmt(c.soldPrice)}</p>
-                    {ppsf && <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500 }}>{fmt(ppsf)}{t.cmpPerSqft}</p>}
+                    <div className="text-right shrink-0">
+                      <p style={{ color: i === 0 ? "#8A6A00" : QC.navyDeep, fontSize: 20, fontWeight: 800 }}>{fmt(c.soldPrice)}</p>
+                      {ppsf && <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500 }}>{fmt(ppsf)}{t.cmpPerSqft}</p>}
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2.5">

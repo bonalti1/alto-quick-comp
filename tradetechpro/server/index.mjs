@@ -1023,6 +1023,14 @@ app.get("/api/streetview", async (req, res) => {
   }
 });
 
+/* Browser key for the in-app interactive map (Maps JavaScript API). Prefers a
+ * dedicated, HTTP-referrer-restricted browser key; falls back to the main key
+ * so the map works out of the box. Restrict the key by referrer in production. */
+app.get("/api/mapconfig", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({ key: process.env.GOOGLE_MAPS_BROWSER_KEY || GOOGLE_KEY || "" });
+});
+
 /* Comparables map: a static map with markers baked in by Google (subject =
  * red "S", comps = numbered navy pins). Google auto-frames to fit all points.
  * pts = "lat,lng,LABEL;lat,lng,LABEL;..." — label is a single char or empty. */

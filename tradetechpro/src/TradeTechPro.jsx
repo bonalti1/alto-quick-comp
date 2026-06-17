@@ -35,6 +35,106 @@ const Logo = ({ size = 44, color = null }) => {
   );
 };
 
+/* ─── Google Maps JS loader (loaded once, key fetched from the server) ─── */
+let _gmapsPromise = null;
+function loadGoogleMaps() {
+  if (_gmapsPromise) return _gmapsPromise;
+  _gmapsPromise = fetch("/api/mapconfig")
+    .then((r) => r.json())
+    .then(({ key }) => {
+      if (!key) throw new Error("no-map-key");
+      if (window.google?.maps) return window.google.maps;
+      return new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=quarterly`;
+        s.async = true;
+        s.onload = () => (window.google?.maps ? resolve(window.google.maps) : reject(new Error("gmaps-load")));
+        s.onerror = () => reject(new Error("gmaps-load"));
+        document.head.appendChild(s);
+      });
+    });
+  return _gmapsPromise;
+}
+
+/* ─── Interactive in-app comparables map (stays inside Quick Comp) ─── */
+function CompMap({ subjectLL, comps, satellite, focus, lang, fallbackSrc }) {
+  const elRef = useRef(null);
+  const st = useRef({ map: null, maps: null, markers: [], info: null, dirSvc: null, dirRend: null });
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleMaps().then((maps) => {
+      if (cancelled || !elRef.current) return;
+      const s = st.current;
+      s.maps = maps;
+      const map = new maps.Map(elRef.current, {
+        mapTypeId: satellite ? "hybrid" : "roadmap",
+        disableDefaultUI: true, zoomControl: true, gestureHandling: "greedy", clickableIcons: false,
+      });
+      s.map = map;
+      s.info = new maps.InfoWindow();
+      s.dirRend = new maps.DirectionsRenderer({ map, suppressMarkers: true, preserveViewport: true, polylineOptions: { strokeColor: "#1B2A5C", strokeWeight: 5 } });
+      s.dirSvc = new maps.DirectionsService();
+      const bounds = new maps.LatLngBounds();
+      if (subjectLL) {
+        new maps.Marker({ position: subjectLL, map, zIndex: 999, title: lang === "es" ? "Propiedad" : "Subject",
+          label: { text: "S", color: "#fff", fontWeight: "700", fontSize: "12px" },
+          icon: { path: maps.SymbolPath.CIRCLE, scale: 13, fillColor: "#E8442E", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 3 } });
+        bounds.extend(subjectLL);
+      }
+      comps.forEach((c, i) => {
+        if (c.latitude == null || c.longitude == null) return;
+        const pos = { lat: c.latitude, lng: c.longitude };
+        const mk = new maps.Marker({ position: pos, map,
+          label: { text: String(i + 1), color: "#fff", fontWeight: "700", fontSize: "11px" },
+          icon: { path: maps.SymbolPath.CIRCLE, scale: 11, fillColor: "#1B2A5C", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 2 } });
+        const price = c.soldPrice ? "$" + Number(c.soldPrice).toLocaleString("en-US") : "";
+        const facts = [
+          c.beds != null ? `${c.beds} ${lang === "es" ? "rec" : "bd"}` : null,
+          c.baths != null ? `${c.baths} ${lang === "es" ? "baños" : "ba"}` : null,
+          c.sqft ? `${Number(c.sqft).toLocaleString("en-US")} ${lang === "es" ? "pie²" : "sqft"}` : null,
+        ].filter(Boolean).join(" · ");
+        const html = `<div style="font-family:Inter,sans-serif;min-width:170px">`
+          + `<div style="font-weight:800;color:#15244C;font-size:13px">${c.address || ""}</div>`
+          + `<div style="color:#1B2A5C;font-weight:800;font-size:15px;margin-top:2px">${price}</div>`
+          + (facts ? `<div style="color:#6E7891;font-size:11px;margin-top:2px">${facts}</div>` : "")
+          + (subjectLL ? `<button id="qc-dir-${i}" style="margin-top:8px;background:#15244C;color:#fff;border:none;border-radius:8px;padding:7px 12px;font-weight:700;font-size:12px;cursor:pointer">${lang === "es" ? "Cómo llegar" : "Directions"}</button>` : "")
+          + `</div>`;
+        mk.addListener("click", () => {
+          s.info.setContent(html); s.info.open(map, mk); map.panTo(pos);
+          if (subjectLL) maps.event.addListenerOnce(s.info, "domready", () => {
+            const b = document.getElementById(`qc-dir-${i}`);
+            if (b) b.onclick = () => s.dirSvc.route({ origin: subjectLL, destination: pos, travelMode: maps.TravelMode.DRIVING },
+              (res, status) => { if (status === "OK") s.dirRend.setDirections(res); });
+          });
+        });
+        s.markers[i] = mk;
+        bounds.extend(pos);
+      });
+      if (!bounds.isEmpty()) map.fitBounds(bounds, 48);
+    }).catch(() => { if (!cancelled) setFailed(true); });
+    return () => { cancelled = true; };
+  }, []); // initialize once
+
+  useEffect(() => {
+    const s = st.current;
+    if (s.map && s.maps) s.map.setMapTypeId(satellite ? "hybrid" : "roadmap");
+  }, [satellite]);
+
+  useEffect(() => {
+    const s = st.current;
+    if (!focus || !s.map || !s.maps) return;
+    const mk = s.markers[focus.i];
+    if (mk) { s.map.panTo(mk.getPosition()); s.map.setZoom(Math.max(s.map.getZoom() || 0, 17)); s.maps.event.trigger(mk, "click"); }
+  }, [focus]);
+
+  if (failed) {
+    return <img src={fallbackSrc} alt="" className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />;
+  }
+  return <div ref={elRef} className="absolute inset-0 w-full h-full" />;
+}
+
 /* ─── Translations ─── */
 const TR = {
   es: {
@@ -629,9 +729,10 @@ export default function TradeTechPro() {
   const placesSeq = useRef(0);
 
   const [mapSat, setMapSat] = useState(true); // comparables map: satellite vs roadmap
-  const openInMaps = (lat, lng, addr) => {
-    const q = lat != null && lng != null ? `${lat},${lng}` : encodeURIComponent(addr || "");
-    if (q) window.open(`https://www.google.com/maps/search/?api=1&query=${q}`, "_blank", "noopener");
+  const [mapFocus, setMapFocus] = useState(null); // {i, t} — focus a comp on the in-app map
+  const focusCompOnMap = (i) => {
+    setMapFocus({ i, t: Date.now() });
+    document.getElementById("qc-compmap")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   /* Quick Comp tabs: lending calculator inputs + saved-work history */
@@ -1491,7 +1592,7 @@ export default function TradeTechPro() {
               <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out ? 0.55 : 1 }}>
                 <div className="flex items-start gap-3 mb-2.5">
                   {c.latitude != null && c.longitude != null && (
-                    <button onClick={() => openInMaps(c.latitude, c.longitude, c.address)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
+                    <button onClick={() => focusCompOnMap(i)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
                       className="relative shrink-0 active:scale-95 transition-transform" style={{ padding: 0, border: "none", background: "none", lineHeight: 0 }}>
                       <img
                         src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
@@ -1561,15 +1662,17 @@ export default function TradeTechPro() {
                     })}
                   </div>
                 </div>
-                <div className="relative w-full overflow-hidden" style={{ aspectRatio: "640/360", background: QC.bg, borderRadius: 10, border: `1px solid ${QC.line2}` }}>
-                  <img src={`/api/compmap?maptype=${mapSat ? "satellite" : "roadmap"}&pts=${ptsParam}`} alt={t.cmpMap}
-                    className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                <div id="qc-compmap" className="relative w-full overflow-hidden" style={{ aspectRatio: "640/360", background: QC.bg, borderRadius: 10, border: `1px solid ${QC.line2}` }}>
+                  <CompMap
+                    subjectLL={sLat != null && sLng != null ? { lat: sLat, lng: sLng } : null}
+                    comps={comps}
+                    satellite={mapSat}
+                    focus={mapFocus}
+                    lang={lang}
+                    fallbackSrc={`/api/compmap?maptype=${mapSat ? "satellite" : "roadmap"}&pts=${ptsParam}`}
+                  />
                 </div>
-                <button onClick={() => openInMaps(sLat, sLng, subj.address || R.addr)} className="w-full mt-2.5 active:translate-y-px transition-transform"
-                  style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line2}`, borderRadius: 10, padding: "10px 12px", fontSize: 13, fontWeight: 700 }}>
-                  📍 {lang === "es" ? "Abrir en Google Maps" : "Open in Google Maps"}
-                </button>
-                <p className="text-center mt-2" style={{ color: QC.muted, fontSize: 10, fontWeight: 600 }}>{lang === "es" ? "Toca una comparable para verla en el mapa" : "Tap a comparable to view it on the map"}</p>
+                <p className="text-center mt-2" style={{ color: QC.muted, fontSize: 10, fontWeight: 600 }}>{lang === "es" ? "Toca un pin (o una comparable) para ver detalles y cómo llegar" : "Tap a pin (or a comparable) for details and directions"}</p>
               </div>
             );
           })()}

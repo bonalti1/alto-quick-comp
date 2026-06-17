@@ -815,7 +815,7 @@ app.get("/api/diag", async (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, db: db.dbKind(), live: { google: !!GOOGLE_KEY, parcels: !!REGRID_KEY, property: !!RENTCAST_KEY, ai: aiLive } });
+  res.json({ ok: true, db: db.dbKind(), dbError: db.dbErrorMsg ? db.dbErrorMsg() : null, live: { google: !!GOOGLE_KEY, parcels: !!REGRID_KEY, property: !!RENTCAST_KEY, ai: aiLive } });
 });
 
 app.get("/api/places", async (req, res) => {

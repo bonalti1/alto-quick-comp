@@ -15,8 +15,10 @@ const FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "data", "st
 let pool = null; // Postgres when configured
 let mem = null;  // JSON fallback
 let saveTimer = null;
+let dbError = null; // last Postgres connection error, if any
 
 export const dbKind = () => (pool ? "postgres" : "file");
+export const dbErrorMsg = () => dbError;
 
 const newId = () => crypto.randomUUID();
 const newToken = () => crypto.randomBytes(24).toString("base64url");
@@ -33,6 +35,7 @@ function persistMem() {
 
 export async function initDb() {
   if (process.env.DATABASE_URL) {
+   try {
     pool = new pg.Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: process.env.DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
@@ -103,13 +106,20 @@ export async function initDb() {
       );
     `);
     console.log("db: postgres ready");
-  } else {
-    try { mem = JSON.parse(fs.readFileSync(FILE, "utf8")); }
-    catch { mem = { contractors: [], sessions: {}, invites: {}, states: {}, leads: [], metrics: {}, meetings: [], tasks: [] }; }
-    mem.meetings = mem.meetings || [];
-    mem.tasks = mem.tasks || [];
-    console.log("db: json file (set DATABASE_URL for Supabase/Postgres)");
+    return;
+   } catch (e) {
+    dbError = e.message;
+    console.error("db: POSTGRES CONNECTION FAILED — falling back to file DB. Reason:", e.message);
+    try { await pool?.end(); } catch { /* ignore */ }
+    pool = null;
+   }
   }
+  // File fallback (no DATABASE_URL, or Postgres failed to connect)
+  try { mem = JSON.parse(fs.readFileSync(FILE, "utf8")); }
+  catch { mem = { contractors: [], sessions: {}, invites: {}, states: {}, leads: [], metrics: {}, meetings: [], tasks: [] }; }
+  mem.meetings = mem.meetings || [];
+  mem.tasks = mem.tasks || [];
+  console.log(dbError ? `db: json file (postgres failed: ${dbError})` : "db: json file (set DATABASE_URL for Supabase/Postgres)");
 }
 
 export async function createContractor({ name, phone = "", slug }) {

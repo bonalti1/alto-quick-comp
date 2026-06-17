@@ -108,7 +108,8 @@ function CompMap({ subjectLL, comps, satellite, focus, lang, fallbackSrc }) {
           c.baths != null ? `${c.baths} ${lang === "es" ? "baños" : "ba"}` : null,
           c.sqft ? `${Number(c.sqft).toLocaleString("en-US")} ${lang === "es" ? "pie²" : "sqft"}` : null,
         ].filter(Boolean).join(" · ");
-        const html = `<div style="font-family:Inter,sans-serif;min-width:170px">`
+        const html = `<div style="font-family:Inter,sans-serif;min-width:180px;max-width:210px">`
+          + `<img src="/api/streetview?lat=${c.latitude}&lng=${c.longitude}" alt="" style="width:100%;height:104px;object-fit:cover;border-radius:8px;margin-bottom:6px;display:block;background:#eef1f7" onerror="this.style.display='none'">`
           + `<div style="font-weight:800;color:#15244C;font-size:13px">${c.address || ""}</div>`
           + `<div style="color:#1B2A5C;font-weight:800;font-size:15px;margin-top:2px">${price}</div>`
           + (facts ? `<div style="color:#6E7891;font-size:11px;margin-top:2px">${facts}</div>` : "")

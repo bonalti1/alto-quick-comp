@@ -680,10 +680,25 @@ function roundToNearest(value, nearest) {
   return Math.round(value / nearest) * nearest;
 }
 
+/* Pick the most recent year's value from a {year: {...}} map (RentCast tax /
+ * assessment records). Returns { year, value } or null. */
+function latestYearVal(obj, pick) {
+  if (!obj || typeof obj !== "object") return null;
+  const years = Object.keys(obj).filter((k) => /^\d{4}$/.test(k)).sort();
+  for (let i = years.length - 1; i >= 0; i--) {
+    const v = pick(obj[years[i]]);
+    if (v != null) return { year: Number(years[i]), value: v };
+  }
+  return null;
+}
+
 /* Condensed from Quick Comp's normalizeProperty — the subject attributes the
- * scorer needs, plus a few extras handy for the result card. */
+ * scorer needs, plus a few extras handy for the result + tax cards. */
 function normalizeSubjectProperty(p, fallbackAddress) {
   if (!p || typeof p !== "object") return { address: fallbackAddress || "" };
+  const assess = latestYearVal(p.taxAssessments, (a) => a?.value ?? a?.total ?? null);
+  const tax = latestYearVal(p.propertyTaxes, (a) => a?.total ?? a?.amount ?? null);
+  const ownerNames = Array.isArray(p.owner?.names) ? p.owner.names.join(", ") : (p.owner?.name || p.ownerName || null);
   return {
     address: p.formattedAddress || p.address || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(", ") || fallbackAddress || "",
     propertyType: p.propertyType || p.propertyUse || p.type || null,
@@ -694,6 +709,12 @@ function normalizeSubjectProperty(p, fallbackAddress) {
     lotSize: p.lotSize || p.lotSquareFootage || null,
     latitude: p.latitude || p.location?.latitude || null,
     longitude: p.longitude || p.location?.longitude || null,
+    // ownership + tax (present on RentCast property records; optional)
+    owner: ownerNames,
+    assessedValue: assess?.value ?? null,
+    assessedYear: assess?.year ?? null,
+    annualTax: tax?.value ?? null,
+    taxYear: tax?.year ?? assess?.year ?? null,
   };
 }
 

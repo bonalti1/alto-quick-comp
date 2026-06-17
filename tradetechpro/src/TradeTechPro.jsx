@@ -728,6 +728,7 @@ export default function TradeTechPro() {
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
+  const [taxLookup, setTaxLookup] = useState(null); // Tax tab has its own independent search
   const [mapSat, setMapSat] = useState(true); // comparables map: satellite vs roadmap
   const [mapFocus, setMapFocus] = useState(null); // {i, t} — focus a comp on the in-app map
   const focusCompOnMap = (i) => {
@@ -946,7 +947,7 @@ export default function TradeTechPro() {
     showToast(t.estCreated + " ✓");
   };
 
-  const startLookup = async (addr, placeId = null, gps = null) => {
+  const startLookup = async (addr, placeId = null, gps = null, target = "comps") => {
     // Demo mode gets 6 measurements TOTAL (not per day) — a taste, not a tool.
     // The counter lives next to the demo data itself, so wiping it to cheat
     // also wipes everything the freeloader saved.
@@ -1003,6 +1004,8 @@ export default function TradeTechPro() {
             beds: j.subject.bedrooms ?? null, baths: j.subject.bathrooms ?? null,
             sqft: j.subject.squareFootage ?? null, yearBuilt: j.subject.yearBuilt ?? null,
             latitude: j.subject.latitude ?? null, longitude: j.subject.longitude ?? null,
+            owner: j.subject.owner ?? null, assessedValue: j.subject.assessedValue ?? null,
+            annualTax: j.subject.annualTax ?? null, taxYear: j.subject.taxYear ?? null,
           } : null,
           comps: Array.isArray(j.comps) ? j.comps : [],
           source: j.source || "live",
@@ -1032,6 +1035,18 @@ export default function TradeTechPro() {
         openFence({ lat: base.lat, lng: base.lng, addr: base.addr, zoom: 19, parcel: null });
       }
       showToast(base.parcel && base.parcel.length >= 3 ? "🛰️ " + t.fenceDrawn : "✏️ " + t.noParcel);
+      return;
+    }
+    if (target === "tax") {
+      // Tax only needs the property record (facts + assessment), not a comp value.
+      if (!res || !(res.subject || res.value)) {
+        setTaxLookup(null);
+        showToast("🏠 " + t.cmpNone);
+        return;
+      }
+      setTaxLookup(res);
+      setScreen("tax");
+      showToast("🧾 " + (lang === "es" ? "Datos fiscales listos ✓" : "Tax record ready ✓"));
       return;
     }
     if (!res || !res.value) {
@@ -1765,26 +1780,102 @@ export default function TradeTechPro() {
     );
   };
 
-  /* ── 03 · TAX — tax snapshot ── */
+  /* ── 03 · TAX — independent tax lookup (its own search) ── */
   const Tax = () => {
-    const subj = lookup?.subject || {};
-    if (!lookup?.value) return <NeedProperty title={lang === "es" ? "Resumen de impuestos" : "Tax snapshot"} sub={lang === "es" ? "Busca una propiedad para ver dueño, valor catastral, año fiscal y datos clave." : "Search a property to see owner, assessed value, tax year, and key facts."} />;
     const num = (n) => Number(n).toLocaleString("en-US");
-    const assessed = Math.round((lookup.value || 0) * 0.86);
-    const annualTax = Math.round(assessed * 0.011);
+
+    // A tax search is running
+    if (measuring && !taxLookup) {
+      const phases = [t.measuring1, lang === "es" ? "Buscando registro fiscal…" : "Pulling tax record…", lang === "es" ? "Preparando resumen…" : "Preparing summary…"];
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center px-7 text-center" style={{ background: QC.bg }}>
+          <span className="text-5xl mb-4" style={{ animation: "ttpPulse 1.2s ease-in-out infinite" }}>🧾</span>
+          <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 20 }}>{addrQ}</p>
+          <p className="mb-6" style={{ color: QC.gold, fontSize: 11, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Buscando impuestos" : "Looking up tax"}</p>
+          <div className="text-left">
+            {phases.map((ph, i) => (
+              <p key={ph} className="py-1 font-semibold" style={{ color: i < measurePhase ? QC.green : i === measurePhase ? QC.navy : QC.line }}>{i < measurePhase ? "✓ " : i === measurePhase ? "● " : "○ "}{ph}</p>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // No tax record yet → the Tax tab's own address search
+    if (!taxLookup) {
+      const q = addrQ.trim().toLowerCase();
+      const localPool = [...new Set([...MOCK_PROPERTIES.map(p => p.addr), ...customers.map(c => c.addr).filter(Boolean)])];
+      const matches = placeSugs !== null ? placeSugs : localPool.filter(a => !q || a.toLowerCase().includes(q)).map(a => ({ text: a, placeId: null }));
+      const custom = addrQ.trim() && !matches.some(m => m.text.toLowerCase() === q) ? addrQ.trim() : null;
+      const go = () => { if (custom) startLookup(custom, null, null, "tax"); else if (matches[0]) startLookup(matches[0].text, matches[0].placeId, null, "tax"); };
+      return (
+        <div className="flex-1" style={{ background: QC.bg }}>
+          <div className="px-5 py-4" style={{ background: QC.headGrad, borderBottom: `2px solid ${QC.gold}` }}>
+            <p className="text-center" style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Impuestos de propiedad" : "Property Tax"}</p>
+            <p className="text-center font-extrabold text-white mt-0.5" style={{ fontSize: 18 }}>{lang === "es" ? "Busca impuestos por dirección" : "Look up property tax by address"}</p>
+          </div>
+          <div className="px-5 pt-3">
+            <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <p className="mb-2" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Dirección de la propiedad" : "Property Address"}</p>
+              <div className="flex gap-2">
+                <button onClick={useMyLocation} title={t.useMyLocation} className="flex items-center justify-center shrink-0 active:scale-95 transition-transform"
+                  style={{ width: 48, height: 48, background: QC.bg, border: `1.5px solid ${QC.line}`, borderRadius: 12, color: QC.navy, fontSize: 18 }}>🧭</button>
+                <div className="flex-1 flex items-center gap-2 rounded-xl px-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
+                  <input value={addrQ} onChange={(e) => onAddrInput(e.target.value)} placeholder={lang === "es" ? "Escribe una dirección…" : "Enter a property address…"} autoFocus
+                    onKeyDown={(e) => e.key === "Enter" && go()}
+                    className="flex-1 py-3 text-base font-semibold outline-none bg-transparent" style={{ color: QC.navy }} />
+                  {hasVoice && (
+                    <button onClick={() => startVoice(onAddrInput)} className="text-xl active:scale-90 transition-transform" style={{ background: "none", border: "none", opacity: listening ? 1 : 0.6 }}>{listening ? "🔴" : "🎤"}</button>
+                  )}
+                </div>
+              </div>
+              {(custom || matches.length > 0) && (
+                <div className="rounded-xl mt-2 overflow-hidden" style={{ border: `1.5px solid ${QC.line}` }}>
+                  {custom && (
+                    <button onClick={() => startLookup(custom, null, null, "tax")} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left active:opacity-80" style={{ background: "#fff", borderBottom: matches.length ? `1px solid ${QC.bg}` : "none" }}>
+                      <span style={{ color: QC.navy }}>📍</span><span className="font-bold truncate" style={{ color: QC.navy, fontSize: 13 }}>{custom}</span>
+                    </button>
+                  )}
+                  {matches.map((mm, i) => (
+                    <button key={mm.text} onClick={() => startLookup(mm.text, mm.placeId, null, "tax")} className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left active:opacity-80" style={{ background: "#fff", borderBottom: i < matches.length - 1 ? `1px solid ${QC.bg}` : "none" }}>
+                      <span style={{ color: QC.navy }}>📍</span><span className="font-semibold truncate" style={{ color: QC.navy, fontSize: 13 }}>{mm.text}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button onClick={go} className="w-full active:translate-y-px transition-transform"
+              style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
+              {lang === "es" ? "Ver impuestos" : "Get Tax Info"}
+            </button>
+            <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Solo impuestos — no necesitas correr comparables" : "Tax only — no need to run comps"} · DEMO</p>
+          </div>
+        </div>
+      );
+    }
+
+    // We have a tax record
+    const R = taxLookup;
+    const subj = R.subject || {};
+    const hasRealAssess = subj.assessedValue != null;
+    const assessed = hasRealAssess ? subj.assessedValue : (R.value ? Math.round(R.value * 0.86) : null);
+    const hasRealTax = subj.annualTax != null;
+    const annualTax = hasRealTax ? subj.annualTax : (assessed ? Math.round(assessed * 0.011) : null);
+    const taxYear = subj.taxYear || new Date().getFullYear();
+    const estimated = !hasRealAssess || !hasRealTax;
     const facts = [["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]];
     const rows = [
       [lang === "es" ? "Dueño registrado" : "Owner of record", subj.owner || (lang === "es" ? "Según registro público" : "Per public record")],
-      [lang === "es" ? "Valor catastral" : "Assessed value", "$" + num(assessed)],
-      [lang === "es" ? "Impuesto anual estimado" : "Est. annual tax", "$" + num(annualTax)],
-      [lang === "es" ? "Año fiscal" : "Tax year", String(new Date().getFullYear())],
+      [lang === "es" ? "Valor catastral" : "Assessed value", assessed ? "$" + num(assessed) + (hasRealAssess ? "" : (lang === "es" ? " (est.)" : " (est.)")) : "—"],
+      [lang === "es" ? (hasRealTax ? "Impuesto anual" : "Impuesto anual estimado") : (hasRealTax ? "Annual tax" : "Est. annual tax"), annualTax ? "$" + num(annualTax) : "—"],
+      [lang === "es" ? "Año fiscal" : "Tax year", String(taxYear)],
     ];
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
           <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{lang === "es" ? "Resumen de impuestos" : "Tax snapshot"}</p>
-            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || lookup.addr}</p>
+            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
             {rows.map(([k, v], i) => (
               <div key={k} className="flex justify-between py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
                 <span style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{k}</span>
@@ -1803,11 +1894,15 @@ export default function TradeTechPro() {
               ))}
             </div>
           </div>
-          <div className="flex items-center gap-2 rounded-xl px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
+          <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
             <span style={{ color: QC.green }}>✓</span>
             <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Resumen fiscal listo para el cliente" : "Client-ready tax summary available"}</span>
           </div>
-          <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>
+          <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setTaxLookup(null); }} className="w-full active:translate-y-px transition-transform"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
+            {lang === "es" ? "Nueva búsqueda" : "New search"}
+          </button>
+          {estimated && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
         </div>
       </div>
     );

@@ -1161,16 +1161,12 @@ app.post("/api/admin/contractors", async (req, res) => {
   const inviteUrl = `${req.protocol}://${req.get("host")}/invite/${invite}`;
   if (req.query.html) {
     return res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cuenta creada</title>
-<style>body{font-family:Arial;max-width:560px;margin:40px auto;padding:0 16px;color:#101B30}h2{margin-bottom:6px}
-.link{background:#FEF5DC;border:2px solid #F8B408;border-radius:12px;padding:14px;word-break:break-all;font-size:14px;margin:14px 0}
-a{color:#F8B408;font-weight:800}</style></head><body>
+<style>body{font-family:Inter,Arial,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#15244C}h2{margin-bottom:6px}
+.link{background:#F7EFD8;border:2px solid #C9973A;border-radius:12px;padding:14px;word-break:break-all;font-size:14px;margin:14px 0}
+a{color:#C9973A;font-weight:800}</style></head><body>
 <h2>✓ Cuenta creada: ${c.name}</h2>
-<p>Manda este link por WhatsApp al contratista. Un tap y queda dentro de su app, con sus datos guardados para siempre:</p>
+<p>Manda este enlace de invitación por texto o WhatsApp al agente. Un tap y queda dentro de su app — es su llave personal, sin App Store, con sus datos guardados para siempre:</p>
 <div class="link">${inviteUrl}</div>
-<p><b>Su widget de cotización</b> (link directo para anuncios, o para probar):</p>
-<div class="link">${req.protocol}://${req.get("host")}/w/${c.slug}</div>
-<p>Código para pegar en su página web:</p>
-<div class="link">&lt;iframe src="${req.protocol}://${req.get("host")}/w/${c.slug}" style="width:100%;max-width:430px;height:560px;border:0;border-radius:18px" loading="lazy"&gt;&lt;/iframe&gt;</div>
 <a href="/admin?key=${encodeURIComponent(ADMIN_KEY)}">← Volver al admin</a></body></html>`);
   }
   res.json({ contractor: c, inviteUrl });
@@ -1190,11 +1186,11 @@ app.get("/api/admin/invite", async (req, res) => {
   const token = await db.createInvite(c.id);
   const url = `${req.protocol}://${req.get("host")}/invite/${token}`;
   res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link de acceso</title>
-<style>body{font-family:Arial;max-width:560px;margin:40px auto;padding:0 16px;color:#101B30}
-.link{background:#FEF5DC;border:2px solid #F8B408;border-radius:12px;padding:14px;word-break:break-all;font-size:14px;margin:14px 0}
-a{color:#F8B408;font-weight:800}</style></head><body>
+<style>body{font-family:Inter,Arial,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#15244C}
+.link{background:#F7EFD8;border:2px solid #C9973A;border-radius:12px;padding:14px;word-break:break-all;font-size:14px;margin:14px 0}
+a{color:#C9973A;font-weight:800}</style></head><body>
 <h2>🔑 Link de acceso: ${c.name}</h2>
-<p>Mándalo por WhatsApp. Un tap y entra a su app con todo guardado:</p>
+<p>Mándalo por texto o WhatsApp. Un tap y entra a su app con todo guardado:</p>
 <div class="link">${url}</div>
 <a href="/admin?key=${encodeURIComponent(ADMIN_KEY)}">← Volver al admin</a></body></html>`);
 });
@@ -1301,7 +1297,7 @@ app.get("/admin", async (req, res) => {
   const ago = (x) => { if (!x) return "—"; const h = (Date.now() - new Date(x).getTime()) / 36e5; return h < 1 ? "hace minutos" : h < 24 ? `hace ${Math.round(h)}h` : `hace ${Math.round(h / 24)}d`; };
   const esc = (x) => String(x || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ALTO Pro · Admin</title><link rel="icon" href="/icon-192.png">
+<title>Quick Comp · Admin</title><link rel="icon" href="/icon-192.png">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
@@ -1383,7 +1379,7 @@ td .pill{margin:2px 3px 2px 0}
 <div class="cards">
   <div class="card gold"><div class="v">$${mrr.toLocaleString("en-US")}</div><div class="l" style="color:#9DA8C4">MRR · clientes pagando</div></div>
   <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
-  <div class="card"><div class="v">${realClients.length}</div><div class="l">Clientes total</div></div>
+  <div class="card"><div class="v">${realClients.length}</div><div class="l">Agentes total</div></div>
   <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
   <div class="card"><div class="v">${tot("visit")}</div><div class="l">Visitas · 7 días</div></div>
   <div class="card"><div class="v">${tot("quiz_done")}</div><div class="l">Llamadas pedidas</div></div>
@@ -1468,19 +1464,20 @@ td .pill{margin:2px 3px 2px 0}
 </div>
 
 <div class="panel">
-  <h2>➕ Nuevo cliente</h2>
+  <h2>➕ Nuevo agente</h2>
   <form class="newform" method="post" action="/api/admin/contractors?html=1&key=${KEY}">
-    <input name="name" placeholder="Nombre del negocio" required>
+    <input name="name" placeholder="Nombre del agente o inmobiliaria" required>
     <input name="phone" placeholder="Teléfono">
     <button>Crear cuenta</button>
   </form>
+  <p class="legend">Crea la cuenta y te dará un enlace de invitación (su llave personal). Compártelo por texto/WhatsApp — no necesita App Store.</p>
 </div>
 
 <div class="panel">
-  <h2>👷 Clientes</h2>
-  <input id="csearch" placeholder="🔍 Buscar cliente por nombre…" onkeyup="filterClients()" style="width:100%;padding:14px 16px;border:1px solid #E4E7EC;border-radius:14px;font-size:14.5px;font-weight:500;font-family:inherit;outline:none;margin-bottom:14px;transition:border-color .15s,box-shadow .15s" onfocus="this.style.borderColor='#F8B408';this.style.boxShadow='0 0 0 4px rgba(248,180,8,.18)'" onblur="this.style.borderColor='#E4E7EC';this.style.boxShadow='none'">
+  <h2>👥 Agentes</h2>
+  <input id="csearch" placeholder="🔍 Buscar agente por nombre…" onkeyup="filterClients()" style="width:100%;padding:14px 16px;border:1px solid #E4E7EC;border-radius:14px;font-size:14.5px;font-weight:500;font-family:inherit;outline:none;margin-bottom:14px;transition:border-color .15s,box-shadow .15s" onfocus="this.style.borderColor='#F8B408';this.style.boxShadow='0 0 0 4px rgba(248,180,8,.18)'" onblur="this.style.borderColor='#E4E7EC';this.style.boxShadow='none'">
   <div class="scroll"><table>
-  <tr><th>Negocio</th><th>Estado</th><th>Leads 7d</th><th>Total</th><th>Último lead</th><th>Widget</th><th>Acceso</th><th>IA / GHL</th><th>Creado</th></tr>
+  <tr><th>Agente / Inmobiliaria</th><th>Estado</th><th>Leads 7d</th><th>Total</th><th>Último lead</th><th>Widget</th><th>Acceso</th><th>IA / GHL</th><th>Creado</th></tr>
   ${list.map((c) => {
     const st = statOf(c.id);
     const hook = !!(c.data && c.data.webhook);
@@ -1883,13 +1880,13 @@ app.get("/invite/:token", async (req, res) => {
   const who = await db.getSessionContractor(session).catch(() => null);
   if (who?.data?.payStatus === "pending") {
     return res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ALTO Pro</title><style>
+<title>Quick Comp</title><style>
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0}
-body{background:#101B30;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+body{background:#15244C;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
 .card{background:#fff;border-radius:22px;padding:36px 28px;max-width:400px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.45)}
-img{height:48px;margin-bottom:12px}h1{font-size:19px;color:#101B30;margin-bottom:8px}
+img{height:54px;margin-bottom:12px}h1{font-size:19px;color:#15244C;margin-bottom:8px}
 p{color:#5A6478;font-size:14px;font-weight:600;line-height:1.6}
-a{display:inline-block;margin-top:18px;background:#F8B408;color:#101B30;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px}
+a{display:inline-block;margin-top:18px;background:#C9973A;color:#fff;text-decoration:none;font-weight:800;padding:13px 24px;border-radius:12px}
 </style></head><body><div class="card">
 <img src="/brand-logo.png" alt="Quick Comp">
 <h1>⏳ Tu cuenta se está activando</h1>

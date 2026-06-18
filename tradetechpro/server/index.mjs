@@ -4109,8 +4109,8 @@ app.get("/closer", async (req, res) => {
     ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
     : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
   const welcome = en
-    ? `Congratulations and welcome to ALTO Pro! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can measure roofs and quote starting today. See you at your onboarding call 💪`
-    : `¡Felicidades y bienvenido a ALTO Pro! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes medir techos y cotizar. Nos vemos en tu llamada de onboarding 💪`;
+    ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
+    : `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
   const esc = (x) => String(x).replace(/</g, "&lt;");
   const L = en ? {
     title: "Closer portal", langBtn: "🇲🇽 Español", langQ: "",
@@ -4122,17 +4122,17 @@ app.get("/closer", async (req, res) => {
     play: ["Press <b>P</b> in the presentation → payment link copied → send it on WhatsApp.", "While they pay: <b>create their account above</b> and copy their access link.", "Press <b>B</b> → welcome message copied → paste their access link → send it.", "Book their <b>onboarding</b> before hanging up."],
     linksT: "Links & messages",
     payT: "💳 Payment link — $297 today + $297/mo", payMissing: "Not configured yet (STRIPE_PAYMENT_LINK in Render).",
-    welT: "👋 Welcome (paste their access link)", demoT: "🛰️ Quote tool demo", demoMsgT: "👀 Demo message",
+    welT: "👋 Welcome (paste their access link)", demoT: "🏡 Valuator demo", demoMsgT: "👀 Demo message",
     open: "Open", copy: "Copy",
     scriptT: "🎤 Talk track — what you say on each slide",
     script: [
-      ["01 · Welcome", "“Thanks for booking. In 10 minutes you'll see your own roof measured by satellite. If it's not for you, no problem. Sound good?”"],
-      ["02 · Who we are", "“Before I show you anything: the owner is a contractor. He builds houses in Texas. He built this tool for himself — and uses it today for his own company. We're not an agency reselling software.”"],
-      ["03 · The problem", "“Quick question: how many calls do you miss when you're up on a roof? … Most customers go with whoever answers first. You don't lack work — you lack a system that works when you can't.”"],
-      ["04 · Your website", "“This is what YOUR site would look like — phone and computer. Now the good part: type YOUR address in the quote tool. (wait for the wow — say nothing) That feeling? That's what your customers will feel.”"],
-      ["05 · Your app", "“This app is your office. The one on the right is LIVE — tap MEASURE ROOF. Every lead hits your phone with WhatsApp ready. Neighbor asks how much? You measure it standing right there.”"],
-      ["06 · AI secretary", "“Text it like you're a customer with a leak. (let them try) This same AI answers YOUR customers at 11pm and books the appointment. You just show up.”"],
-      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us: 297 a month, 297 to start. One average roof leaves you $2,000–$4,000 — ONE extra job pays your whole year. (silence — let them talk first)”"],
+      ["01 · Welcome", "“Thanks for booking. In 10 minutes you'll see a home valued from real comparable sales. If it's not for you, no problem. Sound good?”"],
+      ["02 · Who we are", "“Before I show you anything: the owner runs construction and tech companies in Texas. He built this tool for his own deals — and uses it today for his own company. We're not an agency reselling software.”"],
+      ["03 · The problem", "“Quick question: how many sellers do you lose because they don't know their home already went up in value? … Most list with whoever shows them a number first. You don't lack contacts — you lack a system that brings sellers to you.”"],
+      ["04 · Your website", "“This is what YOUR site would look like — phone and computer. Now the good part: type YOUR address in the valuator. (wait for the wow — say nothing) That feeling? That's what your sellers will feel.”"],
+      ["05 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
+      ["06 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
+      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us: 297 a month, 297 to start. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
       ["08 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
     ],
     keysT: "⌨️ Secret shortcuts in the presentation (/demo)",
@@ -4140,17 +4140,17 @@ app.get("/closer", async (req, res) => {
     keysWarn: "⚠️ If you share your FULL SCREEN, the Stripe tab is visible. Share only the /demo tab.",
     objT: "Objections & comebacks",
     obj: [
-      ["\"It's expensive\"", "“An average roof leaves you $2,000–$4,000 profit. ONE extra job a year and this paid for itself.”"],
-      ["\"I already have a website\"", "“Does it put customers' phone numbers in your pocket with their roof already quoted? Your current site is the business card; this one sells.”"],
+      ["\"It's expensive\"", "“One commission is thousands of dollars in your pocket. ONE extra deal a year and this paid for itself.”"],
+      ["\"I already have a website\"", "“Does it put sellers' phone numbers in your pocket with their home already valued? Your current site is the business card; this one sells.”"],
       ["\"Let me think about it\"", "“What do you want to think over — the price, or whether it works? (resolve it). I'll hold today's price for you.”"],
       ["\"I need to talk to my wife/partner\"", "“Perfect. Let's book 10 minutes tomorrow with both of you and I'll show them the same demo. What time works?”"],
       ["\"My clients come from referrals\"", "“And what do people do with a referral? They Google you before calling. This turns your referrals into appointments.”"],
-      ["\"I'm not good with technology\"", "“If you can send a WhatsApp, you can use ALTO. We do the onboarding with you, step by step.”"],
+      ["\"I'm not good with technology\"", "“If you can send a WhatsApp, you can use Quick Comp. We do the onboarding with you, step by step.”"],
       ["\"What if it doesn't work for me?\"", "“No long contracts: cancel anytime and your domain leaves with you — it's in the contract.”"],
-      ["\"It's slow season / no money right now\"", "“That's exactly why: your site gets built NOW so you're positioned when the season hits. Building it mid-season is too late.”"],
-      ["\"I already have a marketing agency\"", "“We don't compete with them — we give them somewhere to send people. Does their website quote roofs by itself?”"],
+      ["\"It's slow season / no money right now\"", "“That's exactly why: your site gets built NOW so you're positioned when listings pick up. Building it mid-season is too late.”"],
+      ["\"I already have a marketing agency\"", "“We don't compete with them — we give them somewhere to send people. Does their website value homes by itself?”"],
       ["\"Why so cheap?\"", "“It's software we already built — we don't bill agency hours. We win when you stay for months.”"],
-      ["\"Internet leads are garbage\"", "“Bought leads, yes. These typed THEIR address and THEIR phone to price THEIR roof. It doesn't get warmer than that.”"],
+      ["\"Internet leads are garbage\"", "“Bought leads, yes. These typed THEIR address and THEIR phone to value THEIR home. It doesn't get warmer than that.”"],
     ],
   } : {
     title: "Portal del closer", langBtn: "🇺🇸 English", langQ: "&lang=en",
@@ -4162,17 +4162,17 @@ app.get("/closer", async (req, res) => {
     play: ["Tecla <b>P</b> en la presentación → link de pago copiado → mándalo por WhatsApp.", "Mientras paga: <b>crea su cuenta aquí arriba</b> y copia su link de acceso.", "Tecla <b>B</b> → bienvenida copiada → pega su link de acceso → envíala.", "Agenda su <b>onboarding</b> antes de colgar."],
     linksT: "Links y mensajes",
     payT: "💳 Link de pago — $297 hoy + $297/mes", payMissing: "Aún no configurado (STRIPE_PAYMENT_LINK en Render).",
-    welT: "👋 Bienvenida (pega su link de acceso)", demoT: "🛰️ Demo del cotizador", demoMsgT: "👀 Mensaje de demo",
+    welT: "👋 Bienvenida (pega su link de acceso)", demoT: "🏡 Demo del valuador", demoMsgT: "👀 Mensaje de demo",
     open: "Abrir", copy: "Copiar",
     scriptT: "🎤 Guion — qué dices en cada slide",
     script: [
-      ["01 · Bienvenida", "“Gracias por agendar. En 10 minutos vas a ver tu propio techo medido por satélite. Si no es para ti, no pasa nada. ¿Te parece?”"],
-      ["02 · Quiénes somos", "“Antes de enseñarte nada: el dueño es contratista. Construye casas en Texas. Esta herramienta la hizo para él mismo — y hoy la usa para su propia compañía. No somos una agencia revendiendo software.”"],
-      ["03 · El problema", "“Te pregunto algo: ¿cuántas llamadas pierdes cuando estás arriba del techo? … La mayoría se queda con el primero que contesta. No te falta trabajo — te falta un sistema que trabaje cuando tú no puedes.”"],
-      ["04 · Tu página", "“Así se vería TU página — en celular y computadora. Ahora lo bueno: pon TU dirección en el cotizador. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus clientes.”"],
-      ["05 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca MEDIR TECHO. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto? Lo mides ahí parado.”"],
-      ["06 · Secretaria IA", "“Escríbele como si fueras un cliente con gotera. (déjalo probar) Esta misma IA le contesta a TUS clientes a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
-      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros: 297 al mes y 297 para empezar. Un techo promedio te deja $2,000–$4,000 — UN trabajo extra paga tu año entero. (silencio — deja que hable él primero)”"],
+      ["01 · Bienvenida", "“Gracias por agendar. En 10 minutos vas a ver una casa valuada con ventas comparables reales. Si no es para ti, no pasa nada. ¿Te parece?”"],
+      ["02 · Quiénes somos", "“Antes de enseñarte nada: el dueño tiene compañías de construcción y tecnología en Texas. Esta herramienta la hizo para sus propios negocios — y hoy la usa para su propia compañía. No somos una agencia revendiendo software.”"],
+      ["03 · El problema", "“Te pregunto algo: ¿cuántos vendedores pierdes porque no saben que su casa ya subió de valor? … La mayoría lista con el primero que les enseña un número. No te faltan contactos — te falta un sistema que te traiga vendedores.”"],
+      ["04 · Tu página", "“Así se vería TU página — en celular y computadora. Ahora lo bueno: pon TU dirección en el valuador. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores.”"],
+      ["05 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
+      ["06 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
+      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros: 297 al mes y 297 para empezar. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
       ["08 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
     ],
     keysT: "⌨️ Atajos secretos en la presentación (/demo)",
@@ -4180,21 +4180,21 @@ app.get("/closer", async (req, res) => {
     keysWarn: "⚠️ Si compartes la PANTALLA completa, la pestaña de Stripe se ve. Comparte solo la pestaña de /demo.",
     objT: "Objeciones y cómo regresar",
     obj: [
-      ["\"Está caro\"", "“Un techo promedio te deja $2,000–$4,000 de ganancia. Con UN trabajo extra al año, esto ya se pagó.”"],
-      ["\"Ya tengo página\"", "“¿Y te manda los teléfonos de los clientes al bolsillo, con su techo ya cotizado? Tu página de hoy es la tarjeta; esta es la que vende.”"],
+      ["\"Está caro\"", "“Una comisión son miles de dólares en tu bolsillo. Con UN cierre extra al año, esto ya se pagó.”"],
+      ["\"Ya tengo página\"", "“¿Y te manda los teléfonos de los vendedores al bolsillo, con su casa ya valuada? Tu página de hoy es la tarjeta; esta es la que vende.”"],
       ["\"Déjame pensarlo\"", "“¿Qué quieres pensar — el precio, o si funciona? (resuélvelo). Te aparto el precio de hoy.”"],
       ["\"Lo hablo con mi esposa/socio\"", "“Perfecto. Agendemos 10 minutos mañana con los dos y les enseño la misma demo. ¿A qué hora pueden?”"],
       ["\"Mis clientes llegan por recomendación\"", "“¿Y qué hace la gente cuando le recomiendan a alguien? Lo busca en Google antes de llamar. Esto convierte tus recomendaciones en citas.”"],
-      ["\"No soy bueno con la tecnología\"", "“Si sabes mandar un WhatsApp, sabes usar ALTO. El onboarding lo hacemos contigo, paso a paso.”"],
+      ["\"No soy bueno con la tecnología\"", "“Si sabes mandar un WhatsApp, sabes usar Quick Comp. El onboarding lo hacemos contigo, paso a paso.”"],
       ["\"¿Y si no me funciona?\"", "“Sin contratos largos: cancelas cuando quieras y tu dominio se va contigo — está en el contrato.”"],
-      ["\"Es temporada baja / no hay dinero\"", "“Justo por eso: tu página se construye AHORA para que cuando venga la temporada ya estés posicionado. Montarla en plena temporada es llegar tarde.”"],
-      ["\"Ya tengo agencia de marketing\"", "“No competimos con ella — le damos a dónde mandar a la gente. ¿Su página cotiza techos sola?”"],
+      ["\"Es temporada baja / no hay dinero\"", "“Justo por eso: tu página se construye AHORA para que cuando se mueva el mercado ya estés posicionado. Montarla en plena temporada es llegar tarde.”"],
+      ["\"Ya tengo agencia de marketing\"", "“No competimos con ella — le damos a dónde mandar a la gente. ¿Su página valúa casas sola?”"],
       ["\"¿Por qué tan barato?\"", "“Es software que ya construimos — no cobramos horas de agencia. Ganamos cuando te quedas meses.”"],
-      ["\"Los leads de internet son basura\"", "“Los comprados, sí. Estos pusieron SU dirección y SU teléfono para ver el precio de SU techo. Más caliente no existe.”"],
+      ["\"Los leads de internet son basura\"", "“Los comprados, sí. Estos pusieron SU dirección y SU teléfono para ver el valor de SU casa. Más caliente no existe.”"],
     ],
   };
   res.send(`<!doctype html><html lang="${en ? "en" : "es"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ALTO Pro · ${L.title}</title><link rel="icon" href="/icon-192.png"><style>
+<title>Quick Comp · ${L.title}</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 html{background:#F5F6F8}
 body{max-width:680px;margin:0 auto;padding:34px 20px 72px;color:#0B1220;line-height:1.55;letter-spacing:-0.011em}
@@ -4300,7 +4300,7 @@ body{max-width:none;margin:0;padding:0}
 ${periodSeg("/closer", range, en)}
 <div class="toolbar">
   <a class="navbtn primary" href="/demo" target="_blank">🎤 ${en ? "Open presentation" : "Abrir presentación"}</a>
-  <a class="navbtn" href="/w/alto-demo" target="_blank">🛰️ ${en ? "Quote demo" : "Demo del cotizador"}</a>
+  <a class="navbtn" href="/w/alto-demo" target="_blank">🏡 ${en ? "Valuator demo" : "Demo del valuador"}</a>
   <a class="navbtn" href="/ejemplo" target="_blank">🏠 ${en ? "Example site" : "Página de ejemplo"}</a>
   <a class="navbtn" href="/plantillas" target="_blank">🎨 ${en ? "Templates" : "Las 3 plantillas"}</a>
 </div>
@@ -4434,8 +4434,8 @@ app.get("/demo", (req, res) => {
     : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   const welcome = en
-    ? `Congratulations and welcome to ALTO Pro! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can measure roofs and quote starting today. See you at your onboarding call 💪`
-    : `¡Felicidades y bienvenido a ALTO Pro! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes medir techos y cotizar. Nos vemos en tu llamada de onboarding 💪`;
+    ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
+    : `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
   // marketing photos appear automatically once the files exist in public/landing/
   const hasAsset = (name) =>
     fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "landing", name))

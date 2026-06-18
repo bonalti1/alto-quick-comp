@@ -30,7 +30,14 @@ const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 // Cloudflare for SaaS (custom client domains). Off until configured.
 const CF_API_TOKEN = process.env.CF_API_TOKEN || "";
 const CF_ZONE_ID = process.env.CF_ZONE_ID || "";
-const CF_CNAME_TARGET = process.env.CF_CNAME_TARGET || "app.alto-pro.com";
+// This business's own domain. Leave it UNSET and everything serves on the
+// onrender/localhost host exactly as in development. Set ROOT_DOMAIN (e.g.
+// "quickcomp.com") once DNS is live to turn on: the bare-domain sales page,
+// <slug>.ROOT_DOMAIN client subdomains, custom-domain CNAMEs, and canonical
+// links. APP_HOST is where the app/dashboard lives (defaults to app.ROOT_DOMAIN).
+const ROOT_DOMAIN = String(process.env.ROOT_DOMAIN || "").toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+const APP_HOST = String(process.env.APP_HOST || (ROOT_DOMAIN ? `app.${ROOT_DOMAIN}` : "")).toLowerCase();
+const CF_CNAME_TARGET = process.env.CF_CNAME_TARGET || APP_HOST || "";
 // Register a client's custom hostname with Cloudflare (auto SSL). Safe no-op
 // until CF_API_TOKEN + CF_ZONE_ID are set in the environment.
 async function cfAddHostname(hostname) {
@@ -135,23 +142,27 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 app.use(express.json({ limit: "300kb" }));
 app.use(express.urlencoded({ extended: false }));
 
-// The bare brand domain shows the sales landing page; the app lives on
-// app.alto-pro.com (and keeps working on the onrender.com address).
+// The bare brand domain shows the sales landing page; the app lives on the
+// app.* host (and keeps working on the onrender.com address). No-op until
+// ROOT_DOMAIN is set.
 app.use((req, res, next) => {
   const h = String(req.hostname || "").toLowerCase();
-  if ((h === "alto-pro.com" || h === "www.alto-pro.com") && (req.path === "/" || req.path === "/index.html")) {
+  if (ROOT_DOMAIN && (h === ROOT_DOMAIN || h === `www.${ROOT_DOMAIN}`) && (req.path === "/" || req.path === "/index.html")) {
     return res.send(landingPage(req));
   }
   next();
 });
 
 /* ── Client website host-routing ──
- * A client's site lives at app.alto-pro.com/site/<slug>. When a request
- * arrives on a client's own domain (custom .com via Cloudflare for SaaS) or
- * on <slug>.alto-pro.com, we serve that client's site by rewriting the root
- * path to /site/<slug>. Our own hosts and all non-root paths (assets, /api,
- * /w, …) pass straight through untouched. */
-const OUR_HOSTS = new Set(["app.alto-pro.com", "alto-pro.com", "www.alto-pro.com", "localhost", "127.0.0.1", ""]);
+ * A client's site lives at APP_HOST/site/<slug>. When a request arrives on a
+ * client's own domain (custom .com via Cloudflare for SaaS) or on
+ * <slug>.ROOT_DOMAIN, we serve that client's site by rewriting the root path
+ * to /site/<slug>. Our own hosts and all non-root paths (assets, /api, /w, …)
+ * pass straight through untouched. With ROOT_DOMAIN unset, only custom domains
+ * registered in the DB are matched — onrender/localhost serve normally. */
+const OUR_HOSTS = new Set(["localhost", "127.0.0.1", ""]);
+if (ROOT_DOMAIN) { OUR_HOSTS.add(ROOT_DOMAIN); OUR_HOSTS.add(`www.${ROOT_DOMAIN}`); }
+if (APP_HOST) OUR_HOSTS.add(APP_HOST);
 function reqHost(req) {
   return String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0].split(":")[0].trim().toLowerCase();
 }
@@ -162,7 +173,7 @@ app.use(async (req, res, next) => {
   if (req.method !== "GET" || (req.path !== "/" && req.path !== "/index.html")) return next();
   try {
     let slug = null;
-    if (h.endsWith(".alto-pro.com")) slug = h.slice(0, -13); // <slug>.alto-pro.com
+    if (ROOT_DOMAIN && h.endsWith(`.${ROOT_DOMAIN}`)) slug = h.slice(0, -(ROOT_DOMAIN.length + 1)); // <slug>.ROOT_DOMAIN
     else { const c = await db.getContractorByDomain(h); slug = c?.slug || null; }
     if (slug) { req.url = "/site/" + encodeURIComponent(slug); }
   } catch (e) { console.error("host routing:", e.message); }
@@ -1109,9 +1120,16 @@ const clearKeyCookie = (res, name) => res.setHeader("Set-Cookie", `${name}=; Pat
 // Canonical public base for generated links: always the main https domain in
 // production (never app./www. or http), so copied links work everywhere.
 function canonBase(req) {
-  const host = String(req.get("host") || "").split(":")[0];
-  if (/(^|\.)alto-pro\.com$/.test(host)) return "https://alto-pro.com";
+  const host = String(req.get("host") || "").split(":")[0].toLowerCase();
+  if (ROOT_DOMAIN && (host === ROOT_DOMAIN || host.endsWith(`.${ROOT_DOMAIN}`))) return `https://${ROOT_DOMAIN}`;
   return `${req.protocol}://${req.get("host")}`;
+}
+// Display string for where a client's published site lives: a clean
+// <slug>.ROOT_DOMAIN subdomain once a domain is configured, otherwise the
+// real working path on this host.
+function siteDisplay(req, slug) {
+  if (ROOT_DOMAIN) return `${slug}.${ROOT_DOMAIN}`;
+  return `${canonBase(req).replace(/^https?:\/\//, "")}/site/${slug}`;
 }
 
 const adminOk = (req) => ADMIN_KEY && (
@@ -1419,7 +1437,7 @@ td .pill{margin:2px 3px 2px 0}
   <h2>🔗 Tus enlaces</h2>
   ${[
     ["PÚBLICO · VENTAS", [
-      ["🌐 Página de ventas", "https://alto-pro.com"],
+      ["🌐 Página de ventas", `${base}/ventas`],
       ["🏡 Demo del valuador (mándalo a prospectos)", `${base}/w/alto-demo`],
       ["🏠 Página de ejemplo", `${base}/ejemplo`],
       ["🎨 Las 3 plantillas", `${base}/plantillas`],
@@ -1439,13 +1457,13 @@ td .pill{margin:2px 3px 2px 0}
     ["PRIVADO · TÚ", [
       ["📊 Este tablero (admin)", `${base}/admin`],
       ["🧠 Centro de mando · números + IA", `${base}/admin/economics`],
-      ["📲 La app (instalar/probar)", "https://app.alto-pro.com"],
+      ["📲 La app (instalar/probar)", `${base}/`],
       ["🩺 Estado del sistema (health)", `${base}/api/health`],
     ]],
   ].map(([group, links]) => `
     <p style="font-size:11px;font-weight:800;letter-spacing:1.5px;color:#8A94A8;margin:16px 0 6px">${group}</p>
     ${links.map(([name, url]) => {
-      const noPrev = /\/admin$/.test(url) || url.includes("/api/health") || url.includes("app.alto-pro.com");
+      const noPrev = /\/admin$/.test(url) || url.includes("/api/health") || url === `${base}/`;
       const keyed = /\/(closer|cierre|cs|onboarding|admin\/economics)$/.test(url);
       const psrc = keyed ? `${url}?key=${KEY}` : url;
       const thumb = noPrev
@@ -1838,7 +1856,7 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   <div class="kv"><span>Widget</span><a href="/w/${c.slug}" target="_blank">/w/${c.slug}</a></div>
   <div class="kv"><span>Página (pública)</span><a href="/site/${c.slug}" target="_blank">/site/${c.slug}</a></div>
   <div class="kv"><span>Borrador (preview)</span><a href="/site/${c.slug}?preview=1" target="_blank">ver borrador</a></div>
-  <div class="kv"><span>Subdominio</span><span>${c.slug}.alto-pro.com</span></div>
+  <div class="kv"><span>Sitio</span><span>${esc(siteDisplay(req, c.slug))}</span></div>
   ${st.domain ? `<div class="kv"><span>Dominio propio</span><a href="https://${esc(st.domain)}" target="_blank">${esc(st.domain)}</a></div>` : ""}
 </div>
 
@@ -2236,7 +2254,7 @@ function render(j){track('w_result');var s4=document.getElementById('s4'),h='';
 </script></body></html>`);
 });
 
-/* ── Sales landing page (alto-pro.com) ──
+/* ── Sales landing page (served at the bare ROOT_DOMAIN, and at /ventas) ──
  * One bold page that sells the bundle by SHOWING it: the live widget is
  * embedded so a visitor can measure a real roof right on the page.
  * Interested roofers leave name + phone → lead in the "alto-ventas" account. */
@@ -3273,7 +3291,7 @@ textarea.big{min-height:150px;font-size:16px}
     <button class="nav-it" onclick="go(5)"><span class="no">6</span>Su dominio</button>
     <button class="nav-it" onclick="go(6)"><span class="no">7</span>Listo</button>
   </nav>
-  <div class="sb-foot">🌐 ${esc(c.slug)}.alto-pro.com</div>
+  <div class="sb-foot">🌐 ${esc(siteDisplay(req, c.slug))}</div>
 </aside>
 <main>
   <div class="mtop"><img src="/brand-logo.png" alt=""><div><div class="mstep" id="mstep">Paso 1 de 7</div><div class="mtitle" id="mtitle">Bienvenida</div></div></div>
@@ -3288,7 +3306,7 @@ textarea.big{min-height:150px;font-size:16px}
         <div class="wflow">
           <div class="wf"><div class="n">01</div><h4>Tus preferencias</h4><p>Juntamos tu estilo, tu historia y tus fotos en esta llamada.</p></div>
           <div class="wf"><div class="n">02</div><h4>Nuestro equipo de diseño</h4><p>Lo arma todo a mano con tu marca — no es una plantilla genérica.</p></div>
-          <div class="wf"><div class="n">03</div><h4>Tu página, lista</h4><p>En 10–14 días, en ${esc(c.slug)}.alto-pro.com o tu propio dominio.</p></div>
+          <div class="wf"><div class="n">03</div><h4>Tu página, lista</h4><p>En 10–14 días, en ${esc(siteDisplay(req, c.slug))} o tu propio dominio.</p></div>
         </div>
       </div>
     </section>
@@ -3335,7 +3353,7 @@ textarea.big{min-height:150px;font-size:16px}
         <div class="bigwrap">
           <p class="cap">Así se vería en computadora</p>
           <div class="webframe">
-            <div class="wbar"><span class="wdot"></span><span class="wdot"></span><span class="wdot"></span><span class="wurl">${esc(c.slug)}.alto-pro.com</span></div>
+            <div class="wbar"><span class="wdot"></span><span class="wdot"></span><span class="wdot"></span><span class="wurl">${esc(siteDisplay(req, c.slug))}</span></div>
             <div class="dscr"><iframe id="bigframe" src="/plantilla/1?embed=1" title="Vista de computadora"></iframe></div>
           </div>
         </div>
@@ -3388,7 +3406,7 @@ textarea.big{min-height:150px;font-size:16px}
     <section class="slide">
       <div class="s-in top">
         <p class="kick">Paso 6 · Su dominio</p>
-        <h1>Su propio <em>dominio.</em> <small>Opcional — su página ya vive en ${esc(c.slug)}.alto-pro.com</small></h1>
+        <h1>Su propio <em>dominio.</em> <small>Opcional — su página ya vive en ${esc(siteDisplay(req, c.slug))}</small></h1>
         <div class="fcard">
           <label>Buscar un dominio disponible</label>
           <div style="display:flex;gap:8px"><input id="dsearch" placeholder="Nombre del negocio o dominio" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();checkDomain();}"><button type="button" onclick="checkDomain()" id="dsbtn" class="btn-dark" style="white-space:nowrap;background:var(--gold);color:#101B30">Buscar</button></div>
@@ -3725,7 +3743,7 @@ app.post("/api/onboarding/domain", async (req, res) => {
     return res.json({ ok: true, domain: null });
   }
   if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain) || domain.length > 80) return res.status(400).json({ error: "dominio no válido" });
-  if (domain.endsWith(".alto-pro.com")) return res.status(400).json({ error: "ese es un subdominio nuestro, no un dominio propio" });
+  if (ROOT_DOMAIN && domain.endsWith(`.${ROOT_DOMAIN}`)) return res.status(400).json({ error: "ese es un subdominio nuestro, no un dominio propio" });
   const data = { ...(c.data || {}) };
   data.site = { ...(data.site || {}), domain };
   await db.saveContractorData(c.id, data);

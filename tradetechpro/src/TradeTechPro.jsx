@@ -189,7 +189,7 @@ const TR = {
     madeFor: "HECHO PARA CONTRATISTAS",
     alreadyClient: "¿Ya eres cliente de ALTO Pro?",
     demoBanner: "🧪 Modo demo — tus datos no se guardan en la nube. ¿Cliente? Entra con tu link de WhatsApp.",
-    demoLimit: "El modo demo incluye 6 mediciones de prueba y ya las usaste. Los clientes de ALTO Pro miden sin límite.",
+    demoLimit: "El modo demo incluye 6 valuaciones de prueba y ya las usaste. Los clientes de Quick Comp valúan sin límite.",
     alreadyClientHint: "Entra con el link que te mandamos por WhatsApp — es tu llave personal. ¿Lo perdiste? Escríbenos y te mandamos uno nuevo.",
     aiErr: "No pude conectar. Intenta de nuevo.",
     estCreated: "Estimado creado",
@@ -309,7 +309,7 @@ const TR = {
     madeFor: "BUILT FOR CONTRACTORS",
     alreadyClient: "Already an ALTO Pro client?",
     demoBanner: "🧪 Demo mode — your data isn't saved to the cloud. Client? Enter with your WhatsApp link.",
-    demoLimit: "The demo includes 6 trial measurements and you've used them. ALTO Pro clients measure with no limits.",
+    demoLimit: "The demo includes 6 trial valuations and you've used them. Quick Comp clients value with no limits.",
     alreadyClientHint: "Enter with the link we sent you on WhatsApp — it's your personal key. Lost it? Message us and we'll send a new one.",
     aiErr: "Couldn't connect. Try again.",
     estCreated: "Estimate created",
@@ -553,7 +553,7 @@ const savedProfile = (() => {
 /* Demo entrance for the sales deck (/?demo=roof): open straight on the
  * quote screen with an ephemeral demo profile — nothing is saved, and a
  * real signed-in user's data is never touched. */
-const WANT_ROOF = /[?&]demo=roof/.test(window.location.search);
+const WANT_ROOF = /[?&]demo=(roof|app|qc)/.test(window.location.search);
 const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 
 /* ─── Main App ─── */
@@ -561,10 +561,10 @@ export default function TradeTechPro() {
   const [lang, setLang] = useState(savedProfile.lang || "es");
   const t = TR[lang];
   const welcomedInit = (() => { try { return !!localStorage.getItem("qc_welcomed"); } catch { return false; } })();
-  const [screen, setScreen] = useState(WANT_ROOF ? "home" : (welcomedInit ? "comps" : "welcome"));
+  const [screen, setScreen] = useState(WANT_ROOF ? "comps" : (welcomedInit ? "comps" : "welcome"));
   const [trade, setTrade] = useState(savedProfile.trade || "roofing");
-  const [userName, setUserName] = useState(savedProfile.name || (DEMO_ROOF ? "José" : ""));
-  const [bizName, setBizName] = useState(savedProfile.biz || (DEMO_ROOF ? "Techos García (Demo)" : ""));
+  const [userName, setUserName] = useState(savedProfile.name || (DEMO_ROOF ? "María" : ""));
+  const [bizName, setBizName] = useState(savedProfile.biz || (DEMO_ROOF ? "Casa Bella Realty (Demo)" : ""));
   const [userPhone, setUserPhone] = useState(savedProfile.phone || "");
   const [logo, setLogo] = useState(savedProfile.logo || null);
   const [bizEmail, setBizEmail] = useState(savedProfile.email || "");

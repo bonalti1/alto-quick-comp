@@ -1,36 +1,83 @@
+# Quick Comp — standalone Render blueprint.
+# Spins up the web service AND its own Postgres, fully independent from any
+# other deploy. In Render: New + → Blueprint → pick this repo.
+#
+# Secrets marked `sync: false` are NOT in git — set them in the dashboard
+# after the first deploy (or paste them when prompted). The three portal keys
+# are auto-generated as strong secrets; read them in Render → Environment to
+# log into /admin, /closer and /cs.
+
+databases:
+  - name: quick-comp-db
+    plan: free
+    region: oregon
+    databaseName: quickcomp
+    user: quickcomp
+
 services:
   - type: web
-    name: tradetechpro
+    name: quick-comp
     runtime: node
     rootDir: tradetechpro
+    region: oregon
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run server
-    plan: free
+    healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
-      - key: GOOGLE_MAPS_API_KEY
+      # Node — needs >= 20.12 for the --env-file-if-exists flag in `npm run server`.
+      - key: NODE_VERSION
+        value: "22"
+
+      # Persistent database — auto-wired from the managed Postgres above.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: quick-comp-db
+          property: connectionString
+
+      # Portal access — auto-generated strong secrets. View them in
+      # Render → Environment to log into /admin, /closer, /cs.
+      - key: ADMIN_KEY
+        generateValue: true
+      - key: CLOSER_KEY
+        generateValue: true
+      - key: CS_KEY
+        generateValue: true
+
+      # Your own domain — leave BLANK until DNS is live, then set ROOT_DOMAIN
+      # (e.g. quickcomp.com) to turn on the bare-domain sales page,
+      # <slug>.ROOT_DOMAIN client subdomains, and canonical links.
+      - key: ROOT_DOMAIN
         sync: false
-      - key: REGRID_API_KEY
+      - key: APP_HOST
+        sync: false
+
+      # Live data providers — set these to leave demo mode.
+      - key: GOOGLE_MAPS_API_KEY
         sync: false
       - key: RENTCAST_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: OPENAI_API_KEY
+      - key: REGRID_API_KEY
         sync: false
+
+      # Billing (Stripe) — optional until you turn on self-serve payments.
       - key: STRIPE_PAYMENT_LINK
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      - key: CLOSER_KEY
-        sync: false
-      - key: CS_KEY
-        sync: false
+
+      # Custom client domains via Cloudflare for SaaS — optional.
       - key: CF_API_TOKEN
         sync: false
       - key: CF_ZONE_ID
         sync: false
       - key: CF_CNAME_TARGET
         sync: false
+
+      # Marketing / CRM integrations — optional.
       - key: META_PIXEL_ID
         sync: false
       - key: HL_WEBHOOK_SECRET

@@ -2827,7 +2827,7 @@ app.get("/plantilla/:n", (req, res) => {
   const SIG = { 1: "#B30F24", 2: "#E8540C", 3: "#1B6FB8" };
   res.send(renderSite({
     slug: "alto-demo",
-    biz: "Techos García",
+    biz: "Casa Bella Realty",
     phone: "9565550100",
     logo: null,
     template: n,
@@ -2835,7 +2835,7 @@ app.get("/plantilla/:n", (req, res) => {
     city: "Tu Ciudad, TX",
     years: 15,
     license: "00000",
-    about: "Empezamos hace 15 años con una troca y muchas ganas. Hoy somos un equipo que ha hecho cientos de techos en la región — y seguimos tratando cada casa como si fuera la nuestra.",
+    about: "Empezamos hace 15 años ayudando a familias a vender y comprar su casa en la región. Hoy seguimos con la misma idea: precio honesto, ventas reales y trato de familia — cada cliente como si fuera el único.",
   }, embed ? {} : { ribbon: `PLANTILLA ${n} — imagina TU logo y TU nombre aquí.`, backAlto: true }));
 });
 
@@ -2847,7 +2847,7 @@ app.get("/plantillas", (req, res) => {
     ["3", "El Limpio", "Suave y de confianza — el vecino honesto.", "#1B6FB8"],
   ];
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ALTO Pro · Elige tu plantilla</title><link rel="icon" href="/icon-192.png"><style>
+<title>Quick Comp · Elige tu plantilla</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0}
 body{background:#101B30;color:#fff;padding:34px 20px 60px}
 h1{text-align:center;font-size:clamp(24px,4.5vw,36px);font-weight:800}
@@ -2868,7 +2868,7 @@ h1 em{color:#F8B408;font-style:normal}
 .open{display:inline-block;margin-top:12px;background:#fff;color:#101B30;text-decoration:none;font-weight:800;font-size:13px;padding:10px 20px;border-radius:99px}
 </style></head><body>
 <h1>¿Cuál se siente <em>más tú</em>?</h1>
-<p class="sub">Tres estilos, el mismo motor: tu logo, tus colores y el cotizador por satélite adentro. Prueba tu color de marca — las tres se pintan al instante.</p>
+<p class="sub">Tres estilos, el mismo motor: tu logo, tus colores y el valuador de casas adentro. Prueba tu color de marca — las tres se pintan al instante.</p>
 <div class="colorbar">
   <label>🎨 Tu color:</label>
   <input type="color" id="col" value="#B30F24">

@@ -1,5 +1,5 @@
 /*
- * ALTO Pro website factory — the 3 client templates.
+ * Quick Comp website factory — the 3 realtor client templates.
  *
  * Every client site is RENDERED FROM DATA through these battle-tested
  * templates; no code is ever generated per client. Improve a template
@@ -25,10 +25,10 @@ function shade(hex, f) {
 }
 
 const DEFAULT_SERVICES = [
-  ["🏠", "Reemplazo de techo", "Teja arquitectónica, metal o teja de barro. Trabajo limpio, rápido y con garantía por escrito."],
-  ["🔧", "Reparaciones", "Goteras, tejas voladas por el viento, flasheo. Respuesta el mismo día cuando es posible."],
-  ["🌪️", "Reclamos de seguro", "Te acompañamos en la inspección y el papeleo después de granizo o tormenta."],
-  ["🔍", "Inspección gratuita", "Revisamos tu techo y te decimos la verdad — aunque no necesites nada todavía."],
+  ["🏡", "Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
+  ["🔑", "Compra tu casa", "Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves."],
+  ["📊", "Valuación / CMA gratis", "Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy."],
+  ["🤝", "Asesoría de mercado", "Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy."],
 ];
 
 /* Shared pieces */
@@ -36,7 +36,7 @@ function headBase(d, css) {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(d.biz)}${d.city ? " · " + esc(d.city) : ""}</title>
-<meta name="description" content="${esc(d.biz)} — techos residenciales${d.city ? " en " + esc(d.city) : ""}. Cotiza tu techo en 60 segundos, medido por satélite.">
+<meta name="description" content="${esc(d.biz)} — bienes raíces${d.city ? " en " + esc(d.city) : ""}. Conoce el valor de tu casa en 60 segundos, con ventas reales cercanas.">
 <style>${css}</style></head><body>`;
 }
 
@@ -47,16 +47,16 @@ function ribbonHtml(opts) {
 
 function backAltoHtml(opts) {
   if (!opts.backAlto) return "";
-  return `<a style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:50;background:#101B30;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 22px;border-radius:99px;box-shadow:0 14px 36px rgba(16,27,48,.5);font-family:Inter,Arial,sans-serif;white-space:nowrap" href="/ventas#precio">← Volver a <span style="color:#F8B408">ALTO PRO</span></a>`;
+  return `<a style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:50;background:#15244C;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 22px;border-radius:99px;box-shadow:0 14px 36px rgba(16,27,48,.5);font-family:Inter,Arial,sans-serif;white-space:nowrap" href="/ventas#precio">← Volver a <span style="color:#C9973A">QUICK COMP</span></a>`;
 }
 
 function footerBits(d) {
-  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · Lic. ${esc(d.license)}` : ""}<br>Página hecha con ⚡ ALTO Pro`;
+  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · Lic. ${esc(d.license)}` : ""}<br>Página hecha con ⚡ Quick Comp`;
 }
 
 const statsCells = (d) => [
   d.years ? [`${d.years}+`, "años de experiencia"] : null,
-  ["100%", "garantía escrita"],
+  ["100%", "dedicación"],
   ["ES/EN", "hablamos los dos"],
 ].filter(Boolean);
 
@@ -120,20 +120,20 @@ ${ribbonHtml(opts)}
 </div></header>
 <div class="hero"><div class="veil"></div>
   <div class="wrap in">
-    <span class="kick">TECHOS RESIDENCIALES${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</span>
-    <h1>${d.hero || `Un techo que protege<br>lo que <em>más importa</em>`}</h1>
-    <p>${esc(d.tagline) || "Reemplazo y reparación de techos con garantía por escrito. Cotiza el tuyo ahora mismo, medido por satélite — sin que nadie te visite."}</p>
-    <a class="cta" href="#cotiza">COTIZA EN 60 SEGUNDOS</a>${d.phone ? `<a class="cta ghost" href="tel:+1${d.phone}">Llámanos</a>` : ""}
+    <span class="kick">BIENES RAÍCES${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</span>
+    <h1>${d.hero || `Vende tu casa por<br>lo que <em>de verdad vale</em>`}</h1>
+    <p>${esc(d.tagline) || "Conoce el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite."}</p>
+    <a class="cta" href="#cotiza">VALÚA TU CASA EN 60 SEGUNDOS</a>${d.phone ? `<a class="cta ghost" href="tel:+1${d.phone}">Llámanos</a>` : ""}
   </div>
   <div class="wrap stats">${statsCells(d).map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("")}</div>
 </div>
-<div class="trust"><span>✓ ${d.license ? "Licenciado y asegurado" : "Asegurado"}</span><span>✓ Garantía por escrito</span><span>✓ Inspección gratis</span><span>✓ Hablamos español</span></div>
+<div class="trust"><span>✓ ${d.license ? "Agente licenciado" : "Agente local"}</span><span>✓ Ventas reales comparables</span><span>✓ Valuación gratis</span><span>✓ Hablamos español</span></div>
 
 <div class="wrap"><section id="cotiza">
-  <p class="eyebrow">Cotización instantánea</p>
-  <h2 class="t">Tu precio, <em>sin esperar</em></h2>
-  <p class="sub">Escribe tu dirección y mira tu techo medido por satélite, con tu precio estimado. Gratis y sin compromiso.</p>
-  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Cotizador"></iframe></div>
+  <p class="eyebrow">Valuación instantánea</p>
+  <h2 class="t">El valor de tu casa, <em>sin esperar</em></h2>
+  <p class="sub">Escribe tu dirección y mira el valor de tu casa con ventas reales cercanas. Gratis y sin compromiso.</p>
+  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe></div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:6px">
@@ -157,8 +157,8 @@ ${d.photos.length ? `<div class="wrap"><section style="padding-top:10px">
 </section></div>` : ""}
 
 <div class="ctaband">
-  <h2>¿Listo para un techo<br><em>hecho bien?</em></h2>
-  <a class="a1" href="#cotiza">COTIZA AHORA</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
+  <h2>¿Listo para vender<br><em>al mejor precio?</em></h2>
+  <a class="a1" href="#cotiza">VALÚA AHORA</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
 </div>
 <footer>${footerBits(d)}</footer>
 ${backAltoHtml(opts)}
@@ -168,7 +168,7 @@ ${backAltoHtml(opts)}
 /* ── Template 2 · Fuerte (industrial · oversized · dark) ── */
 function t2(d, opts) {
   const c1 = d.color, ink = "#0B0E13", panel = "#11151C";
-  const ghost = esc(String(d.biz || "Techos").split(" ")[0].toUpperCase());
+  const ghost = esc(String(d.biz || "Casa").split(" ")[0].toUpperCase());
   const css = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
@@ -230,20 +230,20 @@ ${ribbonHtml(opts)}
 <div class="hero">
   <div class="ghostword bc">${ghost}</div>
   <div class="wrap in">
-    <p class="hk">Techos residenciales${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</p>
-    <h1>${d.hero || `Techos <em>fuertes.</em><br>Hechos bien.`}</h1>
-    <p class="lede">${esc(d.tagline) || "Reemplazo y reparación con garantía por escrito. Cotiza tu techo en 60 segundos — medido por satélite, sin visitas."}</p>
-    <div class="ctas"><a class="btn p" href="#cotiza">Cotiza ya</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">Llámanos</a>` : ""}</div>
+    <p class="hk">Bienes raíces${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</p>
+    <h1>${d.hero || `Vende <em>al mejor</em><br>precio.`}</h1>
+    <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa en 60 segundos — con ventas reales cercanas, sin visitas y sin compromiso."}</p>
+    <div class="ctas"><a class="btn p" href="#cotiza">Valúa ya</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">Llámanos</a>` : ""}</div>
   </div>
 </div>
 <div class="strip"><div class="wrap in">${statsCells(d).map(([b, s]) => `<div class="num"><b>${b}</b><span>${s}</span></div>`).join("")}</div></div>
 <div class="quote" id="cotiza"><div class="wrap"><div class="qgrid">
   <div>
-    <p class="lab">Cotización satelital</p>
-    <h2 class="t">Tu precio <em>en 60 segundos</em></h2>
-    <p class="lead">Escribe tu dirección. El satélite mide tu techo y te da el precio estimado al instante. Gratis, sin compromiso, sin esperar a nadie.</p>
+    <p class="lab">Valuación instantánea</p>
+    <h2 class="t">Tu valor <em>en 60 segundos</em></h2>
+    <p class="lead">Escribe tu dirección. Analizamos ventas comparables reales y te damos el valor estimado al instante. Gratis, sin compromiso, sin esperar a nadie.</p>
   </div>
-  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Cotizador"></iframe></div>
+  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe></div>
 </div></div></div>
 <div class="wrap"><div class="svcwrap">
   ${d.services.map(([ic, t, x], i) => `<div class="svc"><div class="no">${String(i + 1).padStart(2, "0")}</div><div><h3>${esc(t)}</h3><p>${esc(x)}</p></div><div class="ic">${ic}</div></div>`).join("")}
@@ -251,7 +251,7 @@ ${ribbonHtml(opts)}
 ${d.about ? `<div class="about"><div class="wrap"><div class="qm bc">&ldquo;</div><p>${esc(d.about)}</p></div></div>` : ""}
 ${d.photos.length ? `<div class="wrap"><div class="gal">${d.photos.map((p) => `<img loading="lazy" src="${esc(p)}" alt="">`).join("")}</div></div>` : ""}
 <footer>${footerBits(d)}</footer>
-<div class="bar"><a href="#cotiza">🛰️ Cotiza gratis</a>${d.phone ? `<a href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}</div>
+<div class="bar"><a href="#cotiza">🏡 Valúa gratis</a>${d.phone ? `<a href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}</div>
 ${backAltoHtml(opts)}
 </body></html>`;
 }
@@ -322,17 +322,17 @@ ${ribbonHtml(opts)}
 </div></header>
 <div class="hero"><div class="wrap"><div class="hgrid">
   <div>
-    <span class="pill">🏠 Techos residenciales${d.city ? ` · ${esc(d.city)}` : ""}</span>
-    <h1>${d.hero || `Tu casa, protegida.<br><em>Tu familia, tranquila.</em>`}</h1>
-    <p class="lede">${esc(d.tagline) || "Reemplazo y reparación de techos con garantía por escrito — cotiza el tuyo aquí mismo, sin que nadie te visite."}</p>
-    <div class="hcta"><a class="btn p" href="#cotiza">Cotiza gratis</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">📞 Llámanos</a>` : ""}</div>
+    <span class="pill">🏡 Bienes raíces${d.city ? ` · ${esc(d.city)}` : ""}</span>
+    <h1>${d.hero || `Vende tu casa.<br><em>Sin estrés.</em>`}</h1>
+    <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa con ventas reales cercanas — aquí mismo, gratis y sin que nadie te visite."}</p>
+    <div class="hcta"><a class="btn p" href="#cotiza">Valúa gratis</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">📞 Llámanos</a>` : ""}</div>
   </div>
   <div class="qcard" id="cotiza">
-    <div class="qtag"><span class="dot"></span> Cotiza tu techo aquí — gratis</div>
-    <iframe src="/w/${esc(d.slug)}" loading="lazy" title="Cotizador"></iframe>
+    <div class="qtag"><span class="dot"></span> Valúa tu casa aquí — gratis</div>
+    <iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe>
   </div>
 </div>
-<div class="trust" style="margin-top:36px">${statsCells(d).map(([b, s]) => `<span>✓ ${b} ${s}</span>`).join("")}<span>✓ Inspección gratis</span></div>
+<div class="trust" style="margin-top:36px">${statsCells(d).map(([b, s]) => `<span>✓ ${b} ${s}</span>`).join("")}<span>✓ Valuación gratis</span></div>
 </div></div>
 <div class="wrap"><section>
   <div class="head"><p class="eye">Servicios</p><h2 class="t">¿Cómo te <em>ayudamos</em>?</h2></div>
@@ -348,8 +348,8 @@ ${d.photos.length ? `<div class="wrap"><section style="padding-top:6px">
 </section></div>` : ""}
 <div class="wrap"><section style="padding-top:6px"><div class="ctacard">
   <h2>¿Listo para empezar?</h2>
-  <p>Tu cotización está a 60 segundos de distancia.</p>
-  <a class="a1" href="#cotiza">Cotiza ahora</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
+  <p>Tu valuación está a 60 segundos de distancia.</p>
+  <a class="a1" href="#cotiza">Valúa ahora</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
 </div></section></div>
 <footer>${footerBits(d)}</footer>
 ${backAltoHtml(opts)}

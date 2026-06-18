@@ -2261,6 +2261,7 @@ function render(j){track('w_result');var s4=document.getElementById('s4'),h='';
 function landingPage(req) {
   const base = canonBase(req);
   const en = req.query.lang === "en";
+  const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   // Meta Pixel for ad tracking — only renders once META_PIXEL_ID is set
   const pixelId = (process.env.META_PIXEL_ID || "").replace(/[^0-9]/g, "");
   const pixelHead = pixelId ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixelId}');fbq('track','PageView');</script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"/></noscript>` : "";
@@ -2291,7 +2292,7 @@ function landingPage(req) {
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     cap1: "Valued from comps<br>in 60 seconds", cap2: "Want to be sure?<br>Pick your own comparables", cap3: "Professional CMA with your<br>brand, ready to send",
     priceT: "ONE <em>PRICE</em>", priceSub: "No fine print. No long contracts. Cancel anytime and your domain is yours.",
-    mo: "/mo", setup: "+ $297 to start (one time)",
+    mo: "/mo", setup: "+ $297 to start (one time)", buyNow: "Start now →", orBook: "or book a call first",
     inc: ["Your professional website with your brand", "Instant home-value tool on your site", "The Quick Comp app: values, CMAs, leads", "Seller leads straight to your WhatsApp", "Your domain (yourname.com) is yours — by contract", "Bilingual support"],
     talkT: "READY? <em>LET'S TALK</em>", talkSub: "Answer 4 quick questions and schedule a call with the team. No obligation — we answer everything and you decide.",
     q1: "What do you focus on?", q1o: ["Residential", "Luxury", "Both", "Other"],
@@ -2326,7 +2327,7 @@ function landingPage(req) {
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     cap1: "Valuado con comparables<br>en 60 segundos", cap2: "¿Quieres estar seguro?<br>Escoge tú mismo las comparables", cap3: "CMA profesional con tu<br>marca, listo para mandar",
     priceT: "UN SOLO <em>PRECIO</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras y tu dominio es tuyo.",
-    mo: "/mes", setup: "+ $297 para empezar (una sola vez)",
+    mo: "/mes", setup: "+ $297 para empezar (una sola vez)", buyNow: "Comenzar ahora →", orBook: "o agenda una llamada primero",
     inc: ["Tu página web profesional con tu marca", "Valuador de casas instantáneo en tu página", "La app Quick Comp: valores, CMAs, leads", "Leads de venta directo a tu WhatsApp", "Tu dominio (tunombre.com) es tuyo — por contrato", "Soporte en español"],
     talkT: "¿LISTO? <em>HABLEMOS</em>", talkSub: "Contesta 4 preguntas rápidas y agenda una llamada con el equipo. Sin compromiso — resolvemos todas tus dudas y tú decides.",
     q1: "¿En qué te enfocas?", q1o: ["Residencial", "Lujo", "Ambos", "Otro"],
@@ -2486,6 +2487,10 @@ footer a{color:#8A94A8}
     <div class="amt">$297<small>${L.mo}</small></div>
     <div class="setup">${L.setup}</div>
     <ul>${L.inc.map((x) => `<li>${x}</li>`).join("")}</ul>
+    ${stripeLink
+      ? `<a class="cta" style="margin-top:26px;width:100%;text-align:center" href="${stripeLink}" target="_blank" rel="noreferrer">${L.buyNow}</a>
+         <a href="#contacto" style="display:block;text-align:center;margin-top:14px;color:#67718A;font-weight:700;font-size:13px;text-decoration:none">${L.orBook}</a>`
+      : `<a class="cta" style="margin-top:26px;width:100%;text-align:center" href="#contacto">${L.cta2}</a>`}
   </div>
 </section></div></div>
 

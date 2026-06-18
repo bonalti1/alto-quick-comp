@@ -2084,9 +2084,9 @@ app.get("/w/:slug", async (req, res) => {
 h1{font-size:20px;margin:12px 0 8px}p{color:#5A6478;font-weight:600;font-size:14.5px;line-height:1.6}
 a{display:inline-block;margin-top:18px;background:#101B30;color:#fff;text-decoration:none;font-weight:800;padding:14px 26px;border-radius:12px}
 </style></head><body><div class="card">
-<span style="font-size:40px">🛠️</span>
+<span style="font-size:40px">🏡</span>
 <h1>${pBiz}</h1>
-<p>La cotización en línea no está disponible por el momento.<br>Online quotes are temporarily unavailable.</p>
+<p>La estimación de valor en línea no está disponible por el momento.<br>Online home valuations are temporarily unavailable.</p>
 ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
 </div></body></html>`);
   }
@@ -2097,35 +2097,35 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const logo = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(prof.logo || "")) ? prof.logo : null;
   const es = (req.query.lang || prof.lang || "es") !== "en";
   const L = es ? {
-    title: `Precio de tu techo en 60 segundos`,
-    sub: "Medido por satélite · 100% gratis · Sin compromiso",
+    title: `El valor de tu casa en 60 segundos`,
+    sub: "Basado en ventas reales cercanas · 100% gratis · Sin compromiso",
     addr: "Dirección de tu casa", cont: "CONTINUAR →",
-    who: "¿A dónde mandamos tu precio?", name: "Tu nombre", phone: "Tu teléfono (celular)",
-    see: "VER MI PRECIO →", back: "← Cambiar dirección",
-    m1: "Buscando imagen satelital…", m2: "Midiendo tu techo…", m3: "Calculando tu precio…",
-    range: "PRECIO ESTIMADO", rangeSub: "Teja arquitectónica, instalada. Precio preliminar — inspección gratis para precio exacto.",
+    who: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
+    see: "VER EL VALOR →", back: "← Cambiar dirección",
+    m1: "Buscando tu propiedad…", m2: "Analizando ventas comparables…", m3: "Calculando el valor…",
+    range: "VALOR ESTIMADO", rangeSub: "Basado en ventas recientes de casas similares. Estimado preliminar — contáctanos para un análisis completo (CMA).",
     sent: "✓ Recibimos tus datos", call: (b) => `${b} te contacta hoy mismo.`,
-    nores: "¡Listo! Recibimos tu información.", noresSub: (b) => `${b} te llama hoy con tu precio.`,
+    nores: "¡Listo! Recibimos tu información.", noresSub: (b) => `${b} te llama hoy con el valor de tu casa.`,
     callBtn: "📞 LLAMAR AHORA", phoneErr: "Pon un teléfono de 10 dígitos", addrErr: "Pon la dirección de tu casa",
     err: "Algo falló — intenta otra vez o llámanos.",
   } : {
-    title: "Your roof price in 60 seconds",
-    sub: "Measured by satellite · 100% free · No obligation",
+    title: "Your home's value in 60 seconds",
+    sub: "Based on real nearby sales · 100% free · No obligation",
     addr: "Your home address", cont: "CONTINUE →",
-    who: "Where do we send your price?", name: "Your name", phone: "Your phone (mobile)",
-    see: "SEE MY PRICE →", back: "← Change address",
-    m1: "Finding satellite imagery…", m2: "Measuring your roof…", m3: "Calculating your price…",
-    range: "ESTIMATED PRICE", rangeSub: "Architectural shingle, installed. Preliminary price — free inspection for an exact quote.",
+    who: "Where do we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
+    see: "SEE MY VALUE →", back: "← Change address",
+    m1: "Finding your property…", m2: "Analyzing comparable sales…", m3: "Calculating your value…",
+    range: "ESTIMATED VALUE", rangeSub: "Based on recent sales of similar homes. Preliminary estimate — contact us for a full CMA.",
     sent: "✓ We got your info", call: (b) => `${b} will contact you today.`,
-    nores: "Done! We received your information.", noresSub: (b) => `${b} will call you today with your price.`,
+    nores: "Done! We received your information.", noresSub: (b) => `${b} will call you today with your home's value.`,
     callBtn: "📞 CALL NOW", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
     err: "Something went wrong — try again or call us.",
   };
   const wBase = `${req.protocol}://${req.get("host")}`;
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz}</title>
-<meta property="og:title" content="${biz} — ${es ? "Precio de tu techo en 60 segundos" : "Your roof price in 60 seconds"}">
-<meta property="og:description" content="${es ? "Pon tu dirección y mira tu techo medido por satélite. Gratis, sin compromiso." : "Type your address and see your roof measured by satellite. Free, no obligation."}">
+<meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 60 segundos" : "Your home's value in 60 seconds"}">
+<meta property="og:description" content="${es ? "Pon tu dirección y mira el valor estimado de tu casa, basado en ventas reales cercanas. Gratis, sin compromiso." : "Type your address and see your home's estimated value from real nearby sales. Free, no obligation."}">
 <meta property="og:image" content="${wBase}/landing/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <style>
@@ -2182,15 +2182,15 @@ input:focus{border-color:#F8B408}
   <div id="s3" style="display:none" class="load"><div class="spin"></div><p class="lmsg" id="lmsg">${L.m1}</p></div>
   <div id="s4" style="display:none"></div>
 </div>
-<div class="ft">⚡ ALTO Pro</div>
+<div class="ft">⚡ Quick Comp</div>
 </div>
 <script>
 var SLUG=${JSON.stringify(c.slug)},BIZ=${JSON.stringify(prof.biz || c.name)},BPH=${JSON.stringify(bizPhone)};
 var L=${JSON.stringify({ m1: L.m1, m2: L.m2, m3: L.m3, range: L.range, rangeSub: L.rangeSub, sent: L.sent, callTxt: L.call(prof.biz || c.name), nores: L.nores, noresSub: L.noresSub(prof.biz || c.name), callBtn: L.callBtn, err: L.err,
   // contractor-facing note, demo widget only — homeowners on client sites get the free-inspection line instead
   manual: c.slug === "alto-demo" ? (es
-    ? "👆 ¿La línea no quedó perfecta? En tu app ALTO Pro tú mismo trazas el techo con el dedo y sacas la medida exacta — para que cotices con confianza."
-    : "👆 Outline not perfect? In your ALTO Pro app you trace the roof with your finger and get the exact measurement — so you quote with confidence.") : null })};
+    ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."
+    : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null })};
 function track(ev){try{fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:ev})})}catch(e){}}
 track('w_view');
 var placeId=null,tmr=null;

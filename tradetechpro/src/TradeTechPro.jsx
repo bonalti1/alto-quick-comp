@@ -499,6 +499,7 @@ export default function TradeTechPro() {
   const [measuring, setMeasuring] = useState(false);
   const [measurePhase, setMeasurePhase] = useState(0);
   const [lookup, setLookup] = useState(null);
+  const [excludedComps, setExcludedComps] = useState({}); // address -> true (realtor curates the comp set)
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
@@ -608,6 +609,7 @@ export default function TradeTechPro() {
       if (used >= 6) { showToast("🔒 " + t.demoLimit); return; }
     }
     setAddrQ(addr);
+    setExcludedComps({});
     setMeasuring(true);
     setMeasurePhase(0);
     const t0 = Date.now();
@@ -858,8 +860,43 @@ export default function TradeTechPro() {
     );
   };
 
+  /* Re-price from the comps the realtor kept — the same math the server ran
+   * (weighted mean of each comp's adjusted value), so excluding a comp
+   * recomputes the value live. Demo comps without adjValue fall back to a
+   * simple $/sqft average. */
+  const curatedView = (base) => {
+    if (!base || !base.value) return base;
+    const all = Array.isArray(base.comps) ? base.comps : [];
+    if (!all.some((c) => excludedComps[c.address])) return base;
+    const round1k = (v) => Math.round(v / 1000) * 1000;
+    const inc = all.filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]);
+    const withVals = inc.filter((c) => c.adjValue && c.weight);
+    const sqft = base.subject?.sqft || null;
+    if (withVals.length >= 2) {
+      const tw = withVals.reduce((s, c) => s + c.weight, 0);
+      const est = withVals.reduce((s, c) => s + c.adjValue * c.weight, 0) / tw;
+      const varr = withVals.reduce((s, c) => s + c.weight * (c.adjValue - est) ** 2, 0) / tw;
+      const spread = Math.min(0.12, Math.max(0.04, Math.sqrt(varr) / est || 0.08));
+      return { ...base, value: round1k(est), low: round1k(est * (1 - spread)), high: round1k(est * (1 + spread)), compsUsed: withVals.length, avgPpsf: sqft ? Math.round(est / sqft) : base.avgPpsf, curated: true };
+    }
+    const ppsfs = inc.map((c) => (c.soldPrice && c.sqft ? c.soldPrice / c.sqft : null)).filter(Boolean);
+    if (sqft && ppsfs.length >= 2) {
+      const avg = ppsfs.reduce((s, v) => s + v, 0) / ppsfs.length;
+      const est = sqft * avg;
+      return { ...base, value: round1k(est), low: round1k(est * 0.94), high: round1k(est * 1.06), compsUsed: ppsfs.length, avgPpsf: Math.round(avg), curated: true };
+    }
+    return base;
+  };
+  const toggleComp = (base, address) => {
+    if (!excludedComps[address]) {
+      const left = (base.comps || []).filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]);
+      if (left.length <= 2) { showToast(lang === "es" ? "Deja al menos 2 comparables" : "Keep at least 2 comparables"); return; }
+    }
+    setExcludedComps((m) => ({ ...m, [address]: !m[address] }));
+  };
+
   const CompsResult = () => {
-    const R = lookup;
+    const R = curatedView(lookup);
     if (!R || !R.value) {
       return (
         <div className="flex-1 px-5 pt-4" style={{ background: QC.bg }}>
@@ -920,7 +957,7 @@ export default function TradeTechPro() {
               {lang === "es"
                 ? `Basado en ${(R.compsUsed || comps.length)} ventas comparables cercanas dentro de ${R.radius || 2} mi`
                 : `Based on ${(R.compsUsed || comps.length)} nearby comparable sales within ${R.radius || 2} mi`}
-              {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}.
+              {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}{R.curated ? (lang === "es" ? " · tu selección" : " · your selection") : ""}.
             </p>
           </div>
 
@@ -956,12 +993,13 @@ export default function TradeTechPro() {
           {comps.map((c, i) => {
             const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
             const out = !!c.excludedAsOutlier;
+            const manualOut = !!excludedComps[c.address];
             const rankBg = i === 0 ? "linear-gradient(135deg,#FFD700,#FFA500)" : i === 1 ? "linear-gradient(135deg,#C0C0C0,#A0A0A0)" : i === 2 ? "linear-gradient(135deg,#CD7F32,#8B5A00)" : QC.bg;
             const rankTxt = i <= 2 ? QC.navy : QC.muted;
             const barColor = i === 0 ? QC.goldLine : i <= 2 ? QC.navy : QC.line;
             const belowMkt = c.soldPrice && c.soldPrice < R.value * 0.95;
             return (
-              <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out ? 0.55 : 1 }}>
+              <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out || manualOut ? 0.5 : 1 }}>
                 <div className="flex items-start gap-3 mb-2.5">
                   {c.latitude != null && c.longitude != null && (
                     <button onClick={() => focusCompOnMap(i)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
@@ -993,6 +1031,12 @@ export default function TradeTechPro() {
                   {[c.sqft ? `${num(c.sqft)} ${t.cmpSqft}` : null, c.beds != null ? `${c.beds} ${t.beds}` : null, c.baths != null ? `${c.baths} ${t.baths}` : null, c.yearBuilt ? `${t.builtIn} ${c.yearBuilt}` : null].filter(Boolean).map((tag, k) => (
                     <span key={k} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: QC.body }}>{tag}</span>
                   ))}
+                  {!out && (
+                    <button onClick={() => toggleComp(R, c.address)}
+                      style={{ background: manualOut ? "#EAF8EF" : "#fff", border: `1px solid ${manualOut ? "#9fd8b0" : QC.line}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, fontWeight: 800, color: manualOut ? "#1E7B3C" : QC.red, cursor: "pointer" }}>
+                      {manualOut ? (lang === "es" ? "+ Incluir" : "+ Include") : (lang === "es" ? "− Quitar" : "− Remove")}
+                    </button>
+                  )}
                   {out
                     ? <span style={{ background: "#FBEAEA", border: "1px solid #f3c7c2", borderRadius: 6, padding: "3px 8px", fontSize: 9, fontWeight: 700, color: QC.red }}>{t.cmpExcluded}</span>
                     : i === 0
@@ -1001,7 +1045,7 @@ export default function TradeTechPro() {
                         ? <span style={{ background: "#EEF6FF", border: "1px solid #c0d4f0", borderRadius: 6, padding: "3px 8px", fontSize: 9, fontWeight: 700, color: QC.navy }}>{lang === "es" ? "Bajo el mercado" : "Below Market"}</span>
                         : null}
                 </div>
-                {c.matchScore != null && !out && (
+                {c.matchScore != null && !out && !manualOut && (
                   <div className="flex items-center gap-2">
                     <div className="flex-1 overflow-hidden" style={{ height: 6, borderRadius: 20, background: QC.bg }}>
                       <div style={{ width: `${c.matchScore}%`, height: "100%", borderRadius: 20, background: barColor }} />
@@ -1345,15 +1389,15 @@ export default function TradeTechPro() {
 
   /* ── Client CMA report (printable / shareable PDF view) ── */
   const Report = () => {
-    const R = lookup;
+    const R = curatedView(lookup);
     if (!R || !R.value) return <NeedProperty title={lang === "es" ? "Informe del cliente" : "Client report"} sub={lang === "es" ? "Busca una propiedad para generar un informe con comparables y valor de mercado." : "Search a property to generate a report with comparables and a market value."} />;
     const subj = R.subject || {};
-    const comps = (Array.isArray(R.comps) ? R.comps : []).filter((c) => !c.excludedAsOutlier).slice(0, 6);
+    const comps = (Array.isArray(R.comps) ? R.comps : []).filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]).slice(0, 6);
     const n = R.compsUsed || comps.length;
     const hasRange = R.low != null && R.high != null;
     const narrative = lang === "es"
-      ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(R.value)}${hasRange ? `, dentro de un rango de ${fmt(R.low)}–${fmt(R.high)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${R.avgPpsf ? `, con un promedio de ${fmt(R.avgPpsf)} por pie²` : ""}.`
-      : `The comparable set supports an indicated market value near ${fmt(R.value)}${hasRange ? `, within a ${fmt(R.low)}–${fmt(R.high)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${R.avgPpsf ? `, averaging ${fmt(R.avgPpsf)} per square foot` : ""}.`;
+      ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(R.value)}${hasRange ? `, dentro de un rango de ${fmt(R.low)}–${fmt(R.high)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${R.avgPpsf ? `, con un promedio de ${fmt(R.avgPpsf)} por pie²` : ""}.${R.curated ? " Comparables seleccionadas personalmente por su agente." : ""}`
+      : `The comparable set supports an indicated market value near ${fmt(R.value)}${hasRange ? `, within a ${fmt(R.low)}–${fmt(R.high)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${R.avgPpsf ? `, averaging ${fmt(R.avgPpsf)} per square foot` : ""}.${R.curated ? " Comparables hand-selected by your agent." : ""}`;
     const share = async () => {
       const text = `${subj.address || R.addr} — ${fmt(R.value)}${hasRange ? ` (${fmt(R.low)}–${fmt(R.high)})` : ""}\n${narrative}`;
       try {

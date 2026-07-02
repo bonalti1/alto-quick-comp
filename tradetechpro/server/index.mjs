@@ -2393,6 +2393,10 @@ function render(j){track('w_result');if(window.parent!==window){try{window.paren
  * Interested realtors leave name + phone → lead in the "alto-ventas" account. */
 function landingPage(req) {
   const base = canonBase(req);
+  // Live app URL for the "try it yourself" embed: on the root domain the app
+  // lives on APP_HOST (base serves the landing); on onrender/local, base serves
+  // the app at /. ?demo=qc opens straight on the comps search, demo mode.
+  const appLiveUrl = (ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}/?demo=qc` : `${base}/?demo=qc`;
   // ?lang always wins; otherwise follow the visitor's browser language so
   // English-speaking realtors land in English without hunting for a toggle.
   const en = req.query.lang === "en"
@@ -2413,8 +2417,8 @@ function landingPage(req) {
     desc: "Website + instant home-value tool + app. Homeowners leave their phone to see their home's value and you get them as seller leads. Built for realtors.",
     ogTitle: "Quick Comp — Your website finds you sellers by itself",
     ogDesc: "The homeowner types their address, sees their home's value from real comps, and their phone number lands in your phone. Try it live.",
-    h1: "LET YOUR WEBSITE<br>FIND YOU SELLERS &<br>VALUE HOMES <em>24/7</em>",
-    sub: "The homeowner types their address, leaves their phone and sees their home's value from <b>real nearby sales</b> — and that seller lands straight in your phone. Even while you're showing a house or asleep.",
+    h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>60 SECONDS</em>",
+    sub: "The all-in-one tool for realtors — instant comps, CMAs, lending & tax, right from your phone. Walk into any listing appointment knowing the number. <b>Plus a website that captures sellers while you sleep.</b>",
     cta1: "SEE THE LIVE DEMO ↓", cta2: "See pricing",
     chips: ["🇺🇸 Bilingual", "🏡 Built for realtors", "📲 No App Store"],
     tryT: "TRY IT <em>RIGHT NOW</em>",
@@ -2431,6 +2435,11 @@ function landingPage(req) {
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     cap1: "Valued from comps<br>in 60 seconds", cap2: "Want to be sure?<br>Pick your own comparables", cap3: "Professional CMA with your<br>brand, ready to send",
+    appTryT: "TRY THE APP <em>YOURSELF</em>",
+    appTrySub: "This is the real tool — type any address and watch it price the home from real comps in seconds. It's yours from $67/mo.",
+    phT: "Try it on your phone 📲", phSub: "It's built for your phone. Drop your number and get your trial link — no App Store needed.",
+    phName: "Your name", phPhone: "Your phone (mobile)", phBtn: "GET MY TRIAL LINK →", phErr: "Enter a 10-digit phone",
+    phOk: "✓ Here's your trial — tap to open Quick Comp on your phone:", phTry: "Open Quick Comp →",
     priceT: "PICK YOUR <em>PLAN</em>", priceSub: "No fine print. No long contracts. Cancel anytime.",
     mo: "/mo", buyNow: "Start now →", orBook: "Not sure which one? Book a call — we'll tell you honestly.",
     popTag: "MOST POPULAR", noSetup: "no setup fee",
@@ -2459,8 +2468,8 @@ function landingPage(req) {
     desc: "Página web + valuador de casas instantáneo + app. Los dueños dejan su teléfono para ver el valor de su casa y tú los recibes como leads de venta. Para agentes de bienes raíces.",
     ogTitle: "Quick Comp — Tu página web te consigue vendedores sola",
     ogDesc: "El dueño pone su dirección, ve el valor de su casa con ventas reales, y su teléfono te llega a tu celular. Pruébalo en vivo.",
-    h1: "DEJA QUE TU PÁGINA<br>TE CONSIGA VENDEDORES Y<br>VALÚE CASAS <em>24/7</em>",
-    sub: "El dueño escribe su dirección, deja su teléfono y ve el valor de su casa con <b>ventas reales cercanas</b> — y ese vendedor te llega directo a tu celular. Aunque estés enseñando una casa o dormido.",
+    h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>60 SEGUNDOS</em>",
+    sub: "La herramienta todo-en-uno para agentes — comparables, CMAs, crédito e impuestos al instante, desde tu teléfono. Llega a cualquier cita de listing sabiendo el número. <b>Y una página que captura vendedores mientras duermes.</b>",
     cta1: "VER DEMO EN VIVO ↓", cta2: "Ver precio",
     chips: ["🇺🇸 En español", "🏡 Hecho para agentes", "📲 Sin App Store"],
     tryT: "PRUÉBALO <em>AHORA MISMO</em>",
@@ -2476,6 +2485,11 @@ function landingPage(req) {
     pNew: "1 NUEVO", pNew2: "NUEVO",
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
+    appTryT: "PRUEBA LA APP <em>TÚ MISMO</em>",
+    appTrySub: "Esta es la herramienta real — escribe cualquier dirección y mira cómo valúa la casa con comparables reales en segundos. Es tuya desde $67/mes.",
+    phT: "Pruébala en tu teléfono 📲", phSub: "Está hecha para tu teléfono. Deja tu número y recibe tu link de prueba — sin App Store.",
+    phName: "Tu nombre", phPhone: "Tu teléfono (celular)", phBtn: "QUIERO MI LINK →", phErr: "Pon un teléfono de 10 dígitos",
+    phOk: "✓ Aquí está tu prueba — toca para abrir Quick Comp en tu teléfono:", phTry: "Abrir Quick Comp →",
     cap1: "Valuado con comparables<br>en 60 segundos", cap2: "¿Quieres estar seguro?<br>Escoge tú mismo las comparables", cap3: "CMA profesional con tu<br>marca, listo para mandar",
     priceT: "ELIGE TU <em>PLAN</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras.",
     mo: "/mes", buyNow: "Comenzar ahora →", orBook: "¿No sabes cuál? Agenda una llamada — te decimos con honestidad.",
@@ -2559,6 +2573,17 @@ section{padding:64px 0}
 .shots{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
 .shot img{width:240px;border-radius:26px;border:1px solid #E6EBF3;display:block;box-shadow:0 22px 56px rgba(16,27,48,.14)}
 .shot p{text-align:center;color:#5A6478;font-size:13px;font-weight:700;margin-top:13px;line-height:1.45}
+.apptry{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:44px}
+.phone2{width:300px;flex-shrink:0;background:#0B1226;border:11px solid #1E2A45;border-radius:44px;padding:12px 10px;box-shadow:0 40px 96px rgba(0,0,0,.42)}
+.phone2 .notch{width:120px;height:24px;background:#1E2A45;border-radius:0 0 15px 15px;margin:-12px auto 10px}
+.phone2 iframe{width:100%;height:560px;border:0;border-radius:28px;display:block;background:#F1F4FA}
+.trybox{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;max-width:400px;box-shadow:0 18px 50px rgba(16,27,48,.10)}
+.trybox .tbh{font-weight:900;font-size:21px;line-height:1.2}
+.trybox .tbs{color:#5A6478;font-weight:600;font-size:14px;line-height:1.55;margin:8px 0 18px}
+.trybox input{width:100%;padding:14px;border:1.5px solid #E2E5EB;border-radius:12px;font-size:16px;font-weight:600;outline:none;margin-bottom:10px;background:#FBFBFD}
+.trybox input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);background:#fff}
+.trybox .cta{margin-top:6px}
+.trybox .err{color:#D93025;font-size:13px;font-weight:700;margin:-4px 0 8px}
 .price-card{background:#fff;border:1px solid #E8ECF3;border-radius:28px;max-width:440px;margin:0 auto;padding:38px;text-align:center;box-shadow:0 30px 80px rgba(16,27,48,.12)}
 .price-card .amt{font-family:'Barlow Condensed',sans-serif;font-size:68px;font-weight:800;line-height:1}
 .price-card .amt small{font-size:22px;color:#67718A;font-weight:700}
@@ -2643,9 +2668,28 @@ footer a{color:#8A94A8}
 </section></div></div>
 
 <div class="wrap"><section>
-  <h2 class="sec-t">${L.appT}</h2>
-  <p class="sec-sub">${L.appSub}</p>
-  <div class="shots">
+  <h2 class="sec-t">${L.appTryT}</h2>
+  <p class="sec-sub">${L.appTrySub}</p>
+  <div class="apptry">
+    <div class="phone2"><div class="notch"></div>
+      <iframe src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+    </div>
+    <div class="trybox">
+      <p class="tbh">${L.phT}</p>
+      <p class="tbs">${L.phSub}</p>
+      <div id="tryform">
+        <input id="tname" placeholder="${L.phName}" autocomplete="name">
+        <input id="tphone" placeholder="${L.phPhone}" type="tel" inputmode="numeric" autocomplete="tel">
+        <p class="err" id="terr" style="display:none">${L.phErr}</p>
+        <button class="cta" style="width:100%;margin-top:6px" onclick="sendTrial()">${L.phBtn}</button>
+      </div>
+      <div id="tryok" style="display:none">
+        <p class="tbh" style="color:#1E7B3C;font-size:16px">${L.phOk}</p>
+        <a class="cta" style="width:100%;background:#101B30;color:#fff;margin-top:12px" href="${appLiveUrl}${en ? "&lang=en" : ""}" target="_blank">${L.phTry}</a>
+      </div>
+    </div>
+  </div>
+  <div class="shots" style="margin-top:48px">
     <div class="shot"><img src="/landing/app-measure.png" alt="" loading="lazy"><p>${L.cap1}</p></div>
     <div class="shot"><img src="/landing/app-trace.png" alt="" loading="lazy"><p>${L.cap2}</p></div>
     <div class="shot"><img src="/landing/app-quote.png" alt="" loading="lazy"><p>${L.cap3}</p></div>
@@ -2719,6 +2763,18 @@ function qShow(i){
 }
 function qPick(key,val){qAns[key]=val;track('quiz_'+key);qShow(qCur+1)}
 function qBack(){qShow(qCur-1)}
+// "Try it on your phone" — captures the prospect as a sales lead, then reveals
+// the trial link so they can open the app on their phone right away.
+function sendTrial(){
+  var ph=document.getElementById('tphone').value.replace(/\\D/g,'');
+  if(ph.length<10){document.getElementById('terr').style.display='block';return}
+  document.getElementById('terr').style.display='none';
+  fetch('/api/widget/lead',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({slug:'alto-ventas',name:document.getElementById('tname').value,phone:ph,info:{src:'app-trial'}})}).catch(function(){});
+  track('quiz_done');if(window.fbq)fbq('track','Lead');
+  document.getElementById('tryform').style.display='none';
+  document.getElementById('tryok').style.display='block';
+}
 function sendLead(e){e.preventDefault();
   var ph=document.getElementById('fp').value.replace(/\\D/g,'');
   if(ph.length<10){document.getElementById('fp').style.borderColor='#D93025';return false}

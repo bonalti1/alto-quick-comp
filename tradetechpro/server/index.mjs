@@ -2133,7 +2133,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     who: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
     see: "VER EL VALOR →", back: "← Cambiar dirección",
     m1: "Buscando tu propiedad…", m2: "Analizando ventas comparables…", m3: "Calculando el valor…",
-    range: "VALOR ESTIMADO", rangeSub: "Basado en ventas recientes de casas similares. Estimado preliminar — contáctanos para un análisis completo (CMA).",
+    range: "VALOR ESTIMADO", rangeSub: "Basado en ventas recientes de casas similares. Estimado automático — no es un avalúo. Contáctanos para un análisis completo (CMA).",
     sent: "✓ Recibimos tus datos", call: (b) => `${b} te contacta hoy mismo.`,
     nores: "¡Listo! Recibimos tu información.", noresSub: (b) => `${b} te llama hoy con el valor de tu casa.`,
     callBtn: "📞 LLAMAR AHORA", phoneErr: "Pon un teléfono de 10 dígitos", addrErr: "Pon la dirección de tu casa",
@@ -2145,7 +2145,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     who: "Where do we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
     see: "SEE MY VALUE →", back: "← Change address",
     m1: "Finding your property…", m2: "Analyzing comparable sales…", m3: "Calculating your value…",
-    range: "ESTIMATED VALUE", rangeSub: "Based on recent sales of similar homes. Preliminary estimate — contact us for a full CMA.",
+    range: "ESTIMATED VALUE", rangeSub: "Based on recent sales of similar homes. Automated estimate — not an appraisal. Contact us for a full CMA.",
     sent: "✓ We got your info", call: (b) => `${b} will contact you today.`,
     nores: "Done! We received your information.", noresSub: (b) => `${b} will call you today with your home's value.`,
     callBtn: "📞 CALL NOW", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
@@ -2208,6 +2208,9 @@ input:focus{border-color:#C9973A}
     <p class="err" id="e2" style="display:none">${L.phoneErr}</p>
     <button class="btn" id="go" onclick="submit()">${L.see}</button>
     <button class="ghost" onclick="back1()">${L.back}</button>
+    <p style="font-size:11px;color:#8A94A8;line-height:1.5;margin-top:12px;text-align:center">${!es
+      ? `By continuing you agree that ${esc(prof.biz || c.name)} may call or text you about your home's value. Msg &amp; data rates may apply. This is an estimate, not an appraisal. <a href="/legal" target="_blank" style="color:#8A94A8;text-decoration:underline">Privacy &amp; Terms</a>.`
+      : `Al continuar aceptas que ${esc(prof.biz || c.name)} te llame o mande mensajes sobre el valor de tu casa. Pueden aplicar tarifas de mensajes. Esto es un estimado, no un avalúo. <a href="/legal?lang=es" target="_blank" style="color:#8A94A8;text-decoration:underline">Privacidad y Términos</a>.`}</p>
   </div>
   <div id="s3" style="display:none" class="load"><div class="spin"></div><p class="lmsg" id="lmsg">${L.m1}</p></div>
   <div id="s4" style="display:none"></div>
@@ -2584,7 +2587,7 @@ footer a{color:#8A94A8}
     <button type="button" class="qback" id="qback" onclick="qBack()" style="display:none">${L.back}</button>
   </div>
 </section>
-<footer>${L.foot}</footer>
+<footer>${L.foot}<br><a href="/legal${en ? "" : "?lang=es"}" style="color:inherit;text-decoration:underline;opacity:.85">${en ? "Privacy &amp; Terms" : "Privacidad y Términos"}</a></footer>
 </div>
 <script>
 function track(ev){try{fetch('/api/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({event:ev})})}catch(e){}}
@@ -4453,13 +4456,83 @@ function saveNote(id){var el=document.getElementById('note_'+id);if(!el)return;f
 /* ── Closer's private toolkit (/cierre — NEVER screen-shared) ──
  * The client-facing deck is /demo; this page holds the script,
  * payment link, ready messages, and objection answers. */
+/* ── Legal: Terms, Privacy, Refund ──
+ * Public, bilingual, self-contained. Linked from the landing footer and the
+ * widget consent line. Written to cover the actual product: a home-value
+ * estimate (not an appraisal), lead capture with call/text consent, monthly
+ * plans with no setup fee and cancel-anytime, and the domain-portability
+ * promise the sales script makes. Company placeholders are env-overridable. */
+app.get("/legal", (req, res) => {
+  const es = req.query.lang === "es";
+  const company = process.env.LEGAL_COMPANY || "Quick Comp";
+  const contact = process.env.LEGAL_CONTACT || (ROOT_DOMAIN ? `support@${ROOT_DOMAIN}` : "your support email (set LEGAL_CONTACT)");
+  const esc = (s) => String(s || "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+  const S = es ? {
+    title: "Términos, Privacidad y Reembolsos",
+    updated: "Última actualización: julio 2026",
+    toc: "Al usar Quick Comp aceptas lo siguiente. Escrito en lenguaje claro a propósito.",
+    secs: [
+      ["1. Qué es Quick Comp", `${esc(company)} ofrece a agentes de bienes raíces una herramienta de valuación, un valuador de casas para su sitio web, y una app. Los valores que mostramos son <b>estimados automáticos basados en ventas comparables — no son un avalúo</b> ni una garantía del precio de venta. No somos un corredor, tasador ni asesor financiero.`],
+      ["2. Planes y pagos", `Los planes son mensuales: Pro $67, Widget $197, Complete $297. <b>Sin costo de inicio.</b> Se cobran por adelantado cada mes vía Stripe. Puedes <b>cancelar cuando quieras</b> desde tu cuenta o escribiéndonos; el servicio sigue activo hasta el fin del período ya pagado.`],
+      ["3. Reembolsos", `Si cancelas, no se cobra el siguiente mes. No hay reembolsos parciales de un mes ya comenzado, salvo que la ley lo exija o que haya un error de cobro nuestro — en ese caso lo corregimos sin demora.`],
+      ["4. Tu dominio y tus datos", `Si compras un dominio a través nuestro, <b>es tuyo</b> y te lo transferimos si te vas. Tus leads y tu contenido son tuyos; puedes exportarlos o pedir que los borremos.`],
+      ["5. Leads, llamadas y mensajes", `Cuando un dueño de casa deja su teléfono en el valuador, da su consentimiento para que el agente lo contacte por llamada o mensaje sobre el valor de su casa. <b>El agente (cliente de ${esc(company)}) es responsable</b> de cumplir con las leyes de contacto (TCPA y estatales), incluyendo respetar solicitudes de no contactar. Quick Comp solo transmite el lead.`],
+      ["6. Privacidad", `Recopilamos lo necesario para operar: datos de la cuenta del agente, y de los leads (nombre, teléfono, dirección, valor mostrado). No vendemos datos personales. Usamos proveedores (Stripe para pagos, Google/RentCast para datos de propiedades, y píxeles de anuncios cuando el agente los activa). Puedes pedir acceso o borrado escribiéndonos.`],
+      ["7. Contacto", `Escríbenos a ${esc(contact)} para cualquier duda, cancelación o solicitud sobre tus datos.`],
+    ],
+    back: "← Volver",
+  } : {
+    title: "Terms, Privacy & Refunds",
+    updated: "Last updated: July 2026",
+    toc: "By using Quick Comp you agree to the following. Written in plain language on purpose.",
+    secs: [
+      ["1. What Quick Comp is", `${esc(company)} gives real-estate agents a valuation tool, a home-value widget for their website, and an app. The values we show are <b>automated estimates based on comparable sales — they are not an appraisal</b> or a guarantee of sale price. We are not a broker, appraiser, or financial advisor.`],
+      ["2. Plans & payments", `Plans are monthly: Pro $67, Widget $197, Complete $297. <b>No setup fee.</b> Billed in advance each month via Stripe. You may <b>cancel anytime</b> from your account or by contacting us; service stays active through the end of the period already paid.`],
+      ["3. Refunds", `If you cancel, the next month isn't charged. We don't prorate a month already started unless required by law or where we made a billing error — in which case we fix it promptly.`],
+      ["4. Your domain & your data", `If you buy a domain through us, <b>it's yours</b> and we transfer it to you if you leave. Your leads and content are yours; you can export them or ask us to delete them.`],
+      ["5. Leads, calls & texts", `When a homeowner leaves their phone in the widget, they consent to be contacted by the agent by call or text about their home's value. <b>The agent (${esc(company)}'s customer) is responsible</b> for complying with contact laws (TCPA and state equivalents), including honoring do-not-contact requests. Quick Comp only relays the lead.`],
+      ["6. Privacy", `We collect what's needed to operate: the agent's account details, and lead details (name, phone, address, value shown). We don't sell personal data. We use processors (Stripe for payments, Google/RentCast for property data, and ad pixels when the agent enables them). You may request access or deletion by contacting us.`],
+      ["7. Contact", `Reach us at ${esc(contact)} for any question, cancellation, or data request.`],
+    ],
+    back: "← Back",
+  };
+  res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${company} · ${S.title}</title>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;font-family:Inter,Arial,sans-serif}
+body{background:#F1F4FA;color:#1B2433;line-height:1.65}
+.wrap{max-width:720px;margin:0 auto;padding:40px 22px 80px}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.top img{height:34px}
+h1{font-size:26px;font-weight:800;color:#15244C;margin-bottom:4px}
+.upd{color:#6E7891;font-size:13px;font-weight:600;margin-bottom:18px}
+.intro{color:#4a5a7a;font-weight:600;margin-bottom:24px}
+h2{font-size:16px;font-weight:800;color:#15244C;margin:26px 0 6px}
+p{color:#3A455C;font-size:14.5px}
+a.back{display:inline-block;margin-top:30px;color:#B07A00;font-weight:800;text-decoration:none}
+.lang{margin-left:auto;font-size:13px;font-weight:700}
+.lang a{color:#6E7891;text-decoration:none}
+</style></head><body><div class="wrap">
+<div class="top"><img src="/quick-comp-lockup-navy.png" alt="Quick Comp" onerror="this.style.display='none'"><span class="lang"><a href="/legal${es ? "" : "?lang=es"}">${es ? "English" : "Español"}</a></span></div>
+<h1>${S.title}</h1><p class="upd">${S.updated}</p>
+<p class="intro">${S.toc}</p>
+${S.secs.map(([h, body]) => `<h2>${h}</h2><p>${body}</p>`).join("")}
+<a class="back" href="/">${S.back}</a>
+</div></body></html>`);
+});
+
 app.get("/cierre", (req, res) => {
+  // Private closer playbook — gate it like /closer. Key in query sets the cookie
+  // then redirects (so the key doesn't linger in history), matching /closer.
+  if (safeEq(req.query.key, CLOSER_KEY) || safeEq(req.query.key, ADMIN_KEY)) { setKeyCookie(res, "alto_closer", req.query.key); return res.redirect("/cierre"); }
+  if (!closerOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Cierre (privado)", "/cierre", !!req.query.key));
   const base = canonBase(req);
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   const wMsg = `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
   const welcome = `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
   const esc = (s) => String(s).replace(/</g, "&lt;");
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
 <title>Quick Comp · Cierre (privado)</title><style>
 body{font-family:Arial;max-width:640px;margin:30px auto;padding:0 18px;color:#101B30;line-height:1.55}
 h1{font-size:22px}h2{font-size:16px;margin-top:24px}

@@ -543,6 +543,10 @@ export default function TradeTechPro() {
   const [addComp, setAddComp] = useState(null);             // null | draft {address, price, sqft, beds, baths, soldDate}
   const [radiusPref, setRadiusPref] = useState("auto");     // comp search ring: "auto" (expands as needed) | 1 | 2 | 5 mi
   const [radiusBusy, setRadiusBusy] = useState(false);
+  const [netCommPct, setNetCommPct] = useState(6);          // seller net sheet: commission %
+  const [netClosePct, setNetClosePct] = useState(2);        // seller closing costs %
+  const [netPayoff, setNetPayoff] = useState("");           // seller's mortgage payoff $
+  const [netInclude, setNetInclude] = useState(false);      // include the net sheet in the shared report/PDF
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
@@ -659,6 +663,8 @@ export default function TradeTechPro() {
     setManualComps([]);
     setAddComp(null);
     setRadiusPref("auto");
+    setNetPayoff("");
+    setNetInclude(false);
     setMeasuring(true);
     setMeasurePhase(0);
     const t0 = Date.now();
@@ -1598,12 +1604,30 @@ export default function TradeTechPro() {
     const narrative = lang === "es"
       ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(R.value)}${hasRange ? `, dentro de un rango de ${fmt(R.low)}–${fmt(R.high)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${R.avgPpsf ? `, con un promedio de ${fmt(R.avgPpsf)} por pie²` : ""}.${R.curated ? " Comparables seleccionadas personalmente por su agente." : ""}`
       : `The comparable set supports an indicated market value near ${fmt(R.value)}${hasRange ? `, within a ${fmt(R.low)}–${fmt(R.high)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${R.avgPpsf ? `, averaging ${fmt(R.avgPpsf)} per square foot` : ""}.${R.curated ? " Comparables hand-selected by your agent." : ""}`;
-    const share = async () => {
-      const text = `${subj.address || R.addr} — ${fmt(R.value)}${hasRange ? ` (${fmt(R.low)}–${fmt(R.high)})` : ""}\n${narrative}`;
+    // Seller net sheet math (realtor-side; shared only when included)
+    const payoffN = Math.round(Number(String(netPayoff).replace(/[^0-9.]/g, "")) || 0);
+    const commAmt = R.value * netCommPct / 100;
+    const closeAmt = R.value * netClosePct / 100;
+    const netAmt = R.value - commAmt - closeAmt - payoffN;
+    // One link the client can open: all report data travels IN the link (/r?d=)
+    const shareLink = async () => {
+      const lg = await ensureLogoId();
+      const digits = String(userPhone).replace(/\D/g, "");
+      const payload = {
+        l: lang, a: subj.address || R.addr, v: R.value, lo: R.low, hi: R.high,
+        ppsf: R.avgPpsf, n, cu: R.curated ? 1 : 0,
+        s: { bd: subj.beds, ba: subj.baths, sf: subj.sqft, yr: subj.yearBuilt },
+        c: comps.map((c) => [c.address, c.soldPrice]),
+        g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, ...(lg ? { lg } : {}) },
+        ...(netInclude ? { ns: { cm: netCommPct, cl: netClosePct, po: payoffN, net: Math.round(netAmt) } } : {}),
+      };
+      const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      const url = `${location.origin}/r?d=${b64}`;
+      const copied = () => showToast(lang === "es" ? "Link del informe copiado ✓" : "Report link copied ✓");
       try {
-        if (navigator.share) await navigator.share({ title: "Quick Comp — CMA", text });
-        else { await navigator.clipboard.writeText(text); showToast(lang === "es" ? "Copiado ✓" : "Copied ✓"); }
-      } catch { /* user dismissed */ }
+        if (navigator.share) await navigator.share({ title: "Quick Comp", url });
+        else { await navigator.clipboard.writeText(url); copied(); }
+      } catch { try { await navigator.clipboard.writeText(url); copied(); } catch { /* ignore */ } }
     };
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
@@ -1649,18 +1673,57 @@ export default function TradeTechPro() {
                 <p className="text-white" style={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 500 }}>{narrative}</p>
               </div>
 
+              {netInclude && (
+                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
+                  <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, marginBottom: 6 }}>💰 {lang === "es" ? "Hoja neta del vendedor" : "Seller Net Sheet"}</p>
+                  {[[lang === "es" ? "Precio de venta" : "Sale price", fmt(R.value)],
+                    [`${lang === "es" ? "Comisión" : "Commission"} (${netCommPct}%)`, `−${fmt(commAmt)}`],
+                    [`${lang === "es" ? "Gastos de cierre" : "Closing costs"} (${netClosePct}%)`, `−${fmt(closeAmt)}`],
+                    ...(payoffN ? [[lang === "es" ? "Saldo de hipoteca" : "Mortgage payoff", `−${fmt(payoffN)}`]] : [])].map(([k, x], i) => (
+                    <div key={k} className="flex justify-between py-1" style={{ borderTop: i ? `1px solid ${QC.goldLine}44` : "none", fontSize: 12, fontWeight: 600, color: QC.body }}>
+                      <span>{k}</span><span style={{ fontWeight: 800, color: QC.navyDeep }}>{x}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between pt-2 mt-1" style={{ borderTop: `2px solid ${QC.goldLine}`, fontSize: 14, fontWeight: 900, color: QC.navyDeep }}>
+                    <span>{lang === "es" ? "NETO ESTIMADO" : "ESTIMATED NET"}</span><span>{fmt(netAmt)}</span>
+                  </div>
+                </div>
+              )}
               <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {t.cmpDisc}</p>
+            </div>
+          </div>
+
+          {/* Seller net sheet — the realtor's tool; shared only when included */}
+          <div className="no-print rounded-2xl p-4 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>💰 {lang === "es" ? "Hoja neta del vendedor" : "Seller net sheet"}</p>
+              <div className="flex gap-1">
+                {[[true, lang === "es" ? "Incluir" : "Include"], [false, lang === "es" ? "No incluir" : "Don't include"]].map(([val, label]) => (
+                  <button key={String(val)} onClick={() => setNetInclude(val)}
+                    style={{ background: netInclude === val ? QC.navy : "#fff", color: netInclude === val ? "#fff" : QC.navy, border: `1.5px solid ${netInclude === val ? QC.navy : QC.line}`, borderRadius: 20, padding: "5px 11px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+                ))}
+              </div>
+            </div>
+            <p className="mb-3" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Lo que el vendedor se lleva. Solo aparece en el informe si eliges Incluir." : "What the seller walks away with. Only appears in the report if you choose Include."}</p>
+            <Slider label={lang === "es" ? "Comisión" : "Commission"} value={netCommPct} display={`${netCommPct}% · ${fmt(commAmt)}`} min={3} max={8} step={0.25} onChange={setNetCommPct} />
+            <Slider label={lang === "es" ? "Gastos de cierre" : "Closing costs"} value={netClosePct} display={`${netClosePct}% · ${fmt(closeAmt)}`} min={0} max={5} step={0.25} onChange={setNetClosePct} />
+            <p className="mb-1" style={{ color: QC.muted2, fontSize: 11, fontWeight: 700 }}>{lang === "es" ? "Saldo de hipoteca del vendedor" : "Seller's mortgage payoff"}</p>
+            <input value={netPayoff} onChange={(e) => setNetPayoff(e.target.value)} placeholder="$0" inputMode="numeric"
+              className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <div className="flex justify-between rounded-xl px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
+              <span className="font-extrabold" style={{ color: QC.navy, fontSize: 13 }}>{lang === "es" ? "NETO ESTIMADO" : "ESTIMATED NET"}</span>
+              <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 16 }}>{fmt(netAmt)}</span>
             </div>
           </div>
 
           {/* Actions (not printed) */}
           <div className="no-print flex gap-2 mt-3">
+            <button onClick={shareLink} className="flex-1 active:translate-y-px transition-transform"
+              style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700 }}>🔗 {lang === "es" ? "Compartir informe" : "Share report"}</button>
             <button onClick={() => window.print()} className="flex-1 active:translate-y-px transition-transform"
-              style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700 }}>🖨️ {lang === "es" ? "Imprimir" : "Print"}</button>
-            <button onClick={share} className="flex-1 active:translate-y-px transition-transform"
-              style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700 }}>📤 {lang === "es" ? "Compartir" : "Share"}</button>
+              style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 12, padding: 14, fontSize: 14, fontWeight: 700 }}>🖨️ {lang === "es" ? "Imprimir / PDF" : "Print / PDF"}</button>
           </div>
-          <p className="no-print text-center mt-3" style={{ color: "#66759D", fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Comparte, imprime o guarda para después." : "Share, print, or save for later."}</p>
+          <p className="no-print text-center mt-3" style={{ color: "#66759D", fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "El link se abre sin app — mándalo por WhatsApp. El cliente puede guardarlo como PDF." : "The link opens without any app — send it by WhatsApp. Your client can save it as a PDF."}</p>
         </div>
       </div>
     );

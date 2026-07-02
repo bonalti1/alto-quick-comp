@@ -17,6 +17,7 @@ import { fromArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import * as db from "./db.mjs";
 import { renderSite } from "./templates.mjs";
+import { normalizeRentcastComps, calculateQuickCompValue } from "./valuation.mjs";
 
 const PORT = process.env.PORT || 8787;
 const GOOGLE_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
@@ -526,190 +527,6 @@ async function fetchRentcastValue({ address, radius, compCount, daysOld }) {
   return rcFetchJson(endpoint, { headers: { "X-Api-Key": RENTCAST_KEY } });
 }
 
-function normalizeRentcastComps(data) {
-  const raw = data.comparables || data.comps || data.saleComparables || [];
-  const comps = raw.map((c) => ({
-    address: c.formattedAddress || c.address || [c.addressLine1, c.city, c.state, c.zipCode].filter(Boolean).join(", ") || "Comparable property",
-    soldPrice: c.price || c.soldPrice || c.lastSalePrice || c.salePrice || c.value || null,
-    sqft: c.squareFootage || c.livingArea || c.size || null,
-    beds: c.bedrooms ?? c.beds ?? null,
-    baths: c.bathrooms ?? c.baths ?? null,
-    soldDate: c.soldDate || c.lastSaleDate || c.saleDate || c.listedDate || null,
-    yearBuilt: c.yearBuilt || null,
-    distance: c.distance || null,
-    latitude: c.latitude || null,
-    longitude: c.longitude || null,
-  })).filter((c) => c.soldPrice);
-  return dedupeComparableProperties(comps);
-}
-
-function dedupeComparableProperties(comps) {
-  const byKey = new Map();
-  for (const comp of comps) {
-    const key = comparableIdentityKey(comp);
-    const existing = byKey.get(key);
-    if (!existing) { byKey.set(key, comp); continue; }
-    byKey.set(key, mergeComparable(existing, comp));
-  }
-  return [...byKey.values()];
-}
-
-function comparableIdentityKey(comp) {
-  const addressKey = normalizeComparableAddress(comp.address);
-  if (/\d/.test(addressKey) && /[a-z]/.test(addressKey)) return `addr:${addressKey}`;
-  const lat = Number(comp.latitude);
-  const lng = Number(comp.longitude);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return `geo:${lat.toFixed(4)},${lng.toFixed(4)}`;
-  }
-  return `addr:${addressKey}`;
-}
-
-function normalizeComparableAddress(address) {
-  return String(address || "")
-    .toLowerCase()
-    .replace(/\b(street|st|drive|dr|lane|ln|avenue|ave|road|rd|court|ct|boulevard|blvd|circle|cir|place|pl|trail|trl|north|south|east|west)\b/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-function mergeComparable(a, b) {
-  const merged = { ...a };
-  for (const [key, value] of Object.entries(b)) {
-    if (merged[key] === null || merged[key] === undefined || merged[key] === "") merged[key] = value;
-  }
-  const aDistance = Number(a.distance);
-  const bDistance = Number(b.distance);
-  if (Number.isFinite(aDistance) && Number.isFinite(bDistance)) merged.distance = Math.min(aDistance, bDistance);
-  if (b.soldDate && (!a.soldDate || new Date(b.soldDate) > new Date(a.soldDate))) merged.soldDate = b.soldDate;
-  return merged;
-}
-
-function calculateQuickCompValue({ subject, comps, rentcastEstimate, rentcastLow, rentcastHigh }) {
-  const subjectSqft = readNumber(subject, ["squareFootage", "livingArea", "buildingArea", "livingSize"]);
-  const subjectYear = readNumber(subject, ["yearBuilt"]);
-  const subjectBeds = readNumber(subject, ["bedrooms", "beds"]);
-  const subjectBaths = readNumber(subject, ["bathrooms", "baths"]);
-  const validComps = comps
-    .map((comp, index) => {
-      const ppsf = comp.soldPrice && comp.sqft ? comp.soldPrice / comp.sqft : null;
-      return { ...comp, originalRank: index, ppsf };
-    })
-    .filter((comp) => comp.soldPrice && comp.sqft && comp.ppsf);
-
-  if (!subjectSqft || validComps.length < 3) {
-    const estimate = rentcastEstimate || null;
-    return {
-      method: estimate ? "rentcast_avm_fallback" : "insufficient_data",
-      estimate,
-      low: rentcastLow || (estimate ? Math.round(estimate * 0.95 / 1000) * 1000 : null),
-      high: rentcastHigh || (estimate ? Math.round(estimate * 1.05 / 1000) * 1000 : null),
-      avgPpsf: null,
-      lowPpsf: null,
-      highPpsf: null,
-      subjectSqft: subjectSqft || null,
-      usedCompCount: validComps.length,
-      excludedOutliers: 0,
-      confidence: validComps.length ? "limited" : "low",
-      rankedComps: comps,
-    };
-  }
-
-  const ppsfs = validComps.map((comp) => comp.ppsf).sort((a, b) => a - b);
-  const medianPpsf = median(ppsfs);
-  const filtered = validComps.length >= 5
-    ? validComps.filter((comp) => comp.ppsf >= medianPpsf * 0.75 && comp.ppsf <= medianPpsf * 1.25)
-    : validComps;
-  const used = filtered.length >= 3 ? filtered : validComps;
-  const scored = used.map((comp) => {
-    const distanceWeight = scoreCloseness(Number(comp.distance), 0, 10, 0.55, 1.4);
-    const sqftDiff = subjectSqft && comp.sqft ? Math.abs(comp.sqft - subjectSqft) / subjectSqft : null;
-    const sqftWeight = sqftDiff === null ? 0.85 : clamp(1.35 - sqftDiff * 1.6, 0.45, 1.35);
-    const yearDiff = subjectYear && comp.yearBuilt ? Math.abs(comp.yearBuilt - subjectYear) : null;
-    const yearWeight = yearDiff === null ? 0.9 : clamp(1.2 - yearDiff / 45, 0.55, 1.2);
-    const bedWeight = subjectBeds && comp.beds ? clamp(1.08 - Math.abs(comp.beds - subjectBeds) * 0.12, 0.72, 1.08) : 0.95;
-    const bathWeight = subjectBaths && comp.baths ? clamp(1.08 - Math.abs(comp.baths - subjectBaths) * 0.12, 0.72, 1.08) : 0.95;
-    const recencyWeight = scoreRecency(comp.soldDate);
-    const weight = distanceWeight * sqftWeight * yearWeight * bedWeight * bathWeight * recencyWeight;
-    const matchScore = Math.round(clamp(weight / 2.6, 0.45, 0.98) * 100);
-    return { ...comp, weight, matchScore };
-  }).sort((a, b) => b.weight - a.weight);
-
-  const totalWeight = scored.reduce((sum, comp) => sum + comp.weight, 0);
-  const avgPpsf = totalWeight
-    ? scored.reduce((sum, comp) => sum + comp.ppsf * comp.weight, 0) / totalWeight
-    : medianPpsf;
-  const confidenceSpread = scored.length >= 8 ? 0.06 : scored.length >= 5 ? 0.08 : 0.1;
-  const estimate = roundToNearest(subjectSqft * avgPpsf, 1000);
-  const lowPpsf = avgPpsf * (1 - confidenceSpread);
-  const highPpsf = avgPpsf * (1 + confidenceSpread);
-  const low = roundToNearest(subjectSqft * lowPpsf, 1000);
-  const high = roundToNearest(subjectSqft * highPpsf, 1000);
-  const excludedAddresses = new Set(validComps.filter((comp) => !used.includes(comp)).map((comp) => comp.address));
-  const rankedComps = [
-    ...scored,
-    ...comps.filter((comp) => !scored.some((ranked) => ranked.address === comp.address)),
-  ].map((comp) => ({
-    ...comp,
-    excludedAsOutlier: excludedAddresses.has(comp.address) || undefined,
-    ppsf: comp.ppsf ? Math.round(comp.ppsf) : undefined,
-  })).slice(0, 12);
-
-  return {
-    method: "weighted_sold_price_per_sqft",
-    estimate,
-    low,
-    high,
-    avgPpsf: Math.round(avgPpsf),
-    lowPpsf: Math.round(lowPpsf),
-    highPpsf: Math.round(highPpsf),
-    subjectSqft,
-    subjectYear: subjectYear || null,
-    usedCompCount: scored.length,
-    excludedOutliers: validComps.length - used.length,
-    confidence: scored.length >= 8 ? "strong" : scored.length >= 5 ? "good" : "limited",
-    rankedComps,
-  };
-}
-
-function readNumber(source, keys) {
-  if (!source) return null;
-  for (const key of keys) {
-    const value = Number(source[key]);
-    if (Number.isFinite(value) && value > 0) return value;
-  }
-  return null;
-}
-
-function median(values) {
-  if (!values.length) return null;
-  const middle = Math.floor(values.length / 2);
-  return values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2;
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function scoreCloseness(value, min, max, low, high) {
-  if (!Number.isFinite(value)) return (low + high) / 2;
-  const normalized = 1 - clamp((value - min) / (max - min), 0, 1);
-  return low + normalized * (high - low);
-}
-
-function scoreRecency(soldDate) {
-  if (!soldDate) return 0.95;
-  const date = new Date(soldDate);
-  if (Number.isNaN(date.getTime())) return 0.95;
-  const days = Math.max(0, (Date.now() - date.getTime()) / 86400000);
-  return clamp(1.18 - days / 1600, 0.65, 1.18);
-}
-
-function roundToNearest(value, nearest) {
-  return Math.round(value / nearest) * nearest;
-}
-
 /* Pick the most recent year's value from a {year: {...}} map (RentCast tax /
  * assessment records). Returns { year, value } or null. */
 function latestYearVal(obj, pick) {
@@ -796,6 +613,8 @@ async function rentcastLookup(address, opts = {}) {
     rentcastEstimate: data.price || data.value || data.estimate || null,
     rentcastLow: data.priceRangeLow || data.valueRangeLow || null,
     rentcastHigh: data.priceRangeHigh || data.valueRangeHigh || null,
+    usedRadius,
+    usedDays: usedLookback.days,
   });
   return {
     subject,

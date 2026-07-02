@@ -590,13 +590,16 @@ export default function TradeTechPro() {
       return next;
     });
   };
-  /* One tap re-opens a saved search exactly as it was — no re-search, no wait.
-   * Curation state is reset so edits from a previous property never bleed in. */
-  const reopenSaved = (it) => {
+  /* Load a saved search exactly as it was — no re-search, no wait. Curation
+   * state is reset so edits from a previous property never bleed in. */
+  const loadSaved = (it) => {
     setExcludedComps({}); setPriceOverrides({}); setManualComps([]); setAddComp(null);
     setRadiusPref("auto");
     setLookup(it);
     setLendPrice(null);
+  };
+  const reopenSaved = (it) => {
+    loadSaved(it);
     setScreen("comps");
   };
 
@@ -658,6 +661,10 @@ export default function TradeTechPro() {
   const copyText = async (txt) => {
     try { await navigator.clipboard.writeText(txt); showToast(lang === "es" ? "Copiado ✓" : "Copied ✓"); } catch { /* ignore */ }
   };
+
+  /* ── Appraisal defense packet — contract price being defended + agent notes ── */
+  const [apprPrice, setApprPrice] = useState("");
+  const [apprNote, setApprNote] = useState("");
 
   const [showDetails, setShowDetails] = useState(false); // shared with the fence estimator
   const [dragOff, setDragOff] = useState([0, 0]);        // live pan offset (fence map drag)
@@ -1682,6 +1689,17 @@ export default function TradeTechPro() {
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
 
+          {/* Appraisal defense — send the appraiser your comps as a clean PDF */}
+          <button onClick={() => setScreen("appraisal")} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+            <span style={{ fontSize: 22 }}>🛡️</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Paquete para avalúo" : "Appraisal defense packet"}</span>
+              <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "¿Avalúo bajo? Manda tus comparables al valuador en un PDF limpio." : "Low appraisal? Send the appraiser your comps as a clean PDF."}</span>
+            </span>
+            <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
+          </button>
+
           {sentReports.length > 0 && (
             <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
               <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Informes enviados" : "Reports sent"}</p>
@@ -2071,14 +2089,192 @@ export default function TradeTechPro() {
     );
   };
 
+  /* ── Appraisal defense packet — the curated comp set, formatted for the
+   * appraiser. Same data as the CMA report wearing a professional cover:
+   * subject, contract price, adjusted comps, honest range. Print → PDF. ── */
+  const AppraisalPacket = () => {
+    const es = lang === "es";
+    const R = curatedView(lookup);
+    const pickList = savedWork.slice(0, 6);
+
+    // No property loaded yet → pick from recent searches
+    if (!R || !R.value) {
+      return (
+        <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+          <div className="px-5 pt-4">
+            <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
+              <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Paquete para avalúo" : "Appraisal packet"}</p>
+              <p className="text-white font-extrabold" style={{ fontSize: 20, margin: "4px 0 6px" }}>{es ? "¿Avalúo bajo? Defiéndelo con datos" : "Low appraisal? Defend it with data"}</p>
+              <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{es ? "Elige una propiedad y arma un PDF con tus comparables ajustados para el valuador." : "Pick a property and build a clean packet of your adjusted comps for the appraiser."}</p>
+            </div>
+            {pickList.length ? (
+              <div className="rounded-2xl px-4 py-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <p className="mb-0.5" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Elige la propiedad" : "Pick the property"}</p>
+                {pickList.map((it, i) => (
+                  <button key={it.addr + i} onClick={() => loadSaved(it)} className="w-full flex items-center gap-2.5 py-2.5 text-left active:opacity-80"
+                    style={{ background: "none", border: "none", borderTop: i ? `1px solid ${QC.line}` : "none", cursor: "pointer" }}>
+                    <span style={{ color: QC.navy }}>🏠</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr}</span>
+                      {it.value != null && <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(it.value)}</span>}
+                    </span>
+                    <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
+                <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{es ? "Primero corre los comps de la propiedad en la pestaña Comps." : "Run the property's comps on the Comps tab first."}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const subj = R.subject || {};
+    const addr = subj.address || R.addr;
+    const comps = (Array.isArray(R.comps) ? R.comps : []).filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]).slice(0, 6);
+    const n = comps.length;
+    const hasRange = R.low != null && R.high != null;
+    const num = (x) => Number(x).toLocaleString("en-US");
+    const soldDate = (dd) => { if (!dd) return "—"; const dt = new Date(dd); return Number.isNaN(dt.getTime()) ? "—" : dt.toLocaleDateString(es ? "es-MX" : "en-US", { month: "short", day: "numeric", year: "numeric" }); };
+    const contractN = Math.round(Number(String(apprPrice).replace(/[^0-9.]/g, "")) || 0);
+    // Honest positioning of the contract price against the indicated range
+    const rel = contractN && hasRange ? (contractN >= R.low && contractN <= R.high ? "in" : contractN < R.low ? "below" : "above") : null;
+    const relTxt = rel === "in" ? (es ? `consistente con el precio de contrato de ${fmt(contractN)}` : `consistent with the contract price of ${fmt(contractN)}`)
+      : rel === "below" ? (es ? `por encima del precio de contrato de ${fmt(contractN)}` : `above the contract price of ${fmt(contractN)}`)
+        : rel === "above" ? (es ? `por debajo del precio de contrato de ${fmt(contractN)}` : `below the contract price of ${fmt(contractN)}`) : "";
+    const narrative = es
+      ? `Preparado en apoyo a la operación pendiente en ${addr}. Las ${n} ventas cerradas siguientes se seleccionaron por cercanía, similitud y fecha reciente${R.curated ? ", revisadas una a una por el agente" : ""}. Ajustadas por fecha de venta y diferencias de superficie, indican un valor de mercado cercano a ${fmt(R.value)}${hasRange ? ` (rango ${fmt(R.low)}–${fmt(R.high)})` : ""}${relTxt ? `, ${relTxt}` : ""}.`
+      : `Prepared in support of the pending transaction at ${addr}. The ${n} closed sales below were selected for proximity, similarity, and recency${R.curated ? ", each reviewed by the agent" : ""}. Adjusted for sale date and living-area differences, they indicate a market value near ${fmt(R.value)}${hasRange ? ` (${fmt(R.low)}–${fmt(R.high)} range)` : ""}${relTxt ? `, ${relTxt}` : ""}.`;
+    const hasDrift = Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1;
+    const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
+    return (
+      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          {/* Controls — never printed */}
+          <div className="no-print rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            {pickList.length > 1 && (
+              <>
+                <p style={{ color: QC.muted2, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>{es ? "Propiedad" : "Property"}</p>
+                <div className="flex gap-1.5 mb-3 flex-wrap">
+                  {pickList.map((it, i) => {
+                    const on = it.addr === addr;
+                    return (
+                      <button key={it.addr + i} onClick={() => loadSaved(it)}
+                        style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "5px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer", maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {String(it.addr).split(",")[0]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{es ? "Precio de contrato que estás defendiendo" : "Contract price you're defending"}</p>
+            <input value={apprPrice} onChange={(e) => setApprPrice(e.target.value)} placeholder="$0" inputMode="numeric"
+              className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={inputStyle} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{es ? "Notas para el valuador (opcional)" : "Notes for the appraiser (optional)"}</p>
+            <textarea rows={2} value={apprNote} onChange={(e) => setApprNote(e.target.value)}
+              placeholder={es ? "Ej. techo nuevo 2024, cocina remodelada…" : "e.g. new roof 2024, remodeled kitchen…"}
+              className="w-full rounded-xl px-3.5 py-3 font-semibold outline-none resize-none" style={{ ...inputStyle, fontSize: 13, lineHeight: 1.5 }} />
+          </div>
+
+          {/* The packet document (this part prints) */}
+          <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+            <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
+              <div className="flex items-center gap-3 min-w-0">
+                {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
+                <div className="min-w-0">
+                  <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Preparado por" : "Prepared by"}</p>
+                  <p className="text-white font-extrabold truncate" style={{ fontSize: 14 }}>{userName || (es ? "Tu nombre" : "Your name")}</p>
+                  {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizName}</p>}
+                  {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10.5 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
+                  {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9.5 }}>{es ? "Lic. " : "Lic. "}{license}</p>}
+                </div>
+              </div>
+              <p className="text-white font-extrabold shrink-0 text-right" style={{ fontSize: 13, letterSpacing: "0.03em" }}>{es ? "Apoyo de comparables" : "Comparable Sales Support"}</p>
+            </div>
+            <div className="px-4 py-4">
+              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Propiedad en operación" : "Subject property"}</p>
+              <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 18, lineHeight: 1.3, margin: "5px 0 10px" }}>{addr}</p>
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {[["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]].map(([icon, v, label]) => (
+                  <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "9px 5px", textAlign: "center" }}>
+                    <p className="font-extrabold" style={{ color: QC.navy, fontSize: 14 }}>{v}</p>
+                    <p style={{ color: QC.muted, fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 3 }}>{icon} {label}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 mb-3">
+                {contractN > 0 && (
+                  <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
+                    <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Precio de contrato" : "Contract price"}</p>
+                    <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(contractN)}</p>
+                  </div>
+                )}
+                <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
+                  <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Valor indicado" : "Indicated value"}</p>
+                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(R.value)}</p>
+                  {hasRange && <p style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(R.low)} – {fmt(R.high)}</p>}
+                </div>
+              </div>
+              <p style={{ color: QC.body, fontSize: 12.5, lineHeight: 1.65, fontWeight: 500 }}>{narrative}</p>
+              {hasDrift && (
+                <p className="mt-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>
+                  📈 {es ? "Tendencia del mercado derivada del conjunto de comparables" : "Market trend derived from the comp set"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{es ? "año" : "yr"} — {es ? "base de los ajustes por fecha de venta" : "the basis for the sale-date adjustments"}.
+                </p>
+              )}
+              <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
+                <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em", marginBottom: 6 }}>{es ? "Ventas cerradas comparables" : "Closed Comparable Sales"}</p>
+                {comps.map((c, i) => {
+                  const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
+                  return (
+                    <div key={i} className="py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate font-bold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{i + 1}. {c.address}</span>
+                        <span className="shrink-0 font-extrabold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{fmt(c.soldPrice)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3" style={{ marginTop: 2 }}>
+                        <span style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>
+                          {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}{c.sqft ? ` · ${num(c.sqft)} ${t.cmpSqft}` : ""}{ppsf ? ` · ${fmt(ppsf)}${t.cmpPerSqft}` : ""}
+                        </span>
+                        {c.adjValue ? <span className="shrink-0" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 700 }}>{es ? "ajustado" : "adjusted"} {fmt(c.adjValue)}</span> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {apprNote.trim() && (
+                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `1px solid ${QC.goldLine}` }}>
+                  <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{es ? "Notas del agente" : "Agent notes"}</p>
+                  <p style={{ color: QC.body, fontSize: 12, lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
+                </div>
+              )}
+              <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Datos de mercado presentados para su consideración — no es un avalúo. La conclusión de valor pertenece al valuador." : "Market data provided for consideration — not an appraisal. The value conclusion remains the appraiser's."}</p>
+            </div>
+          </div>
+
+          <button onClick={() => window.print()} className="no-print w-full active:translate-y-px transition-transform mt-3"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
+            🖨️ {es ? "Imprimir / Guardar PDF" : "Print / Save PDF"}
+          </button>
+          <p className="no-print text-center mt-3" style={{ color: "#66759D", fontSize: 12, fontWeight: 600 }}>{es ? "Guárdalo como PDF y mándalo al valuador o al prestamista. Quita o corrige comparables en la pestaña Comps — el paquete usa tu selección." : "Save it as a PDF and email it to the appraiser or the lender. Remove or correct comps on the Comps tab — the packet uses your selection."}</p>
+        </div>
+      </div>
+    );
+  };
+
   /* ── Router ── */
   const titles = {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
     listing: "✨ " + (lang === "es" ? "Redactor de listing" : "Listing writer"),
+    appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
   };
   const backMap = {
     report: "comps",
     listing: "comps",
+    appraisal: "workspace",
   };
   const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
@@ -2112,6 +2308,7 @@ export default function TradeTechPro() {
         {screen === "workspace" && Workspace()}
         {screen === "report" && Report()}
         {screen === "listing" && ListingWriter()}
+        {screen === "appraisal" && AppraisalPacket()}
         {withNav.includes(screen) && <BottomNav />}
         {toast && (
           <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>

@@ -561,6 +561,8 @@ export default function TradeTechPro() {
   const [lendTerm, setLendTerm] = useState(30);
   const [lendTaxPct, setLendTaxPct] = useState(1.1);
   const [lendInsYr, setLendInsYr] = useState(1500);
+  const [lendType, setLendType] = useState("conv"); // conv | fha | va
+  const [lendHoa, setLendHoa] = useState(0);        // $/mo
   const [savedWork, setSavedWork] = useState(() => {
     try { return JSON.parse(localStorage.getItem("qc_saved") || "[]"); } catch { return []; }
   });
@@ -740,6 +742,17 @@ export default function TradeTechPro() {
     }
     setLookup(res);
     setLendPrice(null); // lending follows the new comp value until the user overrides
+    // Tune the lending defaults to THIS property: real county tax when we have
+    // it, else the state's average rate; insurance scaled to price and state
+    // risk (TX/FL/LA/OK hail+wind run roughly half again the national cost).
+    {
+      const st = stateFromAddress(res.subject?.address || res.addr);
+      const realTaxPct = res.subject?.annualTax && res.value ? (res.subject.annualTax / res.value) * 100 : null;
+      const stTaxPct = (TAX_RATE_BY_STATE[st] || 0.011) * 100;
+      setLendTaxPct(Math.min(3, Math.max(0.3, +(realTaxPct ?? stTaxPct).toFixed(2))));
+      const insFactor = ["TX", "FL", "LA", "OK", "KS", "NE", "MS", "AL"].includes(st) ? 0.005 : 0.0035;
+      setLendInsYr(Math.min(6000, Math.max(800, Math.round((res.value * insFactor) / 100) * 100)));
+    }
     recordWork(res);
     setScreen("comps");
     showToast("🏠 " + t.cmpDone + " ✓");
@@ -1297,12 +1310,24 @@ export default function TradeTechPro() {
     const price = lendPrice != null ? lendPrice : (lookup?.value || 350000);
     const down = Math.round(price * lendDownPct / 100);
     const principal = Math.max(price - down, 0);
+    // Mortgage insurance, the way lenders actually charge it: conventional PMI
+    // below 20% down (~0.7%/yr, drops at 20%), FHA annual MIP 0.55% plus a
+    // financed 1.75% upfront, VA no monthly MI but a financed ~2.15% funding fee.
+    const miRate = lendType === "fha" ? 0.0055 : lendDownPct < 20 ? 0.007 : 0;
+    const financedFee = lendType === "fha" ? principal * 0.0175 : lendType === "va" ? principal * 0.0215 : 0;
+    const loanAmt = principal + financedFee;
     const r = lendRate / 100 / 12;
     const n = lendTerm * 12;
-    const pi = r > 0 ? principal * r / (1 - Math.pow(1 + r, -n)) : principal / n;
+    const pi = r > 0 ? loanAmt * r / (1 - Math.pow(1 + r, -n)) : loanAmt / n;
     const taxMo = price * (lendTaxPct / 100) / 12;
     const insMo = lendInsYr / 12;
-    const monthly = pi + taxMo + insMo;
+    const miMo = loanAmt * (lendType === "va" ? 0 : miRate) / 12;
+    const monthly = pi + taxMo + insMo + miMo + lendHoa;
+    const cashToClose = down + price * 0.03; // down + ~3% typical closing costs
+    const presets = [
+      ["conv20", "Conv 20%", "conv", 20], ["conv5", "Conv 5%", "conv", 5],
+      ["fha", "FHA 3.5%", "fha", 3.5], ["va", "VA 0%", "va", 0],
+    ];
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
@@ -1312,8 +1337,11 @@ export default function TradeTechPro() {
             <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
               {lang === "es" ? "Ajusta precio, enganche, tasa, impuestos y seguro para responder al instante." : "Slide price, down payment, rate, taxes, and insurance to answer buyer questions fast."}
             </p>
+            <p className="mt-2" style={{ color: "rgba(255,255,255,0.72)", fontSize: 12, fontWeight: 700 }}>
+              {lang === "es" ? "Efectivo estimado para cerrar" : "Est. cash to close"}: {m(cashToClose)} <span style={{ fontWeight: 500, opacity: 0.8 }}>({lang === "es" ? "enganche + ~3% de gastos" : "down + ~3% closing costs"})</span>
+            </p>
             <div className="flex gap-2 mt-3">
-              {[["P&I", m(pi)], [lang === "es" ? "Impuesto" : "Tax", m(taxMo)], [lang === "es" ? "Seguro" : "Insurance", m(insMo)]].map(([l, v]) => (
+              {[["P&I", m(pi)], [lang === "es" ? "Impuesto" : "Tax", m(taxMo)], [lang === "es" ? "Seguro" : "Insurance", m(insMo)], ...(miMo > 0 ? [[lendType === "fha" ? "MIP" : "PMI", m(miMo)]] : []), ...(lendHoa > 0 ? [["HOA", m(lendHoa)]] : [])].map(([l, v]) => (
                 <div key={l} className="flex-1 rounded-xl text-center" style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.10)", padding: "8px 4px" }}>
                   <p className="text-white font-extrabold" style={{ fontSize: 13 }}>{v}</p>
                   <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", marginTop: 2 }}>{l}</p>
@@ -1322,16 +1350,29 @@ export default function TradeTechPro() {
             </div>
           </div>
           <div className="rounded-2xl p-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 14 }}>{lang === "es" ? "Calculadora de financiamiento" : "Lending calculator"}</p>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{lang === "es" ? "Calculadora de financiamiento" : "Lending calculator"}</p>
+            <div className="flex gap-1.5 mb-4 flex-wrap">
+              {presets.map(([key, label, type, dp]) => {
+                const on = lendType === type && lendDownPct === dp;
+                return (
+                  <button key={key} onClick={() => { setLendType(type); setLendDownPct(dp); }}
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "6px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
             <Slider label={lang === "es" ? "Precio" : "Home price"} value={price} display={m(price)} min={50000} max={2000000} step={5000} onChange={setLendPrice} />
             <Slider label={lang === "es" ? "Enganche" : "Down payment"} value={lendDownPct} display={`${lendDownPct}% · ${m(down)}`} min={0} max={50} step={1} onChange={setLendDownPct} />
             <Slider label={lang === "es" ? "Tasa de interés" : "Interest rate"} value={lendRate} display={`${lendRate.toFixed(2)}%`} min={2} max={12} step={0.05} onChange={setLendRate} />
             <Slider label={lang === "es" ? "Plazo" : "Loan term"} value={lendTerm} display={`${lendTerm} ${lang === "es" ? "años" : "yr"}`} min={10} max={30} step={5} onChange={setLendTerm} />
             <Slider label={lang === "es" ? "Impuesto predial / año" : "Property tax / yr"} value={lendTaxPct} display={`${lendTaxPct.toFixed(2)}%`} min={0} max={3} step={0.05} onChange={setLendTaxPct} />
             <Slider label={lang === "es" ? "Seguro / año" : "Insurance / yr"} value={lendInsYr} display={m(lendInsYr)} min={0} max={6000} step={100} onChange={setLendInsYr} />
+            <Slider label="HOA / mo" value={lendHoa} display={`${m(lendHoa)}/${lang === "es" ? "mes" : "mo"}`} min={0} max={600} step={25} onChange={setLendHoa} />
             {lookup?.value
               ? <p className="mt-1" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Precio inicial tomado del valor de mercado estimado." : "Starting price taken from the estimated market value."}</p>
               : <p className="mt-1" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Busca una propiedad para empezar con su valor de mercado." : "Search a property to start from its market value."}</p>}
+            <p className="mt-2" style={{ color: "#66759D", fontSize: 10.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Estimado — no es una oferta de préstamo. Tasas, PMI y cargos varían según crédito y prestamista." : "Estimate — not a loan offer. Rates, PMI and fees vary by credit and lender."}</p>
           </div>
         </div>
       </div>

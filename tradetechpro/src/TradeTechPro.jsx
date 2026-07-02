@@ -471,6 +471,7 @@ export default function TradeTechPro() {
     try { return localStorage.getItem("alto_session"); } catch { return null; }
   });
   const [cloudReady, setCloudReady] = useState(false);
+  const [mySlug, setMySlug] = useState(null); // the account's widget slug (for the embed code)
   // sent client reports (rid -> open tracking); declared BEFORE the cloud-sync
   // effects below, which read them
   const [sentReports, setSentReports] = useState(() => { try { return JSON.parse(localStorage.getItem("qc_reports") || "[]"); } catch { return []; } });
@@ -503,6 +504,7 @@ export default function TradeTechPro() {
         if (r.status === 401) { try { localStorage.removeItem("alto_session"); } catch { /* ignore */ } setSession(null); return; }
         if (!r.ok) return;
         const j = await r.json();
+        setMySlug(j.contractor?.slug || null);
         const p = j.contractor?.data?.profile || {};
         setBizName(p.biz || j.contractor.name || "");
         setUserName(p.name || "");
@@ -1688,6 +1690,27 @@ export default function TradeTechPro() {
             </span>
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
+
+          {/* Widget embed code — paste it into their own website (Widget tier) */}
+          {session && mySlug && (() => {
+            const embedCode = `<iframe src="${window.location.origin}/w/${mySlug}" style="width:100%;max-width:420px;height:660px;border:0;border-radius:24px;box-shadow:0 12px 32px rgba(16,27,48,.15)" loading="lazy" title="Home value"></iframe>`;
+            return (
+              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Tu valuador, en tu página" : "Your widget, on your website"}</p>
+                <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 14 }}>🌐 {lang === "es" ? "Pega este código en tu sitio" : "Paste this code into your site"}</p>
+                <p className="mb-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Pégalo en tu página — o mándaselo a quien te la maneja. Funciona en WordPress, Wix, GoDaddy, cualquier sitio. Cada dueño que valúa su casa te llega como lead." : "Paste it into your website — or send it to whoever manages it. Works on WordPress, Wix, GoDaddy, any site. Every homeowner who checks their value lands in your phone as a lead."}</p>
+                <textarea readOnly rows={3} value={embedCode} onFocus={(e) => e.target.select()}
+                  className="w-full rounded-xl px-3 py-2.5 mb-2 outline-none resize-none"
+                  style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.muted2, fontSize: 10.5, fontFamily: "monospace", lineHeight: 1.5 }} />
+                <div className="flex gap-2">
+                  <button onClick={() => copyText(embedCode)} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 10, padding: 11, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar código" : "Copy code"}</button>
+                  <a href={`/w/${mySlug}`} target="_blank" rel="noreferrer" className="flex items-center justify-center"
+                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "11px 16px", fontWeight: 800, fontSize: 13, textDecoration: "none" }}>{lang === "es" ? "Ver mi valuador" : "See my widget"}</a>
+                </div>
+              </div>
+            );
+          })()}
 
           {sentReports.length > 0 && (
             <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>

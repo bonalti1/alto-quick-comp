@@ -67,7 +67,14 @@ services:
         sync: false
 
       # Billing (Stripe) — optional until you turn on self-serve payments.
+      # STRIPE_PAYMENT_LINK is the Complete plan ($297/mo + $297 setup).
+      # The PRO ($67/mo) and WIDGET ($197/mo + $97 setup) tier links are
+      # optional — until set, those tiers show "book a call" instead of checkout.
       - key: STRIPE_PAYMENT_LINK
+        sync: false
+      - key: STRIPE_PAYMENT_LINK_PRO
+        sync: false
+      - key: STRIPE_PAYMENT_LINK_WIDGET
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false

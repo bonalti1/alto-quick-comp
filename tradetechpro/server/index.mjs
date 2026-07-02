@@ -630,6 +630,7 @@ async function rentcastLookup(address, opts = {}) {
     radius: usedRadius,
     daysOld: usedLookback.days,
     lookbackLabel: usedLookback.label,
+    marketDriftMo: quick.marketDriftMo ?? 0,
     rentcastEstimate: data.price || data.value || data.estimate || null,
   };
 }
@@ -787,6 +788,7 @@ app.post("/api/lookup", async (req, res) => {
       avgPpsf: comp.avgPpsf,
       radius: comp.radius,
       lookbackLabel: comp.lookbackLabel,
+      marketDriftMo: comp.marketDriftMo ?? 0,
     });
   } catch (e) {
     console.error("lookup failed:", e.message);

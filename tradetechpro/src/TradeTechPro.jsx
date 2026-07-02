@@ -407,6 +407,7 @@ export default function TradeTechPro() {
   const [logo, setLogo] = useState(savedProfile.logo || null);
   const [bizEmail, setBizEmail] = useState(savedProfile.email || "");
   const [license, setLicense] = useState(savedProfile.license || "");
+  const [market, setMarket] = useState(savedProfile.market || ""); // the realtor's city/area, from onboarding
   const [zelle, setZelle] = useState(savedProfile.zelle || "");
   const [myPrices, setMyPrices] = useState(savedProfile.prices || {});
   const logoIdRef = useRef(null); // server id for the currently uploaded logo
@@ -511,6 +512,7 @@ export default function TradeTechPro() {
         if (p.trade) setTrade(p.trade);
         if (p.email) setBizEmail(p.email);
         if (p.license) setLicense(p.license);
+        if (p.market) setMarket(p.market);
         if (p.zelle) setZelle(p.zelle);
         if (p.prices) setMyPrices(p.prices);
         // Real accounts start clean — no demo data
@@ -532,13 +534,13 @@ export default function TradeTechPro() {
         method: "PUT",
         body: JSON.stringify({
           state: { customers, jobs, reports: sentReports.slice(0, 30) },
-          profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, zelle, prices: myPrices } },
+          profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, prices: myPrices } },
         }),
       }).catch(() => { /* offline — retried on next change */ });
     }, 1500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, zelle, myPrices]);
+  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, myPrices]);
 
   // address lookup state (demo data for now)
   const [addrQ, setAddrQ] = useState("");
@@ -884,26 +886,14 @@ export default function TradeTechPro() {
     showToast("🏠 " + t.cmpDone + " ✓");
   };
 
-  /* ── Shell pieces ── */
-  const LangToggle = ({ onDark = false }) => (
-    <div className="flex rounded-full overflow-hidden" style={{ border: `1.5px solid ${onDark ? "rgba(255,255,255,.28)" : C.line}` }}>
-      {["es", "en"].map(l => (
-        <button key={l} onClick={() => setLang(l)} className="px-3 py-1 text-xs font-bold uppercase"
-          style={{
-            background: lang === l ? (onDark ? C.orange : C.navy) : (onDark ? "transparent" : "#fff"),
-            color: lang === l ? (onDark ? C.navy : "#fff") : (onDark ? "rgba(255,255,255,.8)" : C.slate),
-            border: "none",
-          }}>{l}</button>
-      ))}
-    </div>
-  );
-
+  /* ── Shell pieces ──
+   * Language is chosen at onboarding and changeable in the Workspace profile —
+   * the top bars stay clean. */
   const Header = ({ title, back }) => (
     <div className="flex items-center gap-3 px-5 pt-4 pb-3" style={{ background: C.navy }}>
       {back && <button onClick={back} className="text-2xl font-bold" style={{ color: "#fff", background: "none", border: "none" }}>‹</button>}
       <Logo size={28} color="#fff" />
       <span className="flex-1 font-bold text-lg truncate" style={{ color: "#fff", fontWeight: 800, letterSpacing: 0.3 }}>{title}</span>
-      <LangToggle onDark />
     </div>
   );
 
@@ -911,7 +901,6 @@ export default function TradeTechPro() {
   const BrandHeader = () => (
     <div className="relative flex items-center justify-center px-5 pt-4 pb-3" style={{ background: C.navy }}>
       <img src="/quick-comp-lockup-white.png" alt="Quick Comp" draggable={false} style={{ height: 46, objectFit: "contain", display: "block" }} />
-      <div className="absolute" style={{ right: 16, top: "50%", transform: "translateY(-50%)" }}><LangToggle onDark /></div>
     </div>
   );
 
@@ -993,7 +982,7 @@ export default function TradeTechPro() {
             <p className="mb-2" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Dirección de la propiedad" : "Property Address"}</p>
             <div className="flex gap-2">
               <button onClick={useMyLocation} title={t.useMyLocation} className="flex items-center justify-center shrink-0 active:scale-95 transition-transform"
-                style={{ width: 48, height: 48, background: QC.bg, border: `1.5px solid ${QC.line}`, borderRadius: 12, color: QC.navy, fontSize: 18 }}>🧭</button>
+                style={{ width: 48, height: 48, background: QC.bg, border: `1.5px solid ${QC.line}`, borderRadius: 12, color: QC.navy, fontSize: 18 }}>📍</button>
               <div className="flex-1 flex items-center gap-2 rounded-xl px-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
                 <input value={addrQ} onChange={(e) => onAddrInput(e.target.value)} placeholder={lang === "es" ? "Escribe una dirección…" : "Enter a property address…"} autoFocus
                   onKeyDown={(e) => e.key === "Enter" && go()}
@@ -1575,7 +1564,7 @@ export default function TradeTechPro() {
               <p className="mb-2" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Dirección de la propiedad" : "Property Address"}</p>
               <div className="flex gap-2">
                 <button onClick={useMyLocation} title={t.useMyLocation} className="flex items-center justify-center shrink-0 active:scale-95 transition-transform"
-                  style={{ width: 48, height: 48, background: QC.bg, border: `1.5px solid ${QC.line}`, borderRadius: 12, color: QC.navy, fontSize: 18 }}>🧭</button>
+                  style={{ width: 48, height: 48, background: QC.bg, border: `1.5px solid ${QC.line}`, borderRadius: 12, color: QC.navy, fontSize: 18 }}>📍</button>
                 <div className="flex-1 flex items-center gap-2 rounded-xl px-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
                   <input value={addrQ} onChange={(e) => onAddrInput(e.target.value)} placeholder={lang === "es" ? "Escribe una dirección…" : "Enter a property address…"} autoFocus
                     onKeyDown={(e) => e.key === "Enter" && go()}
@@ -1754,6 +1743,16 @@ export default function TradeTechPro() {
                 {bizEmail && <span className="block truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizEmail}</span>}
               </span>
             </div>
+            <div className="flex items-center gap-2 mb-3">
+              <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>{lang === "es" ? "Idioma" : "Language"}</span>
+              {[["en", "English"], ["es", "Español"]].map(([code, label]) => {
+                const on = lang === code;
+                return (
+                  <button key={code} onClick={() => { setLang(code); saveProfile({ lang: code }); }}
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "6px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+                );
+              })}
+            </div>
             <input value={userName} onChange={(e) => { setUserName(e.target.value); saveProfile({ name: e.target.value }); }} placeholder={lang === "es" ? "Nombre del agente" : "Realtor name"}
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={bizName} onChange={(e) => { setBizName(e.target.value); saveProfile({ biz: e.target.value }); }} placeholder={lang === "es" ? "Inmobiliaria / Brokerage" : "Brokerage"}
@@ -1763,6 +1762,8 @@ export default function TradeTechPro() {
             <input value={bizEmail} onChange={(e) => { setBizEmail(e.target.value); saveProfile({ email: e.target.value }); }} placeholder={lang === "es" ? "Email" : "Email"} inputMode="email"
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={license} onChange={(e) => { setLicense(e.target.value); saveProfile({ license: e.target.value }); }} placeholder={lang === "es" ? "Licencia # (opcional)" : "License # (optional)"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <input value={market} onChange={(e) => { setMarket(e.target.value); saveProfile({ market: e.target.value }); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
               className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional)" : "Logo or headshot (optional)"}</p>
             {logo
@@ -1967,10 +1968,11 @@ export default function TradeTechPro() {
     );
   };
 
-  /* ── First-login welcome (captures name + brokerage for report branding) ── */
+  /* ── First-login onboarding: language, identity, logo, market — everything
+   * the reports and the app need, asked once. ── */
   const Welcome = () => {
     const finish = () => {
-      saveProfile({ name: userName, biz: bizName });
+      saveProfile({ name: userName, biz: bizName, lang, market });
       try { localStorage.setItem("qc_welcomed", "1"); } catch { /* private mode */ }
       setScreen("comps");
     };
@@ -1989,12 +1991,40 @@ export default function TradeTechPro() {
         </div>
         <div className="px-5 pt-5">
           <div className="rounded-2xl p-4 mb-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Idioma" : "Language"}</p>
+            <p className="font-bold mb-3" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "La app y tus informes hablan el idioma que elijas." : "The app and your reports speak the language you pick."}</p>
+            <div className="flex gap-2">
+              {[["en", "English"], ["es", "Español"]].map(([code, label]) => {
+                const on = lang === code;
+                return (
+                  <button key={code} onClick={() => { setLang(code); saveProfile({ lang: code }); }} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 12, padding: "13px 0", fontSize: 15, fontWeight: 800, cursor: "pointer" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="rounded-2xl p-4 mb-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Tu perfil" : "Your profile"}</p>
             <p className="font-bold mb-3" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Aparece como “Presentado por” en tus informes." : "Shown as “Presented by” on your client reports."}</p>
             <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder={lang === "es" ? "Tu nombre" : "Your name"}
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={bizName} onChange={(e) => setBizName(e.target.value)} placeholder={lang === "es" ? "Inmobiliaria / Brokerage" : "Brokerage"}
-              className="w-full rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <input value={market} onChange={(e) => { setMarket(e.target.value); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
+              className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional — sale en tus informes)" : "Logo or headshot (optional — shows on your reports)"}</p>
+            {logo
+              ? (<div className="flex items-center gap-3">
+                  <img src={logo} alt="" style={{ height: 44, maxWidth: 120, objectFit: "contain", borderRadius: 8, background: "#fff", border: `1px solid ${QC.line}`, padding: 4 }} />
+                  <button onClick={() => { setLogo(null); logoIdRef.current = null; saveProfile({ logo: null }); }}
+                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 13 }}>{lang === "es" ? "Quitar" : "Remove"}</button>
+                </div>)
+              : (<label className="block rounded-xl px-3.5 py-3 text-center cursor-pointer font-semibold" style={{ background: QC.bg, border: `1.5px dashed ${QC.line}`, color: QC.muted2, fontSize: 13 }}>
+                  {lang === "es" ? "＋ Subir imagen" : "＋ Upload image"}
+                  <input type="file" accept="image/*" onChange={(e) => onLogoFile(e.target.files?.[0])} style={{ display: "none" }} />
+                </label>)}
           </div>
           <div className="rounded-2xl p-4 mb-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 10 }}>{lang === "es" ? "Tus 4 herramientas" : "Your 4 tools"}</p>

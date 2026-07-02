@@ -2,7 +2,13 @@
 
 Billing is **Payment Links + webhook** (no Stripe secret key needed in the app).
 A realtor pays → Stripe calls our webhook → their account activates on its own.
-Price: **$297/mo + $297 one-time setup**.
+Three plans, **no setup fees on any of them**:
+
+| Plan | Price | What they get |
+| --- | --- | --- |
+| **Pro** | $67/mo | The Quick Comp app only |
+| **Widget** | $197/mo | App + the valuator embedded in their existing website |
+| **Complete** | $297/mo | App + widget + we build their website |
 
 ## How activation works (already built)
 
@@ -22,13 +28,17 @@ Price: **$297/mo + $297 one-time setup**.
 
 ## One-time Stripe configuration
 
-### 1. Create the Payment Link
-Stripe Dashboard → **Payment Links → New**:
-- **Setup fee:** one-time **$297** (add as a one-time line item)
-- **Subscription:** **$297 / month** (recurring price)
-- Under options, **collect customer phone number** (so phone-matching works) and
-  leave email collection on (default).
-- Copy the link URL → set it as `STRIPE_PAYMENT_LINK` in Render.
+### 1. Create the Payment Links (one per plan)
+Stripe Dashboard → **Payment Links → New**, three times — each is just a
+recurring subscription, **no one-time line items**:
+- **Complete:** $297/month → set as `STRIPE_PAYMENT_LINK` in Render
+- **Widget:** $197/month → set as `STRIPE_PAYMENT_LINK_WIDGET`
+- **Pro:** $67/month → set as `STRIPE_PAYMENT_LINK_PRO`
+
+On every link, under options, **collect customer phone number** (so
+phone-matching works) and leave email collection on (default). A tier whose
+link isn't set yet simply shows "book a call" on the sales page — safe to
+roll them out one at a time.
 
 ### 2. Add the webhook endpoint
 Stripe Dashboard → **Developers → Webhooks → Add endpoint**:
@@ -44,10 +54,12 @@ Stripe Dashboard → **Developers → Webhooks → Add endpoint**:
 ### 3. Render env vars
 | Var | Value |
 | --- | --- |
-| `STRIPE_PAYMENT_LINK` | the Payment Link URL from step 1 |
+| `STRIPE_PAYMENT_LINK` | Complete ($297/mo) Payment Link URL |
+| `STRIPE_PAYMENT_LINK_WIDGET` | Widget ($197/mo) Payment Link URL |
+| `STRIPE_PAYMENT_LINK_PRO` | Pro ($67/mo) Payment Link URL |
 | `STRIPE_WEBHOOK_SECRET` | the `whsec_…` signing secret from step 2 |
 
-Both are already declared in `render.yaml` (as `sync: false`) — just fill them in.
+All are already declared in `render.yaml` (as `sync: false`) — just fill them in.
 
 ## Verifying
 - In Stripe → Webhooks, use **Send test event** (`checkout.session.completed`) — you

@@ -470,6 +470,10 @@ export default function TradeTechPro() {
     try { return localStorage.getItem("alto_session"); } catch { return null; }
   });
   const [cloudReady, setCloudReady] = useState(false);
+  // sent client reports (rid -> open tracking); declared BEFORE the cloud-sync
+  // effects below, which read them
+  const [sentReports, setSentReports] = useState(() => { try { return JSON.parse(localStorage.getItem("qc_reports") || "[]"); } catch { return []; } });
+  const [reportOpens, setReportOpens] = useState({});
   const [hideInstall, setHideInstall] = useState(() => {
     try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
   });
@@ -508,6 +512,7 @@ export default function TradeTechPro() {
         if (p.prices) setMyPrices(p.prices);
         // Real accounts start clean — no demo data
         setCustomers(j.state?.customers || []);
+        if (Array.isArray(j.state?.reports)) setSentReports(j.state.reports);
         setJobs(j.state?.jobs || []);
         if (!WANT_ROOF && welcomedInit) setScreen("comps");
         setCloudReady(true);
@@ -523,14 +528,14 @@ export default function TradeTechPro() {
       api("/api/state", {
         method: "PUT",
         body: JSON.stringify({
-          state: { customers, jobs },
+          state: { customers, jobs, reports: sentReports.slice(0, 30) },
           profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, zelle, prices: myPrices } },
         }),
       }).catch(() => { /* offline — retried on next change */ });
     }, 1500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, cloudReady, customers, jobs, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, zelle, myPrices]);
+  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, zelle, myPrices]);
 
   // address lookup state (demo data for now)
   const [addrQ, setAddrQ] = useState("");
@@ -547,6 +552,8 @@ export default function TradeTechPro() {
   const [netClosePct, setNetClosePct] = useState(2);        // seller closing costs %
   const [netPayoff, setNetPayoff] = useState("");           // seller's mortgage payoff $
   const [netInclude, setNetInclude] = useState(false);      // include the net sheet in the shared report/PDF
+  const [payInclude, setPayInclude] = useState(false);      // include the buyer payment estimate in the report
+  const [shareLangPref, setShareLangPref] = useState(null); // null = client link follows the app language
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
@@ -647,6 +654,26 @@ export default function TradeTechPro() {
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
+  useEffect(() => { try { localStorage.setItem("qc_reports", JSON.stringify(sentReports.slice(0, 30))); } catch { /* private mode */ } }, [sentReports]);
+  useEffect(() => {
+    if (screen !== "workspace" || !sentReports.length) return;
+    const rids = sentReports.slice(0, 30).map((r) => r.rid).filter(Boolean).join(",");
+    if (!rids) return;
+    api(`/api/r/opens?rids=${rids}`).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.opens) setReportOpens(j.opens); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen]);
+  /* Monthly payment from the Lending tab's current settings, for the report's
+   * optional buyer card — same PMI/MIP/fee math as the Lending screen. */
+  const paymentFor = (price) => {
+    const principal = Math.max(price - price * lendDownPct / 100, 0);
+    const miRate = lendType === "fha" ? 0.0055 : lendDownPct < 20 ? 0.007 : 0;
+    const fee = lendType === "fha" ? principal * 0.0175 : lendType === "va" ? principal * 0.0215 : 0;
+    const loan = principal + fee;
+    const rr = lendRate / 100 / 12, nn = lendTerm * 12;
+    const pi = rr > 0 ? loan * rr / (1 - Math.pow(1 + rr, -nn)) : loan / nn;
+    const monthly = pi + price * (lendTaxPct / 100) / 12 + lendInsYr / 12 + loan * (lendType === "va" ? 0 : miRate) / 12 + lendHoa;
+    return { monthly: Math.round(monthly), typeLabel: lendType === "fha" ? "FHA" : lendType === "va" ? "VA" : lang === "es" ? "Convencional" : "Conventional" };
+  };
 
   const startLookup = async (addr, placeId = null, gps = null, target = "comps") => {
     // Demo mode gets 6 measurements TOTAL (not per day) — a taste, not a tool.
@@ -665,6 +692,7 @@ export default function TradeTechPro() {
     setRadiusPref("auto");
     setNetPayoff("");
     setNetInclude(false);
+    setPayInclude(false);
     setMeasuring(true);
     setMeasurePhase(0);
     const t0 = Date.now();
@@ -1086,6 +1114,11 @@ export default function TradeTechPro() {
                 : `Based on ${(R.compsUsed || comps.length)} nearby comparable sales within ${R.radius || 2} mi`}
               {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}{R.curated ? (lang === "es" ? " · tu selección" : " · your selection") : ""}.
             </p>
+            {Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 && (
+              <p className="mt-2 inline-block rounded-full px-3 py-1" style={{ background: R.marketDriftMo > 0 ? "rgba(72,187,120,0.18)" : "rgba(229,115,105,0.18)", border: `1px solid ${R.marketDriftMo > 0 ? "#48BB78" : "#E57369"}55`, color: R.marketDriftMo > 0 ? "#7CE0A3" : "#F1A9A0", fontSize: 11, fontWeight: 800 }}>
+                📈 {lang === "es" ? "Tendencia del mercado" : "Market trend"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{lang === "es" ? "año" : "yr"}
+              </p>
+            )}
           </div>
 
           {/* Comp search radius — Auto expands only as far as needed */}
@@ -1531,6 +1564,25 @@ export default function TradeTechPro() {
             <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Reabre comps, estimados de financiamiento e impuestos sin empezar de cero." : "Reopen past comps, lending estimates, and tax snapshots without starting over."}</p>
           </div>
 
+          {sentReports.length > 0 && (
+            <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Informes enviados" : "Reports sent"}</p>
+              {sentReports.slice(0, 8).map((rp) => {
+                const op = reportOpens[rp.rid];
+                return (
+                  <div key={rp.rid} className="flex items-center justify-between gap-2 py-2" style={{ borderTop: `1px solid ${QC.line}` }}>
+                    <span className="min-w-0">
+                      <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{rp.addr}</span>
+                      <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{rp.v ? "$" + Number(rp.v).toLocaleString("en-US") : ""} · {new Date(rp.at).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full px-2.5 py-1" style={{ background: op?.n ? "#EAF8EF" : QC.bg, border: `1px solid ${op?.n ? "#9fd8b0" : QC.line}`, color: op?.n ? "#1E7B3C" : QC.muted2, fontSize: 11, fontWeight: 800 }}>
+                      👀 {op?.n || 0} {lang === "es" ? (op?.n === 1 ? "vista" : "vistas") : (op?.n === 1 ? "view" : "views")}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {savedWork.length === 0 ? (
             <div className="rounded-2xl text-center mb-3" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
               <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Tus búsquedas de propiedades aparecerán aquí." : "Your property searches will show up here."}</p>
@@ -1609,18 +1661,26 @@ export default function TradeTechPro() {
     const commAmt = R.value * netCommPct / 100;
     const closeAmt = R.value * netClosePct / 100;
     const netAmt = R.value - commAmt - closeAmt - payoffN;
+    const payEst = paymentFor(R.value);
+    const shareL = shareLangPref || lang;
     // One link the client can open: all report data travels IN the link (/r?d=)
     const shareLink = async () => {
       const lg = await ensureLogoId();
       const digits = String(userPhone).replace(/\D/g, "");
+      const rid = Array.from(crypto.getRandomValues(new Uint8Array(10))).map((b) => (b % 36).toString(36)).join("");
+      const sLat2 = subj.latitude ?? R.lat, sLng2 = subj.longitude ?? R.lng;
       const payload = {
-        l: lang, a: subj.address || R.addr, v: R.value, lo: R.low, hi: R.high,
-        ppsf: R.avgPpsf, n, cu: R.curated ? 1 : 0,
+        l: shareL, a: subj.address || R.addr, v: R.value, lo: R.low, hi: R.high,
+        ppsf: R.avgPpsf, n, cu: R.curated ? 1 : 0, rid,
+        ...(sLat2 != null && sLng2 != null ? { ll: [sLat2, sLng2] } : {}),
+        ...(Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 ? { dr: R.marketDriftMo } : {}),
         s: { bd: subj.beds, ba: subj.baths, sf: subj.sqft, yr: subj.yearBuilt },
         c: comps.map((c) => [c.address, c.soldPrice]),
         g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, ...(lg ? { lg } : {}) },
         ...(netInclude ? { ns: { cm: netCommPct, cl: netClosePct, po: payoffN, net: Math.round(netAmt) } } : {}),
+        ...(payInclude ? { pay: { mo: payEst.monthly, dp: lendDownPct, rt: lendRate, yr: lendTerm, tp: payEst.typeLabel } } : {}),
       };
+      setSentReports((prev) => [{ rid, addr: subj.address || R.addr, v: R.value, at: Date.now() }, ...prev.filter((x) => x.addr !== (subj.address || R.addr))].slice(0, 30));
       const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
       const url = `${location.origin}/r?d=${b64}`;
       const copied = () => showToast(lang === "es" ? "Link del informe copiado ✓" : "Report link copied ✓");
@@ -1634,6 +1694,11 @@ export default function TradeTechPro() {
         <div className="px-5 pt-4">
           {/* The report document */}
           <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+            {(subj.latitude ?? R.lat) != null && (
+              <img src={`/api/streetview?lat=${subj.latitude ?? R.lat}&lng=${subj.longitude ?? R.lng}`} alt=""
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                style={{ width: "100%", height: 160, objectFit: "cover", display: "block", background: QC.bg }} />
+            )}
             {/* Branded header band */}
             <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
               <div className="flex items-center gap-3 min-w-0">
@@ -1673,6 +1738,15 @@ export default function TradeTechPro() {
                 <p className="text-white" style={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 500 }}>{narrative}</p>
               </div>
 
+              {payInclude && (
+                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
+                  <div className="flex justify-between" style={{ fontSize: 13, fontWeight: 900, color: QC.navyDeep }}>
+                    <span>💳 {lang === "es" ? "Pago mensual estimado" : "Est. monthly payment"}</span>
+                    <span>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
+                  </div>
+                  <p style={{ color: QC.muted2, fontSize: 10, fontWeight: 600, marginTop: 3 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"} — {lang === "es" ? "incluye impuestos, seguro y seguro hipotecario (est.)" : "incl. taxes, insurance & MI (est.)"}</p>
+                </div>
+              )}
               {netInclude && (
                 <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
                   <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, marginBottom: 6 }}>💰 {lang === "es" ? "Hoja neta del vendedor" : "Seller Net Sheet"}</p>
@@ -1714,6 +1788,34 @@ export default function TradeTechPro() {
               <span className="font-extrabold" style={{ color: QC.navy, fontSize: 13 }}>{lang === "es" ? "NETO ESTIMADO" : "ESTIMATED NET"}</span>
               <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 16 }}>{fmt(netAmt)}</span>
             </div>
+          </div>
+
+          {/* Buyer payment estimate — include toggle (uses Lending settings) */}
+          <div className="no-print rounded-2xl p-4 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>💳 {lang === "es" ? "Pago del comprador" : "Buyer payment"}</p>
+                <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"} · {payEst.typeLabel} {lendDownPct}% — {lang === "es" ? "según tu pestaña Crédito" : "from your Lending tab"}</p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                {[[true, lang === "es" ? "Incluir" : "Include"], [false, lang === "es" ? "No" : "Don't"]].map(([val, label]) => (
+                  <button key={String(val)} onClick={() => setPayInclude(val)}
+                    style={{ background: payInclude === val ? QC.navy : "#fff", color: payInclude === val ? "#fff" : QC.navy, border: `1.5px solid ${payInclude === val ? QC.navy : QC.line}`, borderRadius: 20, padding: "5px 11px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Client link language */}
+          <div className="no-print flex items-center gap-1.5 mt-3 flex-wrap">
+            <span style={{ color: QC.muted2, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 2 }}>{lang === "es" ? "Idioma del link" : "Link language"}</span>
+            {[["en", "English"], ["es", "Español"]].map(([code, label]) => {
+              const on = shareL === code;
+              return (
+                <button key={code} onClick={() => setShareLangPref(code)}
+                  style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "5px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+              );
+            })}
           </div>
 
           {/* Actions (not printed) */}

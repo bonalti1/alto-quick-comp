@@ -1027,7 +1027,7 @@ export default function TradeTechPro() {
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, letterSpacing: "0.02em", boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
             {lang === "es" ? "Ver valor de mercado" : "Get Market Value"}
           </button>
-          <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Ventas comparables cercanas · 100% gratis" : "Nearby comparable sales · 100% free"} · DEMO</p>
+          <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Ventas comparables cercanas · 100% gratis" : "Nearby comparable sales · 100% free"}{session ? "" : " · DEMO"}</p>
           {/* Last searches — one tap re-opens the full result instantly */}
           {savedWork.length > 0 && (
             <div className="rounded-2xl px-4 py-3 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -1604,7 +1604,7 @@ export default function TradeTechPro() {
               style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
               {lang === "es" ? "Ver impuestos" : "Get Tax Info"}
             </button>
-            <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Solo impuestos — no necesitas correr comparables" : "Tax only — no need to run comps"} · DEMO</p>
+            <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Solo impuestos — no necesitas correr comparables" : "Tax only — no need to run comps"}{session ? "" : " · DEMO"}</p>
           </div>
         </div>
       );

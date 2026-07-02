@@ -379,6 +379,20 @@ function mapCompsLookup(j, addr) {
   };
 }
 
+/* Approximate average EFFECTIVE property-tax rates by state (share of market
+ * value, statewide averages). Used only for the "(est.)" fallback when the
+ * county record isn't available — real county data always wins. */
+const TAX_RATE_BY_STATE = {
+  NJ: 0.022, IL: 0.021, CT: 0.019, NH: 0.019, VT: 0.018, TX: 0.017, NE: 0.016, WI: 0.016,
+  OH: 0.015, IA: 0.015, RI: 0.015, PA: 0.014, NY: 0.014, KS: 0.013, MI: 0.013, ME: 0.0125,
+  SD: 0.012, AK: 0.012, MA: 0.0115, MN: 0.011, MD: 0.0105, MO: 0.01, ND: 0.01, OR: 0.0095,
+  GA: 0.009, WA: 0.009, OK: 0.009, FL: 0.0085, VA: 0.0085, KY: 0.0085, IN: 0.0085, NC: 0.008,
+  MS: 0.008, MT: 0.0075, NM: 0.0075, CA: 0.0075, TN: 0.0065, ID: 0.0065, AZ: 0.006, AR: 0.006,
+  DE: 0.006, WY: 0.006, UT: 0.0055, NV: 0.0055, SC: 0.0055, LA: 0.0055, WV: 0.0055, DC: 0.0055,
+  CO: 0.005, AL: 0.004, HI: 0.003,
+};
+const stateFromAddress = (addr) => (/\b([A-Z]{2})\s*\d{5}(?:-\d{4})?\b/.exec(String(addr || "")) || /,\s*([A-Z]{2})\s*$/.exec(String(addr || "").trim()) || [])[1] || null;
+
 export default function TradeTechPro() {
   // Saved choice wins; first-ever open follows the phone's language (the
   // product serves English-speaking realtors as fully as Spanish-speaking).
@@ -1404,7 +1418,8 @@ export default function TradeTechPro() {
     const hasRealAssess = subj.assessedValue != null;
     const assessed = hasRealAssess ? subj.assessedValue : (R.value ? Math.round(R.value * 0.86) : null);
     const hasRealTax = subj.annualTax != null;
-    const annualTax = hasRealTax ? subj.annualTax : (assessed ? Math.round(assessed * 0.011) : null);
+    const stateRate = TAX_RATE_BY_STATE[stateFromAddress(subj.address || R.addr)] || 0.011;
+    const annualTax = hasRealTax ? subj.annualTax : (R.value ? Math.round(R.value * stateRate) : assessed ? Math.round(assessed * 0.011) : null);
     const taxYear = subj.taxYear || new Date().getFullYear();
     const estimated = !hasRealAssess || !hasRealTax;
     const facts = [["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]];
@@ -1447,6 +1462,7 @@ export default function TradeTechPro() {
             {lang === "es" ? "Nueva búsqueda" : "New search"}
           </button>
           {estimated && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
+          <p className="mt-2" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>ℹ️ {lang === "es" ? "Al venderse, el impuesto suele recalcularse — las exenciones del dueño actual no se transfieren al comprador." : "After a sale, taxes are usually recalculated — the current owner's exemptions don't transfer to the buyer."}</p>
         </div>
       </div>
     );

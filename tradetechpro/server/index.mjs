@@ -53,8 +53,20 @@ async function cfAddHostname(hostname) {
     return { ok: true, id: j.result?.id, status: j.result?.status };
   } catch (e) { return { ok: false, reason: e.message }; }
 }
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ timeout: 30000, maxRetries: 1 }) : null;
 const aiLive = !!(anthropic || OPENAI_KEY);
+
+/* Every outbound provider call MUST have a timeout. Node's fetch has none, so a
+ * slow (not down) upstream — RentCast, Google, an AI endpoint — would otherwise
+ * hang the request handler for the full socket lifetime; under load these pile
+ * up until the process stops responding. fetchT aborts after `ms` and the
+ * caller's existing catch turns it into the normal not-found/demo fallback. */
+async function fetchT(url, opts = {}, ms = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { ...opts, signal: ctrl.signal }); }
+  finally { clearTimeout(timer); }
+}
 
 /* One helper for both AI providers — Anthropic when ANTHROPIC_API_KEY is set,
  * else OpenAI when OPENAI_API_KEY is set. Same input, returns plain text. */
@@ -63,7 +75,7 @@ async function aiChat({ system, messages, maxTokens = 1024 }) {
     const msg = await anthropic.messages.create({ model: "claude-opus-4-8", max_tokens: maxTokens, system, messages });
     return msg.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
   }
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+  const r = await fetchT("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${OPENAI_KEY}` },
     body: JSON.stringify({
@@ -71,7 +83,7 @@ async function aiChat({ system, messages, maxTokens = 1024 }) {
       max_tokens: maxTokens,
       messages: [{ role: "system", content: system }, ...messages],
     }),
-  });
+  }, 30000); // AI is slower than data lookups
   if (!r.ok) throw new Error(`openai ${r.status}: ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
   return j.choices?.[0]?.message?.content || "";
@@ -280,7 +292,7 @@ function pitchKeyFromDegrees(deg) {
 /* ── Live lookups ── */
 async function geocode(address) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${GOOGLE_KEY}`;
-  const j = await (await fetch(url)).json();
+  const j = await (await fetchT(url)).json();
   const r = j.results?.[0];
   if (!r) return null;
   return { lat: r.geometry.location.lat, lng: r.geometry.location.lng, formatted: r.formatted_address };
@@ -289,7 +301,7 @@ async function geocode(address) {
 /* GPS coordinates → street address (the contractor parked outside the job) */
 async function reverseGeocode(lat, lng) {
   const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${GOOGLE_KEY}`;
-  const j = await (await fetch(url)).json();
+  const j = await (await fetchT(url)).json();
   return j.results?.[0]?.formatted_address || `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
 }
 
@@ -297,7 +309,7 @@ async function reverseGeocode(lat, lng) {
  * autocomplete — more accurate than re-geocoding the address text, which can
  * land on a nearby outbuilding. */
 async function placeDetails(placeId) {
-  const r = await fetch(`https://places.googleapis.com/v1/places/${placeId}`, {
+  const r = await fetchT(`https://places.googleapis.com/v1/places/${placeId}`, {
     headers: { "X-Goog-Api-Key": GOOGLE_KEY, "X-Goog-FieldMask": "location,formattedAddress" },
   });
   if (!r.ok) return null;
@@ -541,7 +553,7 @@ async function roofOutline(lat, lng, clipBbox) {
  * The weighting/outlier math below MUST match Quick Comp — do not reinvent it. */
 
 async function rcFetchJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const response = await fetchT(url, options, 10000);
   const text = await response.text();
   let data;
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
@@ -680,7 +692,7 @@ app.get("/api/diag", async (req, res) => {
   const testPoint = async (label, lat, lon, radius) => {
     const t = {};
     try {
-      const r = await fetch(`https://app.regrid.com/api/v2/parcels/point?lat=${lat}&lon=${lon}&radius=${radius}&token=${REGRID_KEY}`);
+      const r = await fetchT(`https://app.regrid.com/api/v2/parcels/point?lat=${lat}&lon=${lon}&radius=${radius}&token=${REGRID_KEY}`);
       t.status = r.status;
       const body = await r.text();
       if (r.ok) {
@@ -714,7 +726,7 @@ app.get("/api/places", async (req, res) => {
   if (overQuota(`pl:${plIp}`, 300)) return res.status(429).json({ suggestions: [], error: "quota" });
   if (GOOGLE_KEY) {
     try {
-      const r = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      const r = await fetchT("https://places.googleapis.com/v1/places:autocomplete", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Goog-Api-Key": GOOGLE_KEY },
         body: JSON.stringify({ input: q, includedRegionCodes: ["us"] }),
@@ -751,7 +763,7 @@ function simplifyLatLng(pts, cap = 24) {
 
 async function parcelLookup(lat, lng) {
   const u = `https://app.regrid.com/api/v2/parcels/point?lat=${lat}&lon=${lng}&radius=5&token=${REGRID_KEY}`;
-  const r = await fetch(u);
+  const r = await fetchT(u);
   if (!r.ok) { console.error("parcel failed:", r.status, (await r.text()).slice(0, 150)); return null; }
   const j = await r.json();
   const g = j?.parcels?.features?.[0]?.geometry;
@@ -1950,11 +1962,11 @@ app.put("/api/state", async (req, res) => {
 function forwardLead(c, lead) {
   const hook = c.data?.webhook;
   if (!hook || !/^https:\/\//.test(hook)) return;
-  fetch(hook, {
+  fetchT(hook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ source: "alto-pro", contractor: c.slug, ...lead }),
-  }).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
+  }, 6000).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
 }
 
 // Widget (and anything public) drops a lead for a contractor by slug
@@ -1998,10 +2010,16 @@ const quotaMap = new Map();
 function overQuota(key, max) {
   const day = new Date().toISOString().slice(0, 10);
   const q = quotaMap.get(key);
-  if (!q || q.day !== day) { quotaMap.set(key, { day, n: 1 }); return false; }
-  q.n += 1;
-  if (quotaMap.size > 5000) quotaMap.delete(quotaMap.keys().next().value);
-  return q.n > max;
+  if (q && q.day === day) { q.n += 1; return q.n > max; }
+  // New key or a new day — (re)insert and keep the map bounded on EVERY insert.
+  // (The old code only evicted on the existing-key branch, so distinct keys —
+  // one per IP/event — grew the map without limit and stale days never swept.)
+  quotaMap.set(key, { day, n: 1 });
+  if (quotaMap.size > 5000) {
+    for (const [k, v] of quotaMap) { if (v.day !== day) quotaMap.delete(k); if (quotaMap.size <= 4000) break; }
+    while (quotaMap.size > 5000) quotaMap.delete(quotaMap.keys().next().value);
+  }
+  return false;
 }
 const quoteCache = new Map();
 
@@ -2048,11 +2066,21 @@ app.post("/api/widget/quote", async (req, res) => {
   if (digits.length < 10 || digits.length > 11) return res.status(400).json({ error: "phone required" });
   if (!String(address).trim()) return res.status(400).json({ error: "address required" });
   const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
-  if (overQuota(`wip:${ip}`, 2) || overQuota(`wslug:${slug}`, 150)) return res.status(429).json({ error: "quota" });
-  // lifetime per connection per widget: homeowners quote a roof 1-3 times
-  // ever; only freeloaders and price-spies get anywhere near 20
-  const wqLife = await db.incrCounter(`wq:${slug}:${ip}`).catch(() => 0);
-  if (wqLife > 5) return res.status(429).json({ error: "quota" });
+  // The demo widgets (alto-demo/alto-ventas) are a SALES tool — the landing
+  // page, the closer deck, and screen-shared live demos all run through them
+  // from a single IP, so the old 2/day + 5-lifetime caps ran them dry mid-pitch
+  // for exactly the highest-intent prospects. Demo gets generous headroom and
+  // no lifetime cap; real client widgets keep tighter per-family limits (raised
+  // from 2 so a NAT'd office or a family checking two homes isn't blocked).
+  const isDemoWidget = c.slug === "alto-demo" || c.slug === "alto-ventas";
+  const perIp = isDemoWidget ? 60 : 8;
+  const perSlug = isDemoWidget ? 5000 : 150;
+  if (overQuota(`wip:${ip}`, perIp) || overQuota(`wslug:${slug}`, perSlug)) return res.status(429).json({ error: "quota", demo: isDemoWidget });
+  if (!isDemoWidget) {
+    // lifetime per connection per real widget — a homeowner values 1-3 times ever
+    const wqLife = await db.incrCounter(`wq:${slug}:${ip}`).catch(() => 0);
+    if (wqLife > 15) return res.status(429).json({ error: "quota" });
+  }
 
   // Value the property (best effort — the lead is saved regardless). The value
   // comes from RentCast sold comps; Google is only used to clean up the address.

@@ -4894,14 +4894,18 @@ app.get("/r", (req, res) => {
   const n = N(d.n) || comps.length;
   const logoOk = /^[a-f0-9]{16}\.(png|jpg)$/.test(String(g.lg || ""));
   const phone = String(g.p || "").replace(/\D/g, "");
+  const ll = Array.isArray(d.ll) && Number.isFinite(Number(d.ll[0])) && Number.isFinite(Number(d.ll[1])) ? [Number(d.ll[0]), Number(d.ll[1])] : null;
+  const drYr = N(d.dr) != null ? N(d.dr) * 12 * 100 : null; // market drift, %/yr
+  const pay = d.pay && N(d.pay.mo) ? d.pay : null;
+  const rid = /^[a-z0-9]{8,20}$/.test(String(d.rid || "")) ? String(d.rid) : null;
   const hasRange = lo != null && hi != null;
   const narrative = es
     ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(v)}${hasRange ? `, dentro de un rango de ${fmt(lo)}–${fmt(hi)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${ppsf ? `, con un promedio de ${fmt(ppsf)} por pie²` : ""}.${d.cu ? " Comparables seleccionadas personalmente por su agente." : ""}`
     : `The comparable set supports an indicated market value near ${fmt(v)}${hasRange ? `, within a ${fmt(lo)}–${fmt(hi)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${ppsf ? `, averaging ${fmt(ppsf)} per square foot` : ""}.${d.cu ? " Comparables hand-selected by your agent." : ""}`;
   const ns = d.ns && N(d.ns.net) != null ? d.ns : null;
   const L = es
-    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: "Hecho con ⚡ Quick Comp", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
-    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: "Made with ⚡ Quick Comp", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
+    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", trend: "Tendencia del mercado", yr: "año", payT: "PAGO MENSUAL ESTIMADO", payNote: "incluye impuestos, seguro y seguro hipotecario (est.)", down: "de enganche", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: "Hecho con ⚡ Quick Comp", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
+    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", trend: "Market trend", yr: "yr", payT: "ESTIMATED MONTHLY PAYMENT", payNote: "includes taxes, insurance & mortgage insurance (est.)", down: "down", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: "Made with ⚡ Quick Comp", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
   const base = canonBase(req);
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -4922,6 +4926,11 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .head .nm{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .sub{color:rgba(255,255,255,.72);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .cma{font-weight:800;font-size:12px;flex-shrink:0}
+.photo{width:100%;height:190px;object-fit:cover;display:block;background:#EDF0F6}
+.trend{display:inline-block;background:#EAF4EC;border:1px solid #BFE0C8;color:#1E7B3C;border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:800;margin-top:10px}
+.trend.down{background:#FDF1F0;border-color:#F0CBC6;color:#B3261E}
+.paytot{display:flex;justify-content:space-between;font-size:14px;font-weight:900;padding-top:4px}
+.paysub{color:#66759D;font-size:10.5px;font-weight:600;margin-top:5px;line-height:1.4}
 .body{padding:18px}
 .klabel{color:#C9973A;font-size:10px;font-weight:900;letter-spacing:2px}
 .val{font-size:38px;font-weight:900;margin:6px 0 2px}
@@ -4961,14 +4970,20 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
     </div>
     <div class="cma">${L.cma}</div>
   </div>
+  ${ll ? `<img class="photo" src="/api/streetview?lat=${ll[0]}&lng=${ll[1]}" alt="" onerror="this.style.display='none'">` : ""}
   <div class="body">
     <div class="klabel">${L.val}</div>
     <div class="val">${fmt(v)}</div>
     ${hasRange ? `<div class="rng">${fmt(lo)} – ${fmt(hi)} ${L.range}</div>` : ""}
     <div class="addr">${esc(d.a)}</div>
+    ${drYr != null && Math.abs(drYr) >= 1 ? `<div class="trend${drYr < 0 ? " down" : ""}">📈 ${L.trend}: ${drYr > 0 ? "↑" : "↓"} ~${Math.abs(drYr).toFixed(1)}%/${L.yr}</div>` : ""}
     ${L.facts.some(([, x]) => x != null) ? `<div class="facts">${L.facts.filter(([, x]) => x != null).map(([k, x]) => `<div><b>${esc(x)}</b><span>${k}</span></div>`).join("")}</div>` : ""}
     ${comps.length ? `<div class="sec"><h3>${L.sup}</h3>${comps.map((c, i) => `<div class="row"><span>${i + 1}. ${esc(c[0])}</span><b>${fmt(c[1])}</b></div>`).join("")}</div>` : ""}
     <div class="sec ai"><h3>${L.ai}</h3><p>${esc(narrative)}</p></div>
+    ${pay ? `<div class="sec net"><h3>💳 ${L.payT}</h3>
+      <div class="paytot"><span>${esc(pay.tp || "")} · ${esc(N(pay.dp) ?? "")}% ${L.down}</span><span>${fmt(pay.mo)}/${es ? "mes" : "mo"}</span></div>
+      <p class="paysub">${esc(N(pay.rt) ?? "")}% · ${esc(N(pay.yr) ?? "")} ${es ? "años" : "yr"} — ${L.payNote}</p>
+    </div>` : ""}
     ${ns ? `<div class="sec net"><h3>💰 ${L.nsT}</h3>
       <div class="row"><span>${L.nsPrice}</span><b>${fmt(v)}</b></div>
       <div class="row"><span>${L.nsComm} (${esc(N(ns.cm) ?? "—")}%)</span><b>−${fmt(v * (N(ns.cm) || 0) / 100)}</b></div>
@@ -4985,7 +5000,37 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
   </div>
 </div>
 <p class="made">${L.made}</p>
+${rid ? `<img src="/api/r/open?rid=${rid}" alt="" width="1" height="1" style="position:absolute;opacity:0" aria-hidden="true">` : ""}
 </body></html>`);
+});
+
+/* Report-open beacon: the shared page loads a 1px image pointing here, so the
+ * agent can see "your client opened the report". GET so no JS is needed;
+ * harmless counter, quota'd, opaque random ids only. */
+app.get("/api/r/open", async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const rid = String(req.query.rid || "");
+  if (!/^[a-z0-9]{8,20}$/.test(rid)) return res.status(204).end();
+  const roIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`ro:${roIp}`, 120)) return res.status(204).end();
+  try {
+    const cur = (await db.kvGet(`ropen:${rid}`)) || { n: 0 };
+    await db.kvSet(`ropen:${rid}`, { n: (Number(cur.n) || 0) + 1, last: new Date().toISOString() });
+  } catch { /* counter is best-effort */ }
+  res.status(204).end();
+});
+
+// The app asks how often its sent reports were opened (ids are opaque)
+app.get("/api/r/opens", async (req, res) => {
+  const rsIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`ros:${rsIp}`, 200)) return res.status(429).json({ error: "quota" });
+  const rids = String(req.query.rids || "").split(",").filter((r) => /^[a-z0-9]{8,20}$/.test(r)).slice(0, 30);
+  const opens = {};
+  for (const rid of rids) {
+    const v = await db.kvGet(`ropen:${rid}`).catch(() => null);
+    if (v) opens[rid] = { n: Number(v.n) || 0, last: v.last || null };
+  }
+  res.json({ opens });
 });
 
 /* ── Public invoice/estimate page ──

@@ -995,6 +995,17 @@ const safeEq = (a, b) => {
   const A = Buffer.from(String(a || "")), B = Buffer.from(String(b || ""));
   return A.length === B.length && A.length > 0 && crypto.timingSafeEqual(A, B);
 };
+/* A human-looking password guarding /admin puts every client account at risk.
+ * Weak = short, or (unless long) too little character variety — the shape of
+ * a memorized personal password rather than a generated secret. */
+const weakKeyReason = (k) => {
+  if (!k) return null;
+  if (k.length < 14) return "corta";
+  const variety = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((r) => r.test(k)).length;
+  if (k.length < 20 && variety < 3) return "poca variedad";
+  return null;
+};
+
 const adminOk = (req) => ADMIN_KEY && (
   safeEq(req.query.key, ADMIN_KEY) || safeEq(req.body?.key, ADMIN_KEY) || safeEq(reqCookies(req).alto_admin, ADMIN_KEY)
 );
@@ -1196,6 +1207,20 @@ app.get("/admin", async (req, res) => {
   const fmtD = (x) => (x ? String(x).slice(5, 10) : "—");
   const ago = (x) => { if (!x) return "—"; const h = (Date.now() - new Date(x).getTime()) / 36e5; return h < 1 ? "hace minutos" : h < 24 ? `hace ${Math.round(h)}h` : `hace ${Math.round(h / 24)}d`; };
   const esc = (x) => String(x || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  // 🔐 Security panel — reports only WHETHER each piece is configured, never
+  // the values, so there's no reason to open (or screenshot) Render's env page.
+  const wkReason = weakKeyReason(ADMIN_KEY);
+  const secPills = [
+    ["Postgres (datos permanentes)", db.dbKind() !== "file", "crítico"],
+    ["RentCast · comps reales", !!RENTCAST_KEY, "crítico"],
+    ["Google Maps · servidor", !!GOOGLE_KEY, "crítico"],
+    ["Google Maps · navegador", !!process.env.GOOGLE_MAPS_BROWSER_KEY, "recomendado"],
+    [`IA${aiLive ? ` · ${anthropic ? "Anthropic" : "OpenAI"}` : ""}`, aiLive, "recomendado"],
+    ["Stripe · link de pago", !!process.env.STRIPE_PAYMENT_LINK, "para vender"],
+    ["Stripe · webhook", !!STRIPE_WH_SECRET, "para vender"],
+    ["Meta Pixel", !!process.env.META_PIXEL_ID, "para anuncios"],
+    ["Dominio propio", !!ROOT_DOMAIN, "opcional"],
+  ].map(([label, on, need]) => `<span class="pill ${on ? "ok" : (need === "opcional" || need === "recomendado") ? "dim" : "warn"}" title="${need}">${on ? "✓" : "✗"} ${label}${on ? "" : ` · falta (${need})`}</span>`).join(" ");
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quick Comp · Admin</title><link rel="icon" href="/icon-192.png">
 <style>
@@ -1283,6 +1308,21 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
   <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
   <div class="card"><div class="v">${tot("visit")}</div><div class="l">Visitas · 7 días</div></div>
   <div class="card"><div class="v">${tot("quiz_done")}</div><div class="l">Llamadas pedidas</div></div>
+</div>
+
+<div class="panel"${wkReason ? ' style="border:1.5px solid #D93025"' : ""}>
+  <h2>🔐 Seguridad y configuración</h2>
+  ${wkReason ? `<div style="background:#FDECEC;border:1.5px solid #D93025;color:#9B1C10;border-radius:14px;padding:14px 16px;font-weight:600;font-size:13.5px;margin-bottom:14px;line-height:1.55">
+    ⚠️ <b>Tu ADMIN_KEY parece una contraseña personal (${wkReason}).</b> Esta llave abre todas las cuentas y todos los portales. Genera una fuerte y cámbiala:
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button onclick="genKey()" style="background:#101B30;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:800;cursor:pointer;font-size:13px">🎲 Generar llave fuerte</button>
+      <code id="newkey" style="display:none;background:#fff;border:1px solid #E4E7EC;border-radius:10px;padding:9px 12px;font-size:12.5px;word-break:break-all;max-width:100%"></code>
+      <button id="newkeycpy" onclick="cpyKey()" style="display:none;background:#F8B408;color:#101B30;border:none;border-radius:10px;padding:10px 14px;font-weight:800;cursor:pointer;font-size:13px">Copiar</button>
+    </div>
+    <div style="font-weight:500;font-size:12.5px;margin-top:8px;color:#7A2E22">Cópiala → Render → Environment → ADMIN_KEY → pega y guarda. El servicio se reinicia solo y vuelves a entrar con la llave nueva. Se genera en tu navegador — nadie más la ve hasta que tú la pongas en Render.</div>
+  </div>` : ""}
+  <div style="display:flex;flex-wrap:wrap;gap:5px">${secPills}</div>
+  <p class="legend">Esta lista solo dice si cada pieza está configurada — <b>nunca muestra las llaves</b>. Revisa aquí en lugar de abrir (o capturar pantalla de) la página Environment de Render. Si alguna llave llegó a salir en una captura o un mensaje, <b>rótala con su proveedor</b> (RentCast, Google, Stripe): generas una nueva allá, la pegas en Render, y la vieja queda muerta.</p>
 </div>
 
 <div class="panel closures">
@@ -1424,6 +1464,16 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
 </div>
 <script>
 function cpy(btn,url){navigator.clipboard.writeText(url);var o=btn.textContent;btn.textContent='✓';setTimeout(function(){btn.textContent=o},900);}
+function genKey(){
+  var a=new Uint8Array(24);crypto.getRandomValues(a);
+  var k='';for(var i=0;i<a.length;i++){k+=('0'+a[i].toString(16)).slice(-2)}
+  var el=document.getElementById('newkey');el.textContent=k;el.style.display='inline-block';
+  document.getElementById('newkeycpy').style.display='inline-block';
+}
+function cpyKey(){
+  navigator.clipboard.writeText(document.getElementById('newkey').textContent);
+  var b=document.getElementById('newkeycpy');b.textContent='✓';setTimeout(function(){b.textContent='Copiar'},900);
+}
 function filterClients(){
   var q=document.getElementById('csearch').value.toLowerCase().trim();
   [].forEach.call(document.querySelectorAll('tr[data-name]'),function(tr){
@@ -5205,4 +5255,5 @@ await ensureAccount("alto-ventas", "Quick Comp Ventas", { biz: "Quick Comp", lan
 app.listen(PORT, () => {
   console.log(`Quick Comp server on http://localhost:${PORT}`);
   console.log(`  google: ${GOOGLE_KEY ? "LIVE" : "demo"} · parcels: ${REGRID_KEY ? "LIVE" : "demo"} · property: ${RENTCAST_KEY ? "LIVE" : "demo"} · ai: ${aiLive ? `LIVE (${anthropic ? "anthropic" : "openai"})` : "demo"}`);
+  if (weakKeyReason(ADMIN_KEY)) console.warn("  ⚠️ ADMIN_KEY looks like a personal password (short/guessable). Generate a strong one from the banner in /admin — or `openssl rand -hex 24` — and set it in Render → Environment.");
 });

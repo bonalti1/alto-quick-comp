@@ -1737,6 +1737,9 @@ app.get("/admin/c/:slug", async (req, res) => {
   const pay = d.payStatus || "—";
   const payColor = pay === "ok" ? "#1E7B3C" : pay === "failed" ? "#C5221F" : pay === "pending" ? "#9A6E00" : "#8A94A8";
   const payLabel = { ok: "✓ pagando", failed: "💳 pago falló", pending: "⏳ pendiente de pago", canceled: "canceló" }[pay] || "sin estado";
+  // Embed snippet for the Widget tier — the code the team sends to clients
+  // who already have a website (paste-in, works on any site builder).
+  const embedCode = `<iframe src="${canonBase(req)}/w/${c.slug}" style="width:100%;max-width:420px;height:660px;border:0;border-radius:24px;box-shadow:0 12px 32px rgba(16,27,48,.15)" loading="lazy" title="Home value"></iframe>`;
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(c.name)} · Quick Comp Admin</title><link rel="icon" href="/icon-192.png"><style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -1797,6 +1800,12 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   ${st.domain ? `<div class="kv"><span>Dominio propio</span><a href="https://${esc(st.domain)}" target="_blank">${esc(st.domain)}</a></div>` : ""}
 </div>
 
+<div class="panel"><h2>🌐 Widget en SU página (plan Widget)</h2>
+  <p style="color:#67718A;font-size:13px;font-weight:600;margin:0 0 10px;line-height:1.55">Para clientes que ya tienen página: copia este código y mándaselo por WhatsApp — lo pega él (o su web developer) y listo. Funciona en WordPress, Wix, GoDaddy, cualquier sitio. Cada dueño que valúa su casa le llega como lead igual que siempre.</p>
+  <textarea id="emb" readonly onclick="this.select()" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:11.5px;color:#5A6478;background:#F7F8FA;border:1px solid #E4E7EC;border-radius:12px;padding:12px;resize:none" rows="4">${esc(embedCode)}</textarea>
+  <button onclick="cpEmb(this)" style="margin-top:8px;background:#F8B408;color:#101B30;border:none;border-radius:10px;padding:10px 18px;font-weight:800;cursor:pointer;font-size:13px">📋 Copiar código</button>
+</div>
+
 <div class="panel"><h2>Negocio y sitio</h2>
   <div class="kv"><span>Teléfono</span><span>${prettyPhone(p.phone || c.phone)}</span></div>
   <div class="kv"><span>Ciudad</span><span>${esc(st.city) || "—"}</span></div>
@@ -1820,6 +1829,7 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
 </div>
 <script>
 function act(url,q){ if(q&&!confirm(q))return; fetch(url,{method:'POST'}).then(r=>r.json()).then(j=>{ if(!j.ok)alert('Error: '+j.error); location.reload(); }); }
+function cpEmb(b){ navigator.clipboard.writeText(document.getElementById('emb').value); var o=b.textContent; b.textContent='✓ Copiado'; setTimeout(function(){ b.textContent=o; },1200); }
 function pub(v){ fetch('/api/onboarding/publish?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:'${c.slug}',publish:v})}).then(r=>r.json()).then(()=>location.reload()); }
 function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); if(u===null)return; fetch('/api/admin/webhook?key=${KEY}&id=${c.id}&url='+encodeURIComponent(u),{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.ok?'✓ Guardado':'Error');location.reload();}); }
 function revoke(){ if(!confirm('¿Renovar acceso? TODOS sus links y dispositivos actuales quedan desconectados y se genera un link nuevo (mándaselo).'))return; var f=document.createElement('form'); f.method='POST'; f.action='/api/admin/revoke?key=${KEY}&id=${c.id}'; document.body.appendChild(f); f.submit(); }
@@ -2217,6 +2227,10 @@ function landingPage(req) {
   const en = req.query.lang === "en"
     || (req.query.lang !== "es" && /^en/i.test(String(req.headers["accept-language"] || "")));
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
+  // Optional per-tier Payment Links (Pro = app only, Widget = embed on their
+  // existing site). An unset tier falls back to "book a call" — nothing breaks.
+  const stripeLinkPro = process.env.STRIPE_PAYMENT_LINK_PRO || "";
+  const stripeLinkWidget = process.env.STRIPE_PAYMENT_LINK_WIDGET || "";
   // Meta Pixel for ad tracking — only renders once META_PIXEL_ID is set
   const pixelId = (process.env.META_PIXEL_ID || "").replace(/[^0-9]/g, "");
   const pixelHead = pixelId ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${pixelId}');fbq('track','PageView');</script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"/></noscript>` : "";
@@ -2246,9 +2260,20 @@ function landingPage(req) {
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     cap1: "Valued from comps<br>in 60 seconds", cap2: "Want to be sure?<br>Pick your own comparables", cap3: "Professional CMA with your<br>brand, ready to send",
-    priceT: "ONE <em>PRICE</em>", priceSub: "No fine print. No long contracts. Cancel anytime and your domain is yours.",
-    mo: "/mo", setup: "+ $297 to start (one time)", buyNow: "Start now →", orBook: "or book a call first",
-    inc: ["Your professional website with your brand", "Instant home-value tool on your site", "The Quick Comp app: values, CMAs, leads", "Seller leads straight to your WhatsApp", "Your domain (yourname.com) is yours — by contract", "Bilingual support"],
+    priceT: "PICK YOUR <em>PLAN</em>", priceSub: "No fine print. No long contracts. Cancel anytime.",
+    mo: "/mo", buyNow: "Start now →", orBook: "Not sure which one? Book a call — we'll tell you honestly.",
+    popTag: "MOST POPULAR", noSetup: "no setup fee",
+    tiers: [
+      { name: "PRO · THE TOOL", amt: 67, setup: null, link: stripeLinkPro,
+        desc: "Just want the tool? The full Quick Comp app, self-serve.",
+        inc: ["Instant values from real comparable sales", "CMA reports with your brand", "Lending, tax & seller net sheet", "AI listing writer + appraisal packet", "English y Español"] },
+      { name: "WIDGET · YOUR SITE", amt: 197, setup: "+ $97 setup (one time)", pop: true, link: stripeLinkWidget,
+        desc: "Already have a website? We send you the code — you (or your web person) paste it in.",
+        inc: ["Everything in Pro", "The home-value tool on YOUR website", "Seller leads straight to your WhatsApp", "Works on WordPress, Wix, GoDaddy — any site"] },
+      { name: "COMPLETE · DONE FOR YOU", amt: 297, setup: "+ $297 to start (one time)", link: stripeLink,
+        desc: "No website — or want a better one? We build it for you from our templates.",
+        inc: ["Everything in Widget", "Your professional website with your brand", "Live in days — you pick the template", "Your domain (yourname.com) is yours — by contract", "Bilingual support"] },
+    ],
     talkT: "READY? <em>LET'S TALK</em>", talkSub: "Answer 4 quick questions and schedule a call with the team. No obligation — we answer everything and you decide.",
     q1: "What do you focus on?", q1o: ["Residential", "Luxury", "Both", "Other"],
     q2: "How long have you been licensed?", q2o: ["Just starting", "1–3 years", "3–10 years", "10+ years"],
@@ -2281,9 +2306,20 @@ function landingPage(req) {
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     cap1: "Valuado con comparables<br>en 60 segundos", cap2: "¿Quieres estar seguro?<br>Escoge tú mismo las comparables", cap3: "CMA profesional con tu<br>marca, listo para mandar",
-    priceT: "UN SOLO <em>PRECIO</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras y tu dominio es tuyo.",
-    mo: "/mes", setup: "+ $297 para empezar (una sola vez)", buyNow: "Comenzar ahora →", orBook: "o agenda una llamada primero",
-    inc: ["Tu página web profesional con tu marca", "Valuador de casas instantáneo en tu página", "La app Quick Comp: valores, CMAs, leads", "Leads de venta directo a tu WhatsApp", "Tu dominio (tunombre.com) es tuyo — por contrato", "Soporte en español"],
+    priceT: "ELIGE TU <em>PLAN</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras.",
+    mo: "/mes", buyNow: "Comenzar ahora →", orBook: "¿No sabes cuál? Agenda una llamada — te decimos con honestidad.",
+    popTag: "MÁS POPULAR", noSetup: "sin costo de inicio",
+    tiers: [
+      { name: "PRO · LA HERRAMIENTA", amt: 67, setup: null, link: stripeLinkPro,
+        desc: "¿Solo quieres la herramienta? La app completa de Quick Comp, tú solo.",
+        inc: ["Valores al instante con ventas comparables reales", "Reportes CMA con tu marca", "Crédito, impuestos y hoja neta del vendedor", "Redactor de listing con IA + paquete para avalúo", "English y Español"] },
+      { name: "WIDGET · TU PÁGINA", amt: 197, setup: "+ $97 de inicio (una sola vez)", pop: true, link: stripeLinkWidget,
+        desc: "¿Ya tienes página? Te mandamos el código — lo pegas tú (o tu web developer).",
+        inc: ["Todo lo de Pro", "El valuador de casas en TU página", "Leads de venta directo a tu WhatsApp", "Funciona en WordPress, Wix, GoDaddy — cualquier sitio"] },
+      { name: "COMPLETE · TODO HECHO", amt: 297, setup: "+ $297 para empezar (una sola vez)", link: stripeLink,
+        desc: "¿No tienes página — o quieres una mejor? Te la hacemos con nuestras plantillas.",
+        inc: ["Todo lo de Widget", "Tu página web profesional con tu marca", "Lista en días — tú eliges la plantilla", "Tu dominio (tunombre.com) es tuyo — por contrato", "Soporte en español"] },
+    ],
     talkT: "¿LISTO? <em>HABLEMOS</em>", talkSub: "Contesta 4 preguntas rápidas y agenda una llamada con el equipo. Sin compromiso — resolvemos todas tus dudas y tú decides.",
     q1: "¿En qué te enfocas?", q1o: ["Residencial", "Lujo", "Ambos", "Otro"],
     q2: "¿Cuánto llevas con licencia?", q2o: ["Empezando", "1–3 años", "3–10 años", "10+ años"],
@@ -2359,6 +2395,16 @@ section{padding:64px 0}
 .price-card ul{text-align:left;margin:24px 0 0;padding:0}
 .price-card li{list-style:none;padding:8px 0;font-weight:600;font-size:14px}
 .price-card li::before{content:"✓ ";color:#34A853;font-weight:800}
+.tiers{display:grid;gap:18px;align-items:stretch}
+@media(min-width:880px){.tiers{grid-template-columns:repeat(3,1fr)}}
+.tiers .price-card{max-width:none;margin:0;padding:30px 26px;display:flex;flex-direction:column;position:relative}
+.tiers .price-card .amt{font-size:52px}
+.tiers .price-card ul{flex:1}
+.tiers .price-card li{font-size:13.5px}
+.price-card.pop{border:2.5px solid #F8B408;box-shadow:0 34px 90px rgba(248,180,8,.22)}
+.pop-tag{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:#F8B408;color:#101B30;font-size:11px;font-weight:800;letter-spacing:1.2px;border-radius:99px;padding:5px 14px;white-space:nowrap}
+.tier-name{font-weight:800;font-size:12.5px;letter-spacing:1.6px;color:#67718A}
+.tier-desc{color:#5A6478;font-size:13px;font-weight:600;margin-top:10px;line-height:1.5}
 .quiz{max-width:480px;margin:0 auto;position:relative}
 .qbar{height:6px;background:#EDF0F5;border-radius:99px;margin-bottom:26px;overflow:hidden}
 .qfill{height:100%;width:20%;background:#F8B408;border-radius:99px;transition:width .3s ease}
@@ -2438,15 +2484,20 @@ footer a{color:#8A94A8}
 <div class="band"><div class="wrap"><section id="precio">
   <h2 class="sec-t">${L.priceT}</h2>
   <p class="sec-sub">${L.priceSub}</p>
-  <div class="price-card">
-    <div class="amt">$297<small>${L.mo}</small></div>
-    <div class="setup">${L.setup}</div>
-    <ul>${L.inc.map((x) => `<li>${x}</li>`).join("")}</ul>
-    ${stripeLink
-      ? `<a class="cta" style="margin-top:26px;width:100%;text-align:center" href="${stripeLink}" target="_blank" rel="noreferrer">${L.buyNow}</a>
-         <a href="#contacto" style="display:block;text-align:center;margin-top:14px;color:#67718A;font-weight:700;font-size:13px;text-decoration:none">${L.orBook}</a>`
-      : `<a class="cta" style="margin-top:26px;width:100%;text-align:center" href="#contacto">${L.cta2}</a>`}
+  <div class="tiers">
+    ${L.tiers.map((t) => `<div class="price-card${t.pop ? " pop" : ""}">
+      ${t.pop ? `<div class="pop-tag">${L.popTag}</div>` : ""}
+      <div class="tier-name">${t.name}</div>
+      <div class="amt">$${t.amt}<small>${L.mo}</small></div>
+      <div class="setup">${t.setup || L.noSetup}</div>
+      <p class="tier-desc">${t.desc}</p>
+      <ul>${t.inc.map((x) => `<li>${x}</li>`).join("")}</ul>
+      ${t.link
+        ? `<a class="cta" style="margin-top:22px;width:100%;text-align:center" href="${t.link}" target="_blank" rel="noreferrer">${L.buyNow}</a>`
+        : `<a class="cta" style="margin-top:22px;width:100%;text-align:center" href="#contacto">${L.cta2}</a>`}
+    </div>`).join("")}
   </div>
+  <p style="text-align:center;margin-top:18px"><a href="#contacto" style="color:#67718A;font-weight:700;font-size:13px;text-decoration:none">${L.orBook}</a></p>
 </section></div></div>
 
 <div class="wrap"><section id="contacto">

@@ -18,6 +18,34 @@ const C = {
   yellowSoft: "#F7EFD8",
 };
 
+/* ─── Quick Comp visual language — scoped to the comps screens ───
+   Module-scope (static) so components that use it can live at module scope too
+   and not remount their children on every parent render. */
+const QC = {
+  navy: "#1B2A5C", navyDeep: "#111B42",
+  cardGrad: "linear-gradient(135deg,#162655,#223B72)",
+  headGrad: "linear-gradient(135deg,#07162D 0%,#111B42 62%,#1D2F5A 100%)",
+  gold: "#D7B665", goldHi: "#E6BF6A", goldLine: "#E3B54E",
+  bg: "#F0F4FA", line: "#dde4f0", line2: "#D9E1EF",
+  muted: "#9aaac8", muted2: "#6b7db3", body: "#4a5a7a",
+  green: "#1E9E5A", red: "#E8442E",
+};
+
+/* Range slider — MUST be module-scope: when it was defined inside TradeTechPro
+   its function identity changed every render, so React remounted the <input>
+   mid-drag and the gesture died after one step. */
+const Slider = ({ label, value, display, min, max, step, onChange }) => (
+  <div className="mb-3.5">
+    <div className="flex justify-between items-baseline mb-1.5">
+      <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
+      <span className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{display}</span>
+    </div>
+    <input type="range" min={min} max={max} step={step} value={value}
+      onChange={(e) => onChange(parseFloat(e.target.value))}
+      className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
+  </div>
+);
+
 /* ─── Logo (Quick Comp QC monogram) ───
    color="#fff" (or any light value) renders the white mark for navy backgrounds;
    default renders the navy mark for light backgrounds. */
@@ -495,15 +523,21 @@ export default function TradeTechPro() {
     },
   });
 
-  // On startup with a session: load my account and my saved data
+  // On startup with a session: load my account and my saved data.
+  // Cloud SAVING is enabled only after a successful load — otherwise a transient
+  // offline-at-open would let a blind save push local data over newer cloud data.
+  // So if the load fails (offline), we RETRY with backoff rather than giving up
+  // for the whole session.
   useEffect(() => {
     if (!session) return;
-    (async () => {
+    let cancelled = false, attempts = 0;
+    const load = async () => {
       try {
         const r = await api("/api/me");
         if (r.status === 401) { try { localStorage.removeItem("alto_session"); } catch { /* ignore */ } setSession(null); return; }
-        if (!r.ok) return;
+        if (!r.ok) throw new Error("me " + r.status);
         const j = await r.json();
+        if (cancelled) return;
         setMySlug(j.contractor?.slug || null);
         const p = j.contractor?.data?.profile || {};
         setBizName(p.biz || j.contractor.name || "");
@@ -523,26 +557,66 @@ export default function TradeTechPro() {
         setJobs(j.state?.jobs || []);
         if (!WANT_ROOF && welcomedInit) setScreen("comps");
         setCloudReady(true);
-      } catch { /* offline — local data keeps working */ }
-    })();
+      } catch {
+        // offline/transient — local data keeps working; retry so sync recovers
+        if (!cancelled && attempts < 6) { attempts += 1; setTimeout(load, Math.min(3000 * attempts, 15000)); }
+      }
+    };
+    load();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  // Save to the cloud shortly after anything changes
+  // Save to the cloud shortly after anything changes. The latest payload and a
+  // "unsaved" flag live in refs so the background/close flush below can send them.
+  const savePayloadRef = useRef(null);
+  const saveDirtyRef = useRef(false);
+  const warnedSaveRef = useRef(false);
   useEffect(() => {
     if (!session || !cloudReady) return;
-    const id = setTimeout(() => {
-      api("/api/state", {
-        method: "PUT",
-        body: JSON.stringify({
-          state: { customers, jobs, reports: sentReports.slice(0, 30) },
-          profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, prices: myPrices } },
-        }),
-      }).catch(() => { /* offline — retried on next change */ });
+    const payload = JSON.stringify({
+      state: { customers, jobs, reports: sentReports.slice(0, 30) },
+      profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, prices: myPrices } },
+    });
+    savePayloadRef.current = payload;
+    saveDirtyRef.current = true;
+    const id = setTimeout(async () => {
+      try {
+        const r = await api("/api/state", { method: "PUT", body: payload });
+        if (r.status === 401) { try { localStorage.removeItem("alto_session"); } catch { /* ignore */ } setSession(null); return; }
+        if (r.ok) { saveDirtyRef.current = false; warnedSaveRef.current = false; return; }
+        // Non-ok (e.g. 413 payload too large): tell the agent ONCE — silent
+        // failure here is how a day's work quietly disappears.
+        if (!warnedSaveRef.current) {
+          warnedSaveRef.current = true;
+          showToast("⚠️ " + (lang === "es" ? "No se pudo guardar en la nube" + (r.status === 413 ? " (imagen muy grande)" : "") : "Couldn't save to the cloud" + (r.status === 413 ? " (image too large)" : "")));
+        }
+      } catch { /* offline — stays dirty, retried on next change and on close */ }
     }, 1500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, myPrices]);
+
+  // Flush an unsaved change when the app is backgrounded or closed — the normal
+  // mobile gesture (swipe away within the 1.5s debounce) otherwise loses the edit.
+  useEffect(() => {
+    const flush = () => {
+      if (!session || !saveDirtyRef.current || !savePayloadRef.current) return;
+      try {
+        fetch("/api/state", {
+          method: "PUT", keepalive: true,
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session}` },
+          body: savePayloadRef.current,
+        });
+        saveDirtyRef.current = false;
+      } catch { /* nothing more we can do on unload */ }
+    };
+    const onVis = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVis);
+    return () => { window.removeEventListener("pagehide", flush); document.removeEventListener("visibilitychange", onVis); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
 
   // address lookup state (demo data for now)
   const [addrQ, setAddrQ] = useState("");
@@ -826,7 +900,17 @@ export default function TradeTechPro() {
         res = j.found ? mapCompsLookup(j, addr) : null;
       }
     } catch { /* backend unreachable */ }
-    if (!answered) res = await mockLookup(addr);
+    // The simulated fallback is DEMO-ONLY. A signed-in agent must never get
+    // fabricated comps they could unknowingly share/print under their license —
+    // if the server was unreachable, tell them, don't invent data.
+    if (!answered && !session) res = await mockLookup(addr);
+    if (!answered && session) {
+      await new Promise(rs => setTimeout(rs, Math.max(0, 900 - (Date.now() - t0))));
+      clearTimeout(p1); clearTimeout(p2);
+      setMeasuring(false);
+      showToast("📡 " + (lang === "es" ? "Sin conexión al servidor — intenta de nuevo" : "Couldn't reach the server — try again"));
+      return;
+    }
     // Keep the measuring animation on screen long enough to read
     await new Promise(rs => setTimeout(rs, Math.max(0, 2400 - (Date.now() - t0))));
     clearTimeout(p1); clearTimeout(p2);
@@ -937,16 +1021,6 @@ export default function TradeTechPro() {
 
   /* ── Screens ── */
   // Quick Comp visual language — scoped to the comps screens (search + result) only.
-  const QC = {
-    navy: "#1B2A5C", navyDeep: "#111B42",
-    cardGrad: "linear-gradient(135deg,#162655,#223B72)",
-    headGrad: "linear-gradient(135deg,#07162D 0%,#111B42 62%,#1D2F5A 100%)",
-    gold: "#D7B665", goldHi: "#E6BF6A", goldLine: "#E3B54E",
-    bg: "#F0F4FA", line: "#dde4f0", line2: "#D9E1EF",
-    muted: "#9aaac8", muted2: "#6b7db3", body: "#4a5a7a",
-    green: "#1E9E5A", red: "#E8442E",
-  };
-
   const CompsSearch = () => {
     if (measuring) {
       const phases = [t.measuring1, t.measuring2, t.measuring3];
@@ -1437,18 +1511,6 @@ export default function TradeTechPro() {
           {lang === "es" ? "Buscar una dirección" : "Search an address"}
         </button>
       </div>
-    </div>
-  );
-
-  const Slider = ({ label, value, display, min, max, step, onChange }) => (
-    <div className="mb-3.5">
-      <div className="flex justify-between items-baseline mb-1.5">
-        <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
-        <span className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{display}</span>
-      </div>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
     </div>
   );
 

@@ -180,6 +180,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         profile: { biz: name, ...(email ? { email } : {}), ...(phone ? { phone } : {}) },
       });
       console.log(`stripe webhook: self-serve signup → created ${c.slug} [${planInfo?.plan || "plan?"}] (send their access link!)`);
+      await queueTask(c.slug, "💰 Enviar link de acceso", `${name} pagó ${planInfo?.plan || "plan?"} ($${planInfo?.planAmount || "?"}) por la página. Genera su link en /admin → 🆕 mandar acceso y mándaselo por WhatsApp. Contacto: ${email || phone}.`);
       notifyStaff(`💰 NEW self-serve signup: ${name} [${planInfo?.plan || "plan?"} $${planInfo?.planAmount || "?"}] — ${email || phone}. SEND THEIR ACCESS LINK from /admin → 🆕 mandar acceso.`);
       return res.json({ ok: true, created: c.slug, plan: planInfo?.plan || null });
     }
@@ -1986,6 +1987,14 @@ function notifyStaff(text) {
   }, 6000).catch(() => { /* best-effort — a dead alert must never block the flow */ });
 }
 
+/* Drop a persistent, clearable item into the /cs support inbox — the dashboard
+ * the team logs into and works top-to-bottom each day. This is the PRIMARY
+ * channel; notifyStaff's external webhook is optional phone-push on top. A
+ * failed task write must never break the paying flow, so it's swallowed. */
+function queueTask(slug, title, note) {
+  return db.addTask({ slug: slug || "", title, note }).catch((e) => console.error("queue task failed:", e.message));
+}
+
 // Widget (and anything public) drops a lead for a contractor by slug
 app.post("/api/widget/lead", async (req, res) => {
   const wlIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
@@ -1998,8 +2007,10 @@ app.post("/api/widget/lead", async (req, res) => {
   const id = await db.addLead(c.id, { name, phone, address, info });
   forwardLead(c, { id, name, phone, address, ...info });
   // A lead on the sales/demo account is a PROSPECT AGENT (the /ventas quiz) —
-  // ping the team to call them today, which is what the quiz promised them.
+  // queue a call task in /cs and ping the team; the quiz promised them a call today.
   if (c.slug === "alto-ventas" || c.slug === "alto-demo") {
+    const bits = [info?.work, info?.crew, info?.revenue].filter(Boolean).join(" · ");
+    await queueTask("", "📞 Llamar lead de ventas", `${name || "(sin nombre)"} · ${phone}${bits ? ` · ${bits}` : ""}. Le prometimos una llamada hoy — contáctalo.`);
     notifyStaff(`📞 NEW sales lead: ${name || "(no name)"} · ${phone}${info?.work ? ` · ${info.work}` : ""}. Promised a call today — reach out.`);
   }
   res.json({ ok: true, id });

@@ -2404,6 +2404,10 @@ export default function TradeTechPro() {
         @media print {
           body { background: #fff !important; }
           .no-print { display: none !important; }
+          /* Force backgrounds to print: without this Chrome/Safari drop the navy
+             header band and gold labels, so "Presented by / agent / brokerage /
+             license" prints as white-on-white — the report comes out anonymous. */
+          #qc-report, #qc-report * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           #qc-report { box-shadow: none !important; border: 1px solid #d9e1ef !important; }
         }`}</style>
       <div className="w-full max-w-md flex flex-col relative" style={{ background: C.bg, minHeight: "100vh" }}>

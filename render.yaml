@@ -56,6 +56,9 @@ services:
       # Live data providers — set these to leave demo mode.
       - key: GOOGLE_MAPS_API_KEY
         sync: false
+      # Separate referrer-restricted key for the browser map (Maps JS API only)
+      - key: GOOGLE_MAPS_BROWSER_KEY
+        sync: false
       - key: RENTCAST_API_KEY
         sync: false
       - key: ANTHROPIC_API_KEY

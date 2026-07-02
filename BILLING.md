@@ -13,6 +13,10 @@ Price: **$297/mo + $297 one-time setup**.
    sets `payStatus: "ok"`, and the account/site/widget go live.
 4. If the payment lands *before* the account exists, it's remembered (`paid:<phone|email>`)
    and the account auto-activates the moment it's created (closer flow).
+   **Self-serve:** if the payment came from the landing page (no closer on a call),
+   the account is **auto-created on the spot**, active and flagged — the admin
+   clients table shows a "🆕 mandar acceso" pill until you send their invite link
+   (click the pill to generate it). Money can never be taken with nothing created.
 5. Later: `invoice.payment_failed` flags the account; `customer.subscription.deleted`
    pauses it. Cash/Zelle deals: activate manually from `/admin`.
 

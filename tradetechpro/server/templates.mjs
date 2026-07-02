@@ -12,6 +12,13 @@
 
 const esc = (s) => String(s || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
+/* Headlines allow exactly two tags (<br>, <em>) for layout; everything else —
+ * including anything a compromised staff account or an AI draft could inject —
+ * is escaped. Never render d.hero raw. */
+const sanHero = (s) => esc(s)
+  .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+  .replace(/&lt;(\/?)em&gt;/gi, "<$1em>");
+
 const pretty = (d) => (String(d).length === 10 ? `(${String(d).slice(0, 3)}) ${String(d).slice(3, 6)}-${String(d).slice(6)}` : d);
 
 // darken/lighten a hex color (f < 0 darkens)
@@ -121,7 +128,7 @@ ${ribbonHtml(opts)}
 <div class="hero"><div class="veil"></div>
   <div class="wrap in">
     <span class="kick">BIENES RAÍCES${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</span>
-    <h1>${d.hero || `Vende tu casa por<br>lo que <em>de verdad vale</em>`}</h1>
+    <h1>${d.hero ? sanHero(d.hero) : `Vende tu casa por<br>lo que <em>de verdad vale</em>`}</h1>
     <p>${esc(d.tagline) || "Conoce el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite."}</p>
     <a class="cta" href="#cotiza">VALÚA TU CASA EN 60 SEGUNDOS</a>${d.phone ? `<a class="cta ghost" href="tel:+1${d.phone}">Llámanos</a>` : ""}
   </div>
@@ -231,7 +238,7 @@ ${ribbonHtml(opts)}
   <div class="ghostword bc">${ghost}</div>
   <div class="wrap in">
     <p class="hk">Bienes raíces${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</p>
-    <h1>${d.hero || `Vende <em>al mejor</em><br>precio.`}</h1>
+    <h1>${d.hero ? sanHero(d.hero) : `Vende <em>al mejor</em><br>precio.`}</h1>
     <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa en 60 segundos — con ventas reales cercanas, sin visitas y sin compromiso."}</p>
     <div class="ctas"><a class="btn p" href="#cotiza">Valúa ya</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">Llámanos</a>` : ""}</div>
   </div>
@@ -323,7 +330,7 @@ ${ribbonHtml(opts)}
 <div class="hero"><div class="wrap"><div class="hgrid">
   <div>
     <span class="pill">🏡 Bienes raíces${d.city ? ` · ${esc(d.city)}` : ""}</span>
-    <h1>${d.hero || `Vende tu casa.<br><em>Sin estrés.</em>`}</h1>
+    <h1>${d.hero ? sanHero(d.hero) : `Vende tu casa.<br><em>Sin estrés.</em>`}</h1>
     <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa con ventas reales cercanas — aquí mismo, gratis y sin que nadie te visite."}</p>
     <div class="hcta"><a class="btn p" href="#cotiza">Valúa gratis</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">📞 Llámanos</a>` : ""}</div>
   </div>

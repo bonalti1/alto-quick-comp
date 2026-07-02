@@ -1,12 +1,11 @@
 /*
- * Trade Tech Pro backend.
+ * Quick Comp backend.
  *
- * Three endpoints, each with a demo fallback so the app works with no keys:
+ * Core endpoints, each with a demo fallback so the app works with no keys:
  *   GET  /api/health  — which features are live vs demo
  *   GET  /api/places  — address autocomplete (Google Places, else mock list)
- *   POST /api/lookup  — roof + property data (Google Geocoding + Solar API +
- *                       RentCast, else simulated data)
- *   POST /api/ai      — the "Pregúntale a TTP" assistant (Anthropic API)
+ *   POST /api/lookup  — property data + comps (Google Geocoding + RentCast,
+ *                       else simulated data)
  */
 import express from "express";
 import path from "node:path";
@@ -78,6 +77,10 @@ async function aiChat({ system, messages, maxTokens = 1024 }) {
 }
 
 const app = express();
+// Behind Render's proxy: trust X-Forwarded-* so req.protocol is https and
+// generated links (invites, OG tags) don't come out as http://.
+app.set("trust proxy", 1);
+const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === "production");
 
 /* ── Stripe billing webhook ──
  * Registered BEFORE the JSON parser because Stripe signatures are computed
@@ -116,6 +119,22 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
     if (["invoice.paid", "invoice.payment_succeeded", "checkout.session.completed"].includes(event.type)) {
       if (phone) await db.kvSet(`paid:${phone}`, { customerId, email, phone }).catch(() => {});
       if (email) await db.kvSet(`paid:${email}`, { customerId, email, phone }).catch(() => {});
+    }
+    // Self-serve purchase from the landing page: nobody is on a call, so no
+    // account will ever be created by hand. Create it NOW, active, flagged
+    // self-serve — the admin table shows "mandar acceso" until an invite is
+    // sent (money taken with nothing delivered must be impossible).
+    if (event.type === "checkout.session.completed" && (email || phone)) {
+      const name = String(obj.customer_details?.name || (email ? email.split("@")[0] : "") || phone).slice(0, 80);
+      const c = await db.createContractor({ name, phone });
+      await db.saveContractorData(c.id, {
+        payStatus: "ok",
+        selfServe: true,
+        ...(customerId ? { stripeCustomer: customerId } : {}),
+        profile: { biz: name, ...(email ? { email } : {}), ...(phone ? { phone } : {}) },
+      });
+      console.log(`stripe webhook: self-serve signup → created ${c.slug} (send their access link!)`);
+      return res.json({ ok: true, created: c.slug });
     }
     console.log("stripe webhook: no contractor match for", event.type, customerId, email, phone);
     return res.json({ ok: true, matched: false });
@@ -826,12 +845,16 @@ app.get("/api/diag", async (req, res) => {
 });
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, db: db.dbKind(), dbError: db.dbErrorMsg ? db.dbErrorMsg() : null, live: { google: !!GOOGLE_KEY, parcels: !!REGRID_KEY, property: !!RENTCAST_KEY, ai: aiLive } });
+  res.json({ ok: true, db: db.dbKind(), dbError: (db.dbErrorMsg && db.dbErrorMsg()) ? "postgres unreachable (see server logs)" : null, live: { google: !!GOOGLE_KEY, parcels: !!REGRID_KEY, property: !!RENTCAST_KEY, ai: aiLive } });
 });
 
 app.get("/api/places", async (req, res) => {
   const q = String(req.query.q || "").trim();
-  if (!q) return res.json({ suggestions: [], source: "demo" });
+  if (q.length < 4) return res.json({ suggestions: [], source: "demo" });
+  // Each call is a billed Google request — cap per connection per day. 300
+  // covers a heavy legitimate day (typing ~20-30 addresses); bots hit the wall.
+  const plIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`pl:${plIp}`, 300)) return res.status(429).json({ suggestions: [], error: "quota" });
   if (GOOGLE_KEY) {
     try {
       const r = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
@@ -1058,10 +1081,18 @@ app.get("/api/streetview", async (req, res) => {
 /* Browser key for the in-app interactive map (Maps JavaScript API). Prefers a
  * dedicated, HTTP-referrer-restricted browser key; falls back to the main key
  * so the map works out of the box. Restrict the key by referrer in production. */
+/* The key handed to browsers for the Maps JS map. Use a SEPARATE, referrer-
+ * restricted key (GOOGLE_MAPS_BROWSER_KEY) — the server key can't be referrer-
+ * restricted and would be extractable from any visitor's network tab. The
+ * fallback to the server key exists only so the map doesn't break before the
+ * browser key is configured; it logs a warning at every boot until fixed. */
 app.get("/api/mapconfig", (_req, res) => {
   res.set("Cache-Control", "public, max-age=300");
   res.json({ key: process.env.GOOGLE_MAPS_BROWSER_KEY || GOOGLE_KEY || "" });
 });
+if (!process.env.GOOGLE_MAPS_BROWSER_KEY && GOOGLE_KEY) {
+  console.warn("⚠️  GOOGLE_MAPS_BROWSER_KEY not set — the SERVER key is being served to browsers via /api/mapconfig. Create a second key (Maps JavaScript API only, HTTP-referrer restricted to your domain) and set it as GOOGLE_MAPS_BROWSER_KEY.");
+}
 
 /* Comparables map: a static map with markers baked in by Google (subject =
  * red "S", comps = numbered navy pins). Google auto-frames to fit all points.
@@ -1115,7 +1146,7 @@ const reqCookies = (req) => Object.fromEntries(
   })
 );
 const setKeyCookie = (res, name, val) =>
-  res.setHeader("Set-Cookie", `${name}=${encodeURIComponent(val)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30 * 86400}`);
+  res.setHeader("Set-Cookie", `${name}=${encodeURIComponent(val)}; Path=/; HttpOnly; SameSite=Lax${IS_PROD ? "; Secure" : ""}; Max-Age=${30 * 86400}`);
 const clearKeyCookie = (res, name) => res.setHeader("Set-Cookie", `${name}=; Path=/; Max-Age=0`);
 // Canonical public base for generated links: always the main https domain in
 // production (never app./www. or http), so copied links work everywhere.
@@ -1132,18 +1163,23 @@ function siteDisplay(req, slug) {
   return `${canonBase(req).replace(/^https?:\/\//, "")}/site/${slug}`;
 }
 
+// Constant-time comparison so response timing can't leak key prefixes.
+const safeEq = (a, b) => {
+  const A = Buffer.from(String(a || "")), B = Buffer.from(String(b || ""));
+  return A.length === B.length && A.length > 0 && crypto.timingSafeEqual(A, B);
+};
 const adminOk = (req) => ADMIN_KEY && (
-  req.query.key === ADMIN_KEY || req.body?.key === ADMIN_KEY || reqCookies(req).alto_admin === ADMIN_KEY
+  safeEq(req.query.key, ADMIN_KEY) || safeEq(req.body?.key, ADMIN_KEY) || safeEq(reqCookies(req).alto_admin, ADMIN_KEY)
 );
 // Closers get a limited portal: create clients + the sales toolkit, nothing else
 const closerOk = (req) => {
-  const k = req.query.key || req.body?.key || reqCookies(req).alto_closer || reqCookies(req).alto_admin;
-  return (CLOSER_KEY && k === CLOSER_KEY) || (ADMIN_KEY && k === ADMIN_KEY);
+  const ks = [req.query.key, req.body?.key, reqCookies(req).alto_closer, reqCookies(req).alto_admin];
+  return ks.some((k) => (CLOSER_KEY && safeEq(k, CLOSER_KEY)) || (ADMIN_KEY && safeEq(k, ADMIN_KEY)));
 };
 // Customer service: the command center (tasks + edit client sites), no money/MRR
 const csOk = (req) => {
-  const k = req.query.key || req.body?.key || reqCookies(req).alto_cs || reqCookies(req).alto_admin;
-  return (CS_KEY && k === CS_KEY) || (ADMIN_KEY && k === ADMIN_KEY);
+  const ks = [req.query.key, req.body?.key, reqCookies(req).alto_cs, reqCookies(req).alto_admin];
+  return ks.some((k) => (CS_KEY && safeEq(k, CS_KEY)) || (ADMIN_KEY && safeEq(k, ADMIN_KEY)));
 };
 
 function loginPage(title, action, wrong) {
@@ -1213,8 +1249,27 @@ a{color:#C9973A;font-weight:800}</style></head><body>
 <a href="/admin?key=${encodeURIComponent(ADMIN_KEY)}">← Volver al admin</a></body></html>`);
 });
 
+/* Admin: revoke ALL access to an account (leaked link, lost phone, ex-employee)
+ * — kills every session and every old invite, then mints ONE fresh link. */
+app.post("/api/admin/revoke", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).send("bad admin key");
+  const c = await db.getContractor(String(req.query.id || req.body?.id || ""));
+  if (!c) return res.status(404).send("no contractor");
+  await db.revokeAccess(c.id);
+  const token = await db.createInvite(c.id);
+  const url = `${canonBase(req)}/invite/${token}`;
+  res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acceso renovado</title>
+<style>body{font-family:Inter,Arial,sans-serif;max-width:560px;margin:40px auto;padding:0 16px;color:#15244C}
+.link{background:#F7EFD8;border:2px solid #C9973A;border-radius:12px;padding:14px;word-break:break-all;font-size:14px;margin:14px 0}
+a{color:#C9973A;font-weight:800}</style></head><body>
+<h2>🔒 Acceso renovado: ${String(c.name).replace(/</g, "&lt;")}</h2>
+<p>Todos los links y dispositivos anteriores quedaron <b>desconectados</b>. Mándale este link nuevo — es su única llave ahora:</p>
+<div class="link">${url}</div>
+<a href="/admin?key=${encodeURIComponent(ADMIN_KEY)}">← Volver al admin</a></body></html>`);
+});
+
 // Admin: connect/disconnect a contractor's HighLevel webhook (empty url clears)
-app.get("/api/admin/webhook", async (req, res) => {
+app.post("/api/admin/webhook", async (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
   const c = await db.getContractor(String(req.query.id || ""));
   if (!c) return res.status(404).json({ error: "no contractor" });
@@ -1226,7 +1281,7 @@ app.get("/api/admin/webhook", async (req, res) => {
 
 // Admin: pause/reactivate a client (paused = widget + website stop taking leads;
 // the app and their data stay untouched)
-app.get("/api/admin/status", async (req, res) => {
+app.post("/api/admin/status", async (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
   const c = await db.getContractor(String(req.query.id || ""));
   if (!c) return res.status(404).json({ error: "no contractor" });
@@ -1282,7 +1337,7 @@ function periodSeg(basePath, range, en) {
 app.get("/admin", async (req, res) => {
   if (!ADMIN_KEY) return res.status(503).send("Set ADMIN_KEY env var to enable admin.");
   if (req.query.logout != null) { clearKeyCookie(res, "alto_admin"); return res.redirect("/admin"); }
-  if (req.query.key === ADMIN_KEY) { setKeyCookie(res, "alto_admin", ADMIN_KEY); return res.redirect("/admin"); }
+  if (safeEq(req.query.key, ADMIN_KEY)) { setKeyCookie(res, "alto_admin", ADMIN_KEY); return res.redirect("/admin"); }
   if (!adminOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Admin", "/admin", !!req.query.key));
   const KEY = encodeURIComponent(ADMIN_KEY);
   const base = canonBase(req);
@@ -1393,7 +1448,7 @@ td .pill{margin:2px 3px 2px 0}
 </style></head><body>
 <header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Admin</b><span class="tag"><a href="/admin/economics" style="color:#F8B408">🧮 Calculadora</a> · <a href="/cs" style="color:#9DA8C4">🎧 Servicio</a> · <a href="/admin?logout" style="color:#9DA8C4">salir</a></span></header>
 <div class="wrap">
-
+${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D93025;color:#9B1C10;border-radius:14px;padding:13px 16px;font-weight:700;font-size:13.5px;margin-bottom:16px">⚠️ SIN BASE DE DATOS — los datos se guardan en el disco temporal del servidor y <b>se pierden en cada reinicio</b>. Configura DATABASE_URL (Postgres) en Render antes de aceptar clientes reales.</div>` : ""}
 <div class="cards">
   <div class="card gold"><div class="v">$${mrr.toLocaleString("en-US")}</div><div class="l" style="color:#9DA8C4">MRR · clientes pagando</div></div>
   <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
@@ -1508,11 +1563,15 @@ td .pill{margin:2px 3px 2px 0}
       : pay === "pending" ? ' <span class="pill gold" title="Clic en «activo» para activar tras confirmar el pago">💳 pendiente</span>' : "";
     const dev = devCounts[String(c.id)] || 0;
     const devTag = (!isB && dev >= 4) ? ` <span class="pill warn" title="${dev} dispositivos/aperturas — posible link compartido. Ofrécele cuentas para su equipo.">📱 ${dev}</span>` : "";
+    // Paid on the website with no human on the call — until someone sends
+    // their access link (and they open it), flag them loudly.
+    const selfServeTag = (c.data?.selfServe && dev === 0)
+      ? ` <a href="/api/admin/invite?key=${KEY}&id=${c.id}"><span class="pill warn" title="Pagó solo en la página — nadie le ha mandado su acceso. Clic para generar su link.">🆕 mandar acceso</span></a>` : "";
     return `<tr data-name="${esc(c.name).toLowerCase()} ${c.slug}">
       <td><a href="/admin/c/${c.slug}" style="color:#101B30;font-weight:800">${esc(c.name)}</a>${isB ? ' <span class="pill gold">interno</span>' : ""}</td>
       <td>${isPaused
         ? `<a href="#" onclick="setStatus('${c.id}','active','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill warn">⏸ pausado</span></a>`
-        : `<a href="#" onclick="setStatus('${c.id}','paused','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill ok">activo</span></a>`}${payTag}${devTag}</td>
+        : `<a href="#" onclick="setStatus('${c.id}','paused','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill ok">activo</span></a>`}${payTag}${selfServeTag}${devTag}</td>
       <td>${act}</td><td>${st.total}</td><td>${ago(st.last_at)}</td>
       <td><a href="/w/${c.slug}" target="_blank">/w/${c.slug}</a> · <a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/onboarding?key=${KEY}&slug=${c.slug}">🎨</a></td>
       <td><a href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 link</a></td>
@@ -1549,13 +1608,13 @@ function setStatus(id, status, name){
     ? '¿Pausar a ' + name + '? Su valuador y su página dejan de recibir leads. Su app y sus datos NO se tocan.'
     : '¿Reactivar a ' + name + '? Su valuador vuelve a recibir leads al instante.';
   if (!confirm(q)) return;
-  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=' + status)
+  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=' + status, {method:'POST'})
     .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
 }
 function setHook(id, name){
   var u = prompt('Webhook de HighLevel para ' + name + ' (vacío = desconectar):');
   if (u === null) return;
-  fetch('/api/admin/webhook?key=${KEY}&id=' + id + '&url=' + encodeURIComponent(u))
+  fetch('/api/admin/webhook?key=${KEY}&id=' + id + '&url=' + encodeURIComponent(u), {method:'POST'})
     .then(r => r.json()).then(j => { alert(j.ok ? (j.webhook ? '✓ Conectado' : '✓ Desconectado') : 'Error: ' + j.error); location.reload(); });
 }
 </script>
@@ -1581,7 +1640,7 @@ app.post("/api/admin/ceo", async (req, res) => {
 
 app.get("/admin/economics", async (req, res) => {
   if (!ADMIN_KEY) return res.status(503).send("Set ADMIN_KEY env var to enable admin.");
-  if (req.query.key === ADMIN_KEY) { setKeyCookie(res, "alto_admin", ADMIN_KEY); return res.redirect("/admin/economics"); }
+  if (safeEq(req.query.key, ADMIN_KEY)) { setKeyCookie(res, "alto_admin", ADMIN_KEY); return res.redirect("/admin/economics"); }
   if (!adminOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Admin", "/admin/economics", !!req.query.key));
   const en = req.query.lang === "en";
   const tr = (es, eng) => (en ? eng : es);
@@ -1849,6 +1908,7 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   <button class="b-dark" onclick="pub(${st.published ? "false" : "true"})">${st.published ? "Ocultar página" : "🚀 Publicar página"}</button>
   <a class="b-line" href="/onboarding?key=${KEY}&slug=${c.slug}">🎨 Onboarding</a>
   <a class="b-line" href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 Link de acceso</a>
+  <button class="b-line" onclick="revoke()">🔒 Renovar acceso</button>
   <button class="b-line" onclick="hook()">🤖 GHL ${d.webhook ? "(conectado)" : ""}</button>
 </div></div>
 
@@ -1882,9 +1942,10 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
 </div>
 </div>
 <script>
-function act(url,q){ if(q&&!confirm(q))return; fetch(url).then(r=>r.json()).then(j=>{ if(!j.ok)alert('Error: '+j.error); location.reload(); }); }
+function act(url,q){ if(q&&!confirm(q))return; fetch(url,{method:'POST'}).then(r=>r.json()).then(j=>{ if(!j.ok)alert('Error: '+j.error); location.reload(); }); }
 function pub(v){ fetch('/api/onboarding/publish?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:'${c.slug}',publish:v})}).then(r=>r.json()).then(()=>location.reload()); }
-function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); if(u===null)return; fetch('/api/admin/webhook?key=${KEY}&id=${c.id}&url='+encodeURIComponent(u)).then(r=>r.json()).then(j=>{alert(j.ok?'✓ Guardado':'Error');location.reload();}); }
+function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); if(u===null)return; fetch('/api/admin/webhook?key=${KEY}&id=${c.id}&url='+encodeURIComponent(u),{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.ok?'✓ Guardado':'Error');location.reload();}); }
+function revoke(){ if(!confirm('¿Renovar acceso? TODOS sus links y dispositivos actuales quedan desconectados y se genera un link nuevo (mándaselo).'))return; var f=document.createElement('form'); f.method='POST'; f.action='/api/admin/revoke?key=${KEY}&id=${c.id}'; document.body.appendChild(f); f.submit(); }
 </script>
 </body></html>`);
 });
@@ -1894,7 +1955,19 @@ function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); i
 // working the moment Stripe confirms (or the admin activates manually).
 app.get("/invite/:token", async (req, res) => {
   const session = await db.useInvite(req.params.token);
-  if (!session) return res.status(404).send("Invitación no válida.");
+  if (!session) {
+    // Dead link = revoked or mistyped. Don't leave them at a blank 404 —
+    // tell them how to get back in.
+    return res.status(404).send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quick Comp</title><style>*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0}
+body{background:#15244C;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:#fff;border-radius:22px;padding:36px 28px;max-width:400px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+h1{font-size:19px;color:#15244C;margin-bottom:8px}p{color:#5A6478;font-size:14px;font-weight:600;line-height:1.6}</style></head>
+<body><div class="card"><span style="font-size:40px">🔒</span>
+<h1>Este link ya no es válido</h1>
+<p>Tu link de acceso fue renovado por seguridad o el enlace está incompleto.<br><br>Escríbenos por WhatsApp y te mandamos tu link nuevo en un minuto.</p>
+</div></body></html>`);
+  }
   const who = await db.getSessionContractor(session).catch(() => null);
   if (who?.data?.payStatus === "pending") {
     return res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1928,7 +2001,9 @@ app.put("/api/state", async (req, res) => {
   const c = await auth(req);
   if (!c) return res.status(401).json({ error: "no session" });
   await db.saveState(c.id, req.body?.state || {});
-  if (req.body?.profile) await db.saveContractorData(c.id, req.body.profile);
+  // MERGE into the account's data — never replace it. The data column also
+  // holds payStatus/stripeCustomer/site/webhook, which the app must not wipe.
+  if (req.body?.profile) await db.saveContractorData(c.id, { ...(c.data || {}), ...req.body.profile });
   res.json({ ok: true });
 });
 
@@ -2950,7 +3025,7 @@ app.get("/cs", async (req, res) => {
   if (!CS_KEY && !ADMIN_KEY) return res.status(503).send("Set CS_KEY or ADMIN_KEY.");
   if (req.query.logout != null) { clearKeyCookie(res, "alto_cs"); return res.redirect("/cs"); }
   const qk = req.query.key;
-  if (qk && ((CS_KEY && qk === CS_KEY) || (ADMIN_KEY && qk === ADMIN_KEY))) { setKeyCookie(res, "alto_cs", qk); return res.redirect("/cs"); }
+  if (qk && ((CS_KEY && safeEq(qk, CS_KEY)) || (ADMIN_KEY && safeEq(qk, ADMIN_KEY)))) { setKeyCookie(res, "alto_cs", qk); return res.redirect("/cs"); }
   if (!csOk(req)) return res.status(qk ? 403 : 401).send(loginPage("Servicio al cliente", "/cs", !!qk));
   const ck = reqCookies(req);
   const K = encodeURIComponent(String(ck.alto_cs || ck.alto_admin || qk || ""));
@@ -4112,7 +4187,7 @@ app.get("/closer", async (req, res) => {
   if (!CLOSER_KEY && !ADMIN_KEY) return res.status(503).send("Set CLOSER_KEY env var to enable.");
   if (req.query.logout != null) { clearKeyCookie(res, "alto_closer"); return res.redirect("/closer"); }
   const qk = req.query.key;
-  if (qk && ((CLOSER_KEY && qk === CLOSER_KEY) || (ADMIN_KEY && qk === ADMIN_KEY))) {
+  if (qk && ((CLOSER_KEY && safeEq(qk, CLOSER_KEY)) || (ADMIN_KEY && safeEq(qk, ADMIN_KEY)))) {
     setKeyCookie(res, "alto_closer", qk);
     return res.redirect("/closer" + (req.query.lang === "en" ? "?lang=en" : ""));
   }
@@ -5040,61 +5115,6 @@ ${d.k === "est" && !d.paid ? `<div class="sec" style="font-size:12px;color:#6771
 <button class="btn" onclick="window.print()">${L.print}</button>
 <div class="ft">⚡ ${L.made}</div>
 </div></body></html>`);
-});
-
-app.post("/api/ai", async (req, res) => {
-  const { messages, lang = "es", trade = "concrete", bizName = "", data = {} } = req.body || {};
-  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: "messages required" });
-
-  if (!aiLive) {
-    return res.json({
-      text: lang === "es"
-        ? "(Demo) El asistente se activa cuando agregues tu OPENAI_API_KEY o ANTHROPIC_API_KEY en el servidor. Todo lo demás de la app ya funciona."
-        : "(Demo) The assistant turns on once you add your OPENAI_API_KEY or ANTHROPIC_API_KEY on the server. Everything else in the app already works.",
-      source: "demo",
-    });
-  }
-
-  try {
-    const text = await aiChat({
-      maxTokens: 1024,
-      system: `You are the AI assistant inside Quick Comp, an app for Latino real-estate agents. The user is a real-estate agent${bizName ? ` (brokerage: ${bizName})` : ""}. Reply in ${lang === "es" ? "Spanish" : "English"}, max 90 words, plain text only (no markdown). Help with home valuation and listing prep: how a comparative market value is built from recent SOLD comparable sales (adjusting for living area/sqft, beds/baths, age, condition and how recent the sale is), how to read price-per-sqft, days on market, and how to position a listing price. Active/pending listings are context only, never the value. NEVER promise a guaranteed sale price and never give legal or financial advice; a full CMA refines the number, and tell them to verify locally. Agent's current data: ${JSON.stringify(data)}`,
-      messages,
-    });
-    res.json({ text, source: "live" });
-  } catch (e) {
-    console.error("ai failed:", e.message);
-    res.status(502).json({ error: "ai_failed" });
-  }
-});
-
-/* Parse a spoken phrase like "factura para María García, reparación de techo,
- * 450 dólares" into draft invoice fields. Claude when a key is set, simple
- * pattern matching otherwise. Always returns a draft for human review. */
-function parseInvoiceFallback(text) {
-  const amounts = [...String(text).matchAll(/\$?\s?(\d[\d,]*(?:\.\d{1,2})?)/g)].map((m) => parseFloat(m[1].replace(/,/g, "")));
-  const amount = amounts.length ? Math.max(...amounts) : null;
-  const nm = String(text).match(/(?:para|for)\s+([A-ZÁÉÍÓÚÑ][\wáéíóúñ'-]*(?:\s+[A-ZÁÉÍÓÚÑ][\wáéíóúñ'-]*){0,2})/i);
-  return { name: nm ? nm[1].trim() : "", concept: String(text).trim(), amount };
-}
-
-app.post("/api/parse", async (req, res) => {
-  const { text, lang = "es" } = req.body || {};
-  if (!text) return res.status(400).json({ error: "text required" });
-  if (aiLive) {
-    try {
-      const raw = await aiChat({
-        maxTokens: 300,
-        system: `Extract invoice fields from a contractor's spoken phrase (may be Spanish or English, transcribed by speech recognition). Reply with ONLY a JSON object: {"name": customer full name or "", "concept": short description of the work in ${lang === "es" ? "Spanish" : "English"} (clean it up, no customer name or amount in it), "amount": number or null}. Numbers may be spoken as words ("cuatrocientos cincuenta" = 450).`,
-        messages: [{ role: "user", content: String(text) }],
-      });
-      const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
-      return res.json({ name: j.name || "", concept: j.concept || String(text), amount: typeof j.amount === "number" ? j.amount : null, source: "live" });
-    } catch (e) {
-      console.error("parse failed:", e.message);
-    }
-  }
-  res.json({ ...parseInvoiceFallback(text), source: "demo" });
 });
 
 await db.initDb();

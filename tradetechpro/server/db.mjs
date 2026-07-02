@@ -109,9 +109,17 @@ export async function initDb() {
     return;
    } catch (e) {
     dbError = e.message;
-    console.error("db: POSTGRES CONNECTION FAILED — falling back to file DB. Reason:", e.message);
+    console.error("db: POSTGRES CONNECTION FAILED. Reason:", e.message);
     try { await pool?.end(); } catch { /* ignore */ }
     pool = null;
+    // In production a silent fallback to the file store means every new
+    // account, lead and payment writes to EPHEMERAL disk and evaporates on
+    // the next restart — while everything looks fine. Fail fast instead so
+    // the deploy goes red and someone looks.
+    if (process.env.RENDER || process.env.NODE_ENV === "production") {
+      console.error("db: DATABASE_URL is set but unreachable in production — refusing to start on ephemeral file storage.");
+      process.exit(1);
+    }
    }
   }
   // File fallback (no DATABASE_URL, or Postgres failed to connect)
@@ -303,6 +311,20 @@ export async function useInvite(token) {
   if (pool) await pool.query("INSERT INTO sessions (token, contractor_id) VALUES ($1,$2)", [session, contractorId]);
   else { mem.sessions[session] = contractorId; persistMem(); }
   return session;
+}
+
+/* Kill every existing way into an account — all sessions (devices) and all
+ * invite links. For leaked links, lost phones, ex-employees. Pair with
+ * createInvite to hand the client a fresh key. */
+export async function revokeAccess(contractorId) {
+  if (pool) {
+    await pool.query("DELETE FROM sessions WHERE contractor_id=$1", [contractorId]);
+    await pool.query("DELETE FROM invites WHERE contractor_id=$1", [contractorId]);
+    return;
+  }
+  mem.sessions = Object.fromEntries(Object.entries(mem.sessions || {}).filter(([, id]) => id !== contractorId));
+  mem.invites = Object.fromEntries(Object.entries(mem.invites || {}).filter(([, v]) => v.contractor_id !== contractorId));
+  persistMem();
 }
 
 export async function getSessionContractor(token) {

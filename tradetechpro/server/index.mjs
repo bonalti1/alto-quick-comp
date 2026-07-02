@@ -4869,6 +4869,125 @@ app.get("/api/logo/:id", (req, res) => {
   res.send(fs.readFileSync(p));
 });
 
+/* ── Shared client CMA report ──
+ * The realtor taps "Share report" and the client gets this page by WhatsApp.
+ * Like /i, ALL data travels in the link (base64url JSON in ?d=) — nothing is
+ * stored server-side, so links survive restarts and redeploys. The page is the
+ * agent's deliverable: their brand, the value, the comps, optionally the
+ * seller net sheet, and one-tap ways to reach them. */
+app.get("/r", (req, res) => {
+  let d;
+  try {
+    const raw = String(req.query.d || "");
+    if (!raw || raw.length > 12000) return res.status(400).send("Invalid link");
+    d = JSON.parse(Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+  } catch { return res.status(400).send("Invalid link"); }
+  const es = d.l !== "en";
+  const esc = (x) => String(x || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const N = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+  const fmt = (n) => (N(n) == null ? "—" : "$" + Math.round(N(n)).toLocaleString("en-US"));
+  const v = N(d.v), lo = N(d.lo), hi = N(d.hi), ppsf = N(d.ppsf);
+  if (!v) return res.status(400).send("Invalid link");
+  const g = d.g || {};
+  const sub = d.s || {};
+  const comps = (Array.isArray(d.c) ? d.c : []).slice(0, 8).map((c) => [String(c[0] || ""), N(c[1])]).filter((c) => c[0] && c[1]);
+  const n = N(d.n) || comps.length;
+  const logoOk = /^[a-f0-9]{16}\.(png|jpg)$/.test(String(g.lg || ""));
+  const phone = String(g.p || "").replace(/\D/g, "");
+  const hasRange = lo != null && hi != null;
+  const narrative = es
+    ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(v)}${hasRange ? `, dentro de un rango de ${fmt(lo)}–${fmt(hi)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${ppsf ? `, con un promedio de ${fmt(ppsf)} por pie²` : ""}.${d.cu ? " Comparables seleccionadas personalmente por su agente." : ""}`
+    : `The comparable set supports an indicated market value near ${fmt(v)}${hasRange ? `, within a ${fmt(lo)}–${fmt(hi)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${ppsf ? `, averaging ${fmt(ppsf)} per square foot` : ""}.${d.cu ? " Comparables hand-selected by your agent." : ""}`;
+  const ns = d.ns && N(d.ns.net) != null ? d.ns : null;
+  const L = es
+    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: "Hecho con ⚡ Quick Comp", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
+    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: "Made with ⚡ Quick Comp", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
+  const base = canonBase(req);
+  res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(d.a)} · ${L.title}</title>
+<meta property="og:title" content="${esc(d.a)} — ${fmt(v)}">
+<meta property="og:description" content="${esc(L.title)}${g.n ? ` · ${esc(g.n)}${g.b ? ", " + esc(g.b) : ""}` : ""}">
+<meta property="og:image" content="${base}/icon-512.png">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/icon-192.png">
+<style>
+*{box-sizing:border-box;font-family:Inter,-apple-system,Arial,sans-serif;margin:0}
+body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
+.doc{max-width:560px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 18px 44px rgba(17,27,66,.14)}
+.head{background:linear-gradient(135deg,#1B2A5C,#101B3C);color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.head img{height:40px;max-width:110px;object-fit:contain;background:#fff;border-radius:8px;padding:3px}
+.head .who{min-width:0;flex:1}
+.head .k{color:#E5C066;font-size:8px;font-weight:700;letter-spacing:2px}
+.head .nm{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head .sub{color:rgba(255,255,255,.72);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.head .cma{font-weight:800;font-size:12px;flex-shrink:0}
+.body{padding:18px}
+.klabel{color:#C9973A;font-size:10px;font-weight:900;letter-spacing:2px}
+.val{font-size:38px;font-weight:900;margin:6px 0 2px}
+.rng{color:#66759D;font-size:13px;font-weight:600}
+.addr{font-weight:700;font-size:14px;margin-top:6px}
+.facts{display:flex;gap:8px;margin:14px 0}
+.facts div{flex:1;background:#F2F4FA;border:1px solid #E3E8F2;border-radius:12px;text-align:center;padding:9px 4px}
+.facts b{display:block;font-size:15px}
+.facts span{font-size:9px;color:#66759D;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.sec{background:#F7F8FC;border:1px solid #E3E8F2;border-radius:14px;padding:13px 15px;margin-top:12px}
+.sec h3{font-size:12px;font-weight:800;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #E9EDF5;font-size:12.5px;font-weight:600}
+.row:first-of-type{border-top:none}
+.row b{font-weight:800;white-space:nowrap}
+.ai{background:linear-gradient(135deg,#1B2A5C,#111C3E);color:#fff;border:none}
+.ai h3{color:#E5C066;letter-spacing:2px;font-size:9px}
+.ai p{font-size:12.5px;line-height:1.6;font-weight:500}
+.net{border:2px solid #C9973A;background:#FDF9EF}
+.net .tot{display:flex;justify-content:space-between;border-top:2px solid #C9973A;margin-top:6px;padding-top:9px;font-size:14px;font-weight:900}
+.disc{color:#8A94AC;font-size:10px;font-weight:600;margin-top:12px;line-height:1.5}
+.ctas{display:flex;gap:8px;margin-top:16px}
+.ctas a{flex:1;text-align:center;text-decoration:none;font-weight:800;font-size:13px;padding:12px 6px;border-radius:12px;background:#1B2A5C;color:#fff}
+.ctas a.wa{background:#25D366}
+.printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:#1B2A5C;border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
+.made{text-align:center;color:#9AA3B8;font-size:11px;font-weight:700;margin-top:16px}
+.made a{color:#9AA3B8}
+@media print{body{background:#fff;padding:0}.doc{box-shadow:none;border-radius:0}.ctas,.printbtn,.made{display:none}}
+</style></head><body>
+<div class="doc">
+  <div class="head">
+    ${logoOk ? `<img src="/api/logo/${g.lg}" alt="">` : ""}
+    <div class="who">
+      <div class="k">${L.pres}</div>
+      <div class="nm">${esc(g.n) || "—"}</div>
+      ${g.b ? `<div class="sub">${esc(g.b)}</div>` : ""}
+      ${g.lic ? `<div class="sub">Lic. ${esc(g.lic)}</div>` : ""}
+    </div>
+    <div class="cma">${L.cma}</div>
+  </div>
+  <div class="body">
+    <div class="klabel">${L.val}</div>
+    <div class="val">${fmt(v)}</div>
+    ${hasRange ? `<div class="rng">${fmt(lo)} – ${fmt(hi)} ${L.range}</div>` : ""}
+    <div class="addr">${esc(d.a)}</div>
+    ${L.facts.some(([, x]) => x != null) ? `<div class="facts">${L.facts.filter(([, x]) => x != null).map(([k, x]) => `<div><b>${esc(x)}</b><span>${k}</span></div>`).join("")}</div>` : ""}
+    ${comps.length ? `<div class="sec"><h3>${L.sup}</h3>${comps.map((c, i) => `<div class="row"><span>${i + 1}. ${esc(c[0])}</span><b>${fmt(c[1])}</b></div>`).join("")}</div>` : ""}
+    <div class="sec ai"><h3>${L.ai}</h3><p>${esc(narrative)}</p></div>
+    ${ns ? `<div class="sec net"><h3>💰 ${L.nsT}</h3>
+      <div class="row"><span>${L.nsPrice}</span><b>${fmt(v)}</b></div>
+      <div class="row"><span>${L.nsComm} (${esc(N(ns.cm) ?? "—")}%)</span><b>−${fmt(v * (N(ns.cm) || 0) / 100)}</b></div>
+      <div class="row"><span>${L.nsClose} (${esc(N(ns.cl) ?? "—")}%)</span><b>−${fmt(v * (N(ns.cl) || 0) / 100)}</b></div>
+      ${N(ns.po) ? `<div class="row"><span>${L.nsPay}</span><b>−${fmt(ns.po)}</b></div>` : ""}
+      <div class="tot"><span>${L.nsNet}</span><span>${fmt(ns.net)}</span></div>
+    </div>` : ""}
+    <p class="disc">⚠️ ${L.disc}</p>
+    <div class="ctas">
+      ${phone ? `<a href="tel:+1${phone}">${L.call}</a><a class="wa" href="https://wa.me/1${phone}">${L.wa}</a>` : ""}
+      ${g.e ? `<a href="mailto:${esc(g.e)}">${L.mail}</a>` : ""}
+    </div>
+    <button class="printbtn" onclick="window.print()">${L.print}</button>
+  </div>
+</div>
+<p class="made">${L.made}</p>
+</body></html>`);
+});
+
 /* ── Public invoice/estimate page ──
  * All data travels in the link itself (base64url JSON in ?d=) — nothing is
  * stored server-side, so links survive restarts and redeploys. */

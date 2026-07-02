@@ -184,7 +184,7 @@ const TR = {
     estimateSt: "Estimado", inProgress: "En Progreso",
     done: "Terminado", paid: "Pagado",
     demoBanner: "🧪 Modo demo — tus datos no se guardan en la nube. ¿Cliente? Entra con tu link de WhatsApp.",
-    demoLimit: "El modo demo incluye 6 valuaciones de prueba y ya las usaste. Los clientes de Quick Comp valúan sin límite.",
+    demoLimit: "El modo demo incluye 10 valuaciones de prueba y ya las usaste. Los clientes de Quick Comp valúan sin límite.",
     measuring1: "Buscando la propiedad…", measuring2: "Analizando ventas comparables…", measuring3: "Calculando el valor…",
     beds: "Recámaras", baths: "Baños", builtIn: "Construida",
     useMyLocation: "Usar mi ubicación", myLocation: "Mi ubicación", locating: "Buscando tu ubicación…",
@@ -205,7 +205,7 @@ const TR = {
     estimateSt: "Estimate", inProgress: "In Progress",
     done: "Done", paid: "Paid",
     demoBanner: "🧪 Demo mode — your data isn't saved to the cloud. Client? Enter with your WhatsApp link.",
-    demoLimit: "The demo includes 6 trial valuations and you've used them. Quick Comp clients value with no limits.",
+    demoLimit: "The demo includes 10 trial valuations and you've used them. Quick Comp clients value with no limits.",
     measuring1: "Finding the property…", measuring2: "Analyzing comparable sales…", measuring3: "Calculating the value…",
     beds: "Bedrooms", baths: "Baths", builtIn: "Built",
     useMyLocation: "Use my location", myLocation: "My location", locating: "Finding your location…",
@@ -846,13 +846,13 @@ export default function TradeTechPro() {
   };
 
   const startLookup = async (addr, placeId = null, gps = null, target = "comps") => {
-    // Demo mode gets 6 measurements TOTAL (not per day) — a taste, not a tool.
+    // Demo mode gets 10 measurements TOTAL (not per day) — a taste, not a tool.
     // The counter lives next to the demo data itself, so wiping it to cheat
     // also wipes everything the freeloader saved.
     if (!session) {
       let used = 0;
       try { used = parseInt(localStorage.getItem("alto_demo_meas") || "0", 10) || 0; } catch { /* private mode */ }
-      if (used >= 6) { showToast("🔒 " + t.demoLimit); return; }
+      if (used >= 10) { showToast("🔒 " + t.demoLimit); return; }
     }
     setAddrQ(addr);
     setExcludedComps({});

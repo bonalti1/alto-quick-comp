@@ -2630,6 +2630,35 @@ footer a{color:#8A94A8}
 </div>
 </div>
 
+<div class="wrap"><section>
+  <h2 class="sec-t">${L.appTryT}</h2>
+  <p class="sec-sub">${L.appTrySub}</p>
+  <div class="apptry">
+    <div class="phone2"><div class="notch"></div>
+      <iframe src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+    </div>
+    <div class="trybox">
+      <p class="tbh">${L.phT}</p>
+      <p class="tbs">${L.phSub}</p>
+      <div id="tryform">
+        <input id="tname" placeholder="${L.phName}" autocomplete="name">
+        <input id="tphone" placeholder="${L.phPhone}" type="tel" inputmode="numeric" autocomplete="tel">
+        <p class="err" id="terr" style="display:none">${L.phErr}</p>
+        <button class="cta" style="width:100%;margin-top:6px" onclick="sendTrial()">${L.phBtn}</button>
+      </div>
+      <div id="tryok" style="display:none">
+        <p class="tbh" style="color:#1E7B3C;font-size:16px">${L.phOk}</p>
+        <a class="cta" style="width:100%;background:#101B30;color:#fff;margin-top:12px" href="${appLiveUrl}${en ? "&lang=en" : ""}" target="_blank">${L.phTry}</a>
+      </div>
+    </div>
+  </div>
+  <div class="shots" style="margin-top:48px">
+    <div class="shot"><img src="/landing/app-measure.png" alt="" loading="lazy"><p>${L.cap1}</p></div>
+    <div class="shot"><img src="/landing/app-trace.png" alt="" loading="lazy"><p>${L.cap2}</p></div>
+    <div class="shot"><img src="/landing/app-quote.png" alt="" loading="lazy"><p>${L.cap3}</p></div>
+  </div>
+</section></div>
+
 <div class="band"><div class="wrap"><section id="demo" style="padding-bottom:70px">
   <h2 class="sec-t">${L.tryT}</h2>
   <p class="sec-sub">${L.trySub}</p>
@@ -2666,35 +2695,6 @@ footer a{color:#8A94A8}
     </div>
   </div>
 </section></div></div>
-
-<div class="wrap"><section>
-  <h2 class="sec-t">${L.appTryT}</h2>
-  <p class="sec-sub">${L.appTrySub}</p>
-  <div class="apptry">
-    <div class="phone2"><div class="notch"></div>
-      <iframe src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
-    </div>
-    <div class="trybox">
-      <p class="tbh">${L.phT}</p>
-      <p class="tbs">${L.phSub}</p>
-      <div id="tryform">
-        <input id="tname" placeholder="${L.phName}" autocomplete="name">
-        <input id="tphone" placeholder="${L.phPhone}" type="tel" inputmode="numeric" autocomplete="tel">
-        <p class="err" id="terr" style="display:none">${L.phErr}</p>
-        <button class="cta" style="width:100%;margin-top:6px" onclick="sendTrial()">${L.phBtn}</button>
-      </div>
-      <div id="tryok" style="display:none">
-        <p class="tbh" style="color:#1E7B3C;font-size:16px">${L.phOk}</p>
-        <a class="cta" style="width:100%;background:#101B30;color:#fff;margin-top:12px" href="${appLiveUrl}${en ? "&lang=en" : ""}" target="_blank">${L.phTry}</a>
-      </div>
-    </div>
-  </div>
-  <div class="shots" style="margin-top:48px">
-    <div class="shot"><img src="/landing/app-measure.png" alt="" loading="lazy"><p>${L.cap1}</p></div>
-    <div class="shot"><img src="/landing/app-trace.png" alt="" loading="lazy"><p>${L.cap2}</p></div>
-    <div class="shot"><img src="/landing/app-quote.png" alt="" loading="lazy"><p>${L.cap3}</p></div>
-  </div>
-</section></div>
 
 <div class="band"><div class="wrap"><section id="precio">
   <h2 class="sec-t">${L.priceT}</h2>

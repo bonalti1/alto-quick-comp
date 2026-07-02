@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "node --env-file-if-exists=server/.env server/index.mjs"
+    "server": "node --env-file-if-exists=server/.env server/index.mjs",
+    "test": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",

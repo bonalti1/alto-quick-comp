@@ -4222,6 +4222,13 @@ app.get("/closer", async (req, res) => {
   const clientCount = (await db.listContractors().catch(() => [])).filter((c) => !["alto-demo", "alto-ventas"].includes(c.slug)).length;
   const closeRate = mst.total ? Math.round((mst.closed / mst.total) * 100) : 0;
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
+  // All three plan links so a closer can charge the plan they actually sold —
+  // not just Complete. Unconfigured tiers are simply omitted.
+  const payTiers = [
+    ["Pro", 67, process.env.STRIPE_PAYMENT_LINK_PRO || ""],
+    ["Widget", 197, process.env.STRIPE_PAYMENT_LINK_WIDGET || ""],
+    ["Complete", 297, stripeLink],
+  ].filter(([, , lnk]) => lnk);
   const wMsg = en
     ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
     : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
@@ -4454,8 +4461,8 @@ ${periodSeg("/closer", range, en)}
     <h2>${L.playT}</h2>
     <ol>${L.play.map((x) => `<li>${x}</li>`).join("")}</ol>
     <h2>${L.linksT}</h2>
-    ${stripeLink
-      ? `<div class="link"><span><b>${L.payT}</b><br><small>${esc(stripeLink)}</small></span><a href="${stripeLink}" target="_blank" rel="noreferrer" style="background:#101B30;color:#fff;border-radius:11px;padding:9px 15px;font-weight:700;text-decoration:none;flex-shrink:0;font-size:13px">${L.open}</a><button onclick="cp(this,'${stripeLink}')">${L.copy}</button></div>`
+    ${payTiers.length
+      ? payTiers.map(([nm, amt, lnk]) => `<div class="link"><span><b>💳 ${nm} — $${amt}/${en ? "mo" : "mes"}</b><br><small>${esc(lnk)}</small></span><a href="${lnk}" target="_blank" rel="noreferrer" style="background:#101B30;color:#fff;border-radius:11px;padding:9px 15px;font-weight:700;text-decoration:none;flex-shrink:0;font-size:13px">${L.open}</a><button onclick="cp(this,'${lnk}')">${L.copy}</button></div>`).join("")
       : `<div class="link" style="border-style:dashed"><span><b>💳</b><br><small>${L.payMissing}</small></span></div>`}
     <div class="link"><span><b>${L.welT}</b><br><small>${esc(welcome.slice(0, 70))}…</small></span><button onclick='cp(this,${JSON.stringify(welcome)})'>${L.copy}</button></div>
     <div class="link"><span><b>${L.demoT}</b><br><small>${base}/w/alto-demo</small></span><button onclick="cp(this,'${base}/w/alto-demo')">${L.copy}</button></div>
@@ -5216,7 +5223,7 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:#1B2A5C;border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
 .made{text-align:center;color:#9AA3B8;font-size:11px;font-weight:700;margin-top:16px}
 .made a{color:#9AA3B8}
-@media print{body{background:#fff;padding:0}.doc{box-shadow:none;border-radius:0}.ctas,.printbtn,.made{display:none}}
+@media print{body{background:#fff;padding:0}.doc,.doc *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}.doc{box-shadow:none;border-radius:0}.ctas,.printbtn,.made{display:none}}
 </style></head><body>
 <div class="doc">
   <div class="head">
@@ -5392,7 +5399,7 @@ app.get("/i", (req, res) => {
   .pay b{display:block;font-size:11px;letter-spacing:.1em;color:#C9973A;margin-bottom:6px}
   .btn{display:block;width:calc(100% - 48px);margin:18px 24px;background:#C9973A;color:#fff;border:none;border-radius:12px;padding:15px;font-size:16px;font-weight:800;cursor:pointer}
   .ft{text-align:center;color:#9DA8C4;font-size:12px;padding:14px 0 26px}
-  @media print{.btn{display:none}body{background:#fff}}
+  @media print{.btn{display:none}body{background:#fff}.page,.page *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}}
 </style></head><body><div class="page">
 <div class="hd">
   ${d.lg ? `<img src="/api/logo/${esc(d.lg)}" alt="" style="max-height:46px;max-width:220px;display:block;margin-bottom:8px" onerror="this.style.display='none'">` : ""}

@@ -500,6 +500,9 @@ export default function TradeTechPro() {
   const [measurePhase, setMeasurePhase] = useState(0);
   const [lookup, setLookup] = useState(null);
   const [excludedComps, setExcludedComps] = useState({}); // address -> true (realtor curates the comp set)
+  const [priceOverrides, setPriceOverrides] = useState({}); // address -> true MLS sold price entered by the realtor
+  const [manualComps, setManualComps] = useState([]);       // comps the realtor added from their own MLS
+  const [addComp, setAddComp] = useState(null);             // null | draft {address, price, sqft, beds, baths, soldDate}
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
@@ -610,6 +613,9 @@ export default function TradeTechPro() {
     }
     setAddrQ(addr);
     setExcludedComps({});
+    setPriceOverrides({});
+    setManualComps([]);
+    setAddComp(null);
     setMeasuring(true);
     setMeasurePhase(0);
     const t0 = Date.now();
@@ -650,7 +656,7 @@ export default function TradeTechPro() {
           value: j.value ?? null,
           low: j.valueRange?.low ?? null, high: j.valueRange?.high ?? null,
           confidence: j.confidence || null, method: j.method || null,
-          avgPpsf: j.avgPpsf ?? null, compsUsed: j.compsUsed ?? null,
+          avgPpsf: j.avgPpsf ?? null, compsUsed: j.compsUsed ?? null, marketDriftMo: j.marketDriftMo ?? 0,
           radius: j.radius ?? null, lookbackLabel: j.lookbackLabel || null,
           subject: j.subject ? {
             address: j.subject.address || j.addr || addr,
@@ -860,39 +866,92 @@ export default function TradeTechPro() {
     );
   };
 
-  /* Re-price from the comps the realtor kept — the same math the server ran
-   * (weighted mean of each comp's adjusted value), so excluding a comp
-   * recomputes the value live. Demo comps without adjValue fall back to a
-   * simple $/sqft average. */
+  /* Re-price from the comps the realtor kept, corrected, or added — the same
+   * math the server ran (weighted mean of each comp's adjusted value), so any
+   * edit recomputes the value live. The agent's MLS knowledge (true sold
+   * prices, missing sales) flows straight into the number. Untouched search =
+   * untouched result. */
   const curatedView = (base) => {
     if (!base || !base.value) return base;
     const all = Array.isArray(base.comps) ? base.comps : [];
-    if (!all.some((c) => excludedComps[c.address])) return base;
+    const hasEdits = manualComps.length > 0 || all.some((c) => excludedComps[c.address] || priceOverrides[c.address] != null);
+    if (!hasEdits) return base;
     const round1k = (v) => Math.round(v / 1000) * 1000;
-    const inc = all.filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]);
-    const withVals = inc.filter((c) => c.adjValue && c.weight);
+    const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const sqft = base.subject?.sqft || null;
+    const drift = Number(base.marketDriftMo) || 0;
+    // corrected feed comps: re-run the exact per-comp math with the true price
+    const effectiveServer = all.map((c) => {
+      const oP = priceOverrides[c.address];
+      if (oP == null || !c.sqft) return c;
+      const t = Number(c.timeAdjPct) || 0;
+      const ppsf = oP / c.sqft;
+      const adjPpsf = ppsf * (1 + t);
+      const adjValue = sqft ? Math.round(oP * (1 + t) + (sqft - c.sqft) * 0.45 * adjPpsf) : undefined;
+      return { ...c, soldPrice: oP, ppsf: Math.round(ppsf), adjPpsf: Math.round(adjPpsf), adjValue, corrected: true };
+    });
+    // agent-added MLS comps: time-indexed with the same market drift
+    const ws = effectiveServer.filter((c) => c.weight && !c.excludedAsOutlier).map((c) => c.weight).sort((a, b) => a - b);
+    const midWeight = ws.length ? ws[Math.floor(ws.length / 2)] : 1;
+    const effectiveManual = manualComps.map((c) => {
+      const months = c.soldDate ? Math.max(0, (Date.now() - new Date(c.soldDate).getTime()) / (30.44 * 86400000)) : 0;
+      const t = clampN(drift * months, -0.25, 0.25);
+      const ppsf = c.sqft ? c.soldPrice / c.sqft : null;
+      const adjPpsf = ppsf ? ppsf * (1 + t) : null;
+      const adjValue = sqft && adjPpsf ? Math.round(c.soldPrice * (1 + t) + (sqft - c.sqft) * 0.45 * adjPpsf) : undefined;
+      return { ...c, ppsf: ppsf ? Math.round(ppsf) : undefined, adjValue, weight: midWeight, manual: true };
+    });
+    const effective = [...effectiveServer, ...effectiveManual];
+    const inc = effective.filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]);
+    const withVals = inc.filter((c) => c.adjValue && c.weight);
+    let out = { ...base, comps: effective, curated: true };
     if (withVals.length >= 2) {
-      const tw = withVals.reduce((s, c) => s + c.weight, 0);
-      const est = withVals.reduce((s, c) => s + c.adjValue * c.weight, 0) / tw;
-      const varr = withVals.reduce((s, c) => s + c.weight * (c.adjValue - est) ** 2, 0) / tw;
+      const tw = withVals.reduce((sum, c) => sum + c.weight, 0);
+      const est = withVals.reduce((sum, c) => sum + c.adjValue * c.weight, 0) / tw;
+      const varr = withVals.reduce((sum, c) => sum + c.weight * (c.adjValue - est) ** 2, 0) / tw;
       const spread = Math.min(0.12, Math.max(0.04, Math.sqrt(varr) / est || 0.08));
-      return { ...base, value: round1k(est), low: round1k(est * (1 - spread)), high: round1k(est * (1 + spread)), compsUsed: withVals.length, avgPpsf: sqft ? Math.round(est / sqft) : base.avgPpsf, curated: true };
+      out = { ...out, value: round1k(est), low: round1k(est * (1 - spread)), high: round1k(est * (1 + spread)), compsUsed: withVals.length, avgPpsf: sqft ? Math.round(est / sqft) : base.avgPpsf };
+    } else {
+      const ppsfs = inc.map((c) => (c.soldPrice && c.sqft ? c.soldPrice / c.sqft : null)).filter(Boolean);
+      if (sqft && ppsfs.length >= 2) {
+        const avg = ppsfs.reduce((sum, v) => sum + v, 0) / ppsfs.length;
+        const est = sqft * avg;
+        out = { ...out, value: round1k(est), low: round1k(est * 0.94), high: round1k(est * 1.06), compsUsed: ppsfs.length, avgPpsf: Math.round(avg) };
+      }
     }
-    const ppsfs = inc.map((c) => (c.soldPrice && c.sqft ? c.soldPrice / c.sqft : null)).filter(Boolean);
-    if (sqft && ppsfs.length >= 2) {
-      const avg = ppsfs.reduce((s, v) => s + v, 0) / ppsfs.length;
-      const est = sqft * avg;
-      return { ...base, value: round1k(est), low: round1k(est * 0.94), high: round1k(est * 1.06), compsUsed: ppsfs.length, avgPpsf: Math.round(avg), curated: true };
-    }
-    return base;
+    return out;
   };
   const toggleComp = (base, address) => {
+    if (manualComps.some((c) => c.address === address)) { setManualComps((l) => l.filter((c) => c.address !== address)); return; }
     if (!excludedComps[address]) {
       const left = (base.comps || []).filter((c) => !c.excludedAsOutlier && !excludedComps[c.address]);
       if (left.length <= 2) { showToast(lang === "es" ? "Deja al menos 2 comparables" : "Keep at least 2 comparables"); return; }
     }
     setExcludedComps((m) => ({ ...m, [address]: !m[address] }));
+  };
+  /* The agent knows the real MLS number — let them type it. Empty = restore. */
+  const editCompPrice = (c) => {
+    const raw = window.prompt(lang === "es" ? "Precio real de venta (de tu MLS):" : "True sold price (from your MLS):", String(priceOverrides[c.address] ?? c.soldPrice ?? ""));
+    if (raw === null) return;
+    const v = Math.round(Number(String(raw).replace(/[^0-9.]/g, "")));
+    if (c.manual) { if (v >= 1000) setManualComps((l) => l.map((m) => (m.address === c.address ? { ...m, soldPrice: v } : m))); return; }
+    if (!v || v < 1000) { setPriceOverrides((m) => { const n = { ...m }; delete n[c.address]; return n; }); return; }
+    setPriceOverrides((m) => ({ ...m, [c.address]: v }));
+  };
+  const confirmAddComp = () => {
+    const f = addComp || {};
+    const price = Math.round(Number(String(f.price || "").replace(/[^0-9.]/g, "")));
+    const cSqft = Math.round(Number(String(f.sqft || "").replace(/[^0-9.]/g, "")));
+    if (!String(f.address || "").trim() || !price || price < 1000) { showToast(lang === "es" ? "Pon la dirección y el precio de venta" : "Enter the address and sold price"); return; }
+    setManualComps((l) => [...l, {
+      address: String(f.address).trim().slice(0, 120),
+      soldPrice: price,
+      sqft: cSqft || null,
+      beds: Number(f.beds) || null,
+      baths: Number(f.baths) || null,
+      soldDate: /^\d{4}-\d{2}-\d{2}$/.test(String(f.soldDate || "").trim()) ? String(f.soldDate).trim() : null,
+    }]);
+    setAddComp(null);
   };
 
   const CompsResult = () => {
@@ -1018,12 +1077,18 @@ export default function TradeTechPro() {
                       <span className="flex items-center justify-center shrink-0" style={{ width: 26, height: 26, borderRadius: 8, fontSize: 11, fontWeight: 800, background: rankBg, color: rankTxt }}>{i + 1}</span>
                       <div className="min-w-0">
                         <p className="font-bold" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.4 }}>{c.address}</p>
-                        <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500, marginTop: 2 }}>{reasons[Math.min(i, 3)]} · {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}</p>
+                        <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500, marginTop: 2 }}>{c.manual ? (lang === "es" ? "Tu comparable" : "Your comparable") : reasons[Math.min(i, 3)]} · {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}</p>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
                       <p style={{ color: i === 0 ? "#8A6A00" : QC.navyDeep, fontSize: 20, fontWeight: 800 }}>{fmt(c.soldPrice)}</p>
                       {ppsf && <p style={{ color: QC.muted, fontSize: 10, fontWeight: 500 }}>{fmt(ppsf)}{t.cmpPerSqft}</p>}
+                      {!out && (
+                        <button onClick={() => editCompPrice(c)}
+                          style={{ background: "none", border: "none", color: c.corrected ? "#1E7B3C" : QC.muted, fontSize: 10, fontWeight: 800, cursor: "pointer", padding: "2px 0" }}>
+                          ✎ {lang === "es" ? "corregir" : "edit"}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1037,6 +1102,8 @@ export default function TradeTechPro() {
                       {manualOut ? (lang === "es" ? "+ Incluir" : "+ Include") : (lang === "es" ? "− Quitar" : "− Remove")}
                     </button>
                   )}
+                  {c.corrected && <span style={{ background: "#EAF8EF", border: "1px solid #9fd8b0", borderRadius: 6, padding: "3px 8px", fontSize: 9, fontWeight: 700, color: "#1E7B3C" }}>MLS ✓</span>}
+                  {c.manual && <span style={{ background: "#FFFBEA", border: "1px solid #ffe08a", borderRadius: 6, padding: "3px 8px", fontSize: 9, fontWeight: 700, color: "#8A6A00" }}>{lang === "es" ? "Agregada por ti" : "Added by you"}</span>}
                   {out
                     ? <span style={{ background: "#FBEAEA", border: "1px solid #f3c7c2", borderRadius: 6, padding: "3px 8px", fontSize: 9, fontWeight: 700, color: QC.red }}>{t.cmpExcluded}</span>
                     : i === 0
@@ -1056,6 +1123,32 @@ export default function TradeTechPro() {
               </div>
             );
           })}
+
+          {/* Add a comparable from the agent's own MLS */}
+          {addComp ? (
+            <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px dashed ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <p className="font-extrabold mb-2.5" style={{ color: QC.navyDeep, fontSize: 13 }}>{lang === "es" ? "Agregar comparable (de tu MLS)" : "Add comparable (from your MLS)"}</p>
+              {[["address", lang === "es" ? "Dirección" : "Address", "text"], ["price", lang === "es" ? "Precio de venta $" : "Sold price $", "text"], ["sqft", "Sq ft", "text"], ["soldDate", lang === "es" ? "Fecha de venta (AAAA-MM-DD)" : "Sold date (YYYY-MM-DD)", "text"]].map(([k, ph]) => (
+                <input key={k} value={addComp[k] || ""} onChange={(e) => setAddComp((f) => ({ ...f, [k]: e.target.value }))} placeholder={ph} inputMode={k === "address" ? "text" : "numeric"}
+                  className="w-full rounded-xl px-3 py-2.5 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 13 }} />
+              ))}
+              <div className="flex gap-2 mb-2">
+                {[["beds", t.beds], ["baths", t.baths]].map(([k, ph]) => (
+                  <input key={k} value={addComp[k] || ""} onChange={(e) => setAddComp((f) => ({ ...f, [k]: e.target.value }))} placeholder={ph} inputMode="numeric"
+                    className="flex-1 rounded-xl px-3 py-2.5 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 13, minWidth: 0 }} />
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={confirmAddComp} className="flex-1" style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 10, padding: 11, fontWeight: 800, fontSize: 13 }}>{lang === "es" ? "Agregar" : "Add"}</button>
+                <button onClick={() => setAddComp(null)} style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "11px 16px", fontWeight: 800, fontSize: 13 }}>{lang === "es" ? "Cancelar" : "Cancel"}</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAddComp({})} className="w-full rounded-2xl p-3.5 mb-3 active:opacity-80"
+              style={{ background: "#fff", border: `2px dashed ${QC.line}`, color: QC.navy, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+              ＋ {lang === "es" ? "Agregar comparable de tu MLS" : "Add a comparable from your MLS"}
+            </button>
+          )}
 
           {/* Map */}
           {mapView && (() => {

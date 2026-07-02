@@ -1040,15 +1040,14 @@ export default function TradeTechPro() {
       );
     }
     const q = addrQ.trim().toLowerCase();
-    const localPool = [...new Set([...MOCK_PROPERTIES.map(p => p.addr), ...customers.map(c => c.addr).filter(Boolean)])];
-    // Live suggestions are already filtered/ranked by Google — don't re-filter them
-    const matches = placeSugs !== null
-      ? placeSugs
-      : localPool.filter(a => !q || a.toLowerCase().includes(q)).map(a => ({ text: a, placeId: null }));
+    // Only REAL address suggestions from Google as they type — no built-in demo
+    // addresses. A fresh account starts clean; the "Recent" list below is the
+    // only pre-filled thing, and it's the agent's own past searches.
+    const matches = placeSugs !== null ? placeSugs : [];
     const custom = addrQ.trim() && !matches.some(m => m.text.toLowerCase() === q) ? addrQ.trim() : null;
     const go = () => { if (custom) startLookup(custom); else if (matches[0]) startLookup(matches[0].text, matches[0].placeId); };
     return (
-      <div className="flex-1" style={{ background: QC.bg }}>
+      <div className="flex-1 overflow-y-auto" style={{ background: QC.bg }}>
         <div className="px-5 py-4" style={{ background: QC.headGrad, borderBottom: `2px solid ${QC.gold}` }}>
           <p className="text-center" style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Valuación de propiedad" : "Property Valuation"}</p>
           <p className="text-center font-extrabold text-white mt-0.5" style={{ fontSize: 18 }}>{lang === "es" ? "Pon precio con confianza" : "Price the property with confidence"}</p>
@@ -1097,17 +1096,27 @@ export default function TradeTechPro() {
           {savedWork.length > 0 && (
             <div className="rounded-2xl px-4 py-3 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
               <p className="mb-0.5" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Recientes" : "Recent"}</p>
-              {savedWork.slice(0, 4).map((it, i) => (
-                <button key={it.addr + i} onClick={() => reopenSaved(it)} className="w-full flex items-center gap-2.5 py-2.5 text-left active:opacity-80"
-                  style={{ background: "none", border: "none", borderTop: i ? `1px solid ${QC.line}` : "none", cursor: "pointer" }}>
-                  <span style={{ color: QC.navy }}>🏠</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr}</span>
-                    {it.value != null && <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(it.value)}</span>}
-                  </span>
-                  <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
-                </button>
-              ))}
+              {savedWork.slice(0, 4).map((it, i) => {
+                const la = it.subject?.latitude ?? it.lat, ln = it.subject?.longitude ?? it.lng;
+                return (
+                  <button key={it.addr + i} onClick={() => reopenSaved(it)} className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-80"
+                    style={{ background: "none", border: "none", borderTop: i ? `1px solid ${QC.line}` : "none", cursor: "pointer" }}>
+                    {/* real Street View photo of the property so they remember which one */}
+                    <span className="relative shrink-0 flex items-center justify-center" style={{ width: 46, height: 46, borderRadius: 10, background: QC.bg, overflow: "hidden", fontSize: 18, border: `1px solid ${QC.line}` }}>
+                      🏠
+                      {la != null && ln != null && (
+                        <img src={`/api/streetview?lat=${la}&lng=${ln}`} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }}
+                          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+                      )}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr}</span>
+                      {it.value != null && <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(it.value)}</span>}
+                    </span>
+                    <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1613,8 +1622,7 @@ export default function TradeTechPro() {
     // No tax record yet → the Tax tab's own address search
     if (!taxLookup) {
       const q = addrQ.trim().toLowerCase();
-      const localPool = [...new Set([...MOCK_PROPERTIES.map(p => p.addr), ...customers.map(c => c.addr).filter(Boolean)])];
-      const matches = placeSugs !== null ? placeSugs : localPool.filter(a => !q || a.toLowerCase().includes(q)).map(a => ({ text: a, placeId: null }));
+      const matches = placeSugs !== null ? placeSugs : []; // live suggestions only — no built-in demo addresses
       const custom = addrQ.trim() && !matches.some(m => m.text.toLowerCase() === q) ? addrQ.trim() : null;
       const go = () => { if (custom) startLookup(custom, null, null, "tax"); else if (matches[0]) startLookup(matches[0].text, matches[0].placeId, null, "tax"); };
       return (
@@ -2409,26 +2417,33 @@ export default function TradeTechPro() {
              license" prints as white-on-white — the report comes out anonymous. */
           #qc-report, #qc-report * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           #qc-report { box-shadow: none !important; border: 1px solid #d9e1ef !important; }
+          /* the fixed-height app shell would otherwise clip a long report */
+          .app-shell { height: auto !important; overflow: visible !important; }
         }`}</style>
-      <div className="w-full max-w-md flex flex-col relative" style={{ background: C.bg, minHeight: "100vh" }}>
+      <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
-          <div className="no-print px-4 py-2 text-center" style={{ background: C.orangeSoft, borderBottom: `1.5px solid ${C.orange}` }}>
+          <div className="no-print px-4 py-2 text-center shrink-0" style={{ background: C.orangeSoft, borderBottom: `1.5px solid ${C.orange}` }}>
             <span className="text-xs font-bold" style={{ color: "#7A5A00" }}>{t.demoBanner}</span>
           </div>
         )}
-        {tabScreens.includes(screen) && <BrandHeader />}
+        {/* Pinned top */}
+        {tabScreens.includes(screen) && <div className="shrink-0"><BrandHeader /></div>}
         {screen !== "welcome" && !tabScreens.includes(screen) && (
-          <div className="no-print"><Header title={titles[screen] || ""} back={() => setScreen(backMap[screen] || "comps")} /></div>
+          <div className="no-print shrink-0"><Header title={titles[screen] || ""} back={() => setScreen(backMap[screen] || "comps")} /></div>
         )}
-        {screen === "welcome" && Welcome()}
-        {screen === "comps" && (lookup ? CompsResult() : CompsSearch())}
-        {screen === "lending" && Lending()}
-        {screen === "tax" && Tax()}
-        {screen === "workspace" && Workspace()}
-        {screen === "report" && Report()}
-        {screen === "listing" && ListingWriter()}
-        {screen === "appraisal" && AppraisalPacket()}
-        {withNav.includes(screen) && <BottomNav />}
+        {/* Scrolling content — only this area moves; the tabs below stay put */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          {screen === "welcome" && Welcome()}
+          {screen === "comps" && (lookup ? CompsResult() : CompsSearch())}
+          {screen === "lending" && Lending()}
+          {screen === "tax" && Tax()}
+          {screen === "workspace" && Workspace()}
+          {screen === "report" && Report()}
+          {screen === "listing" && ListingWriter()}
+          {screen === "appraisal" && AppraisalPacket()}
+        </div>
+        {/* Pinned bottom tabs */}
+        {withNav.includes(screen) && <div className="shrink-0"><BottomNav /></div>}
         {toast && (
           <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>

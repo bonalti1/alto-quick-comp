@@ -355,6 +355,30 @@ const WANT_ROOF = /[?&]demo=(roof|app|qc)/.test(window.location.search);
 const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 
 /* ─── Main App ─── */
+/* Maps a /api/lookup comps response to the app's lookup shape — shared by the
+ * initial search and the radius re-search so both produce identical state. */
+function mapCompsLookup(j, addr) {
+  return {
+    addr: j.addr || addr, lat: j.lat ?? null, lng: j.lng ?? null,
+    parcel: j.parcel || null, // fence flow still uses the parcel boundary
+    value: j.value ?? null,
+    low: j.valueRange?.low ?? null, high: j.valueRange?.high ?? null,
+    confidence: j.confidence || null, method: j.method || null,
+    avgPpsf: j.avgPpsf ?? null, compsUsed: j.compsUsed ?? null, marketDriftMo: j.marketDriftMo ?? 0,
+    radius: j.radius ?? null, lookbackLabel: j.lookbackLabel || null,
+    subject: j.subject ? {
+      address: j.subject.address || j.addr || addr,
+      beds: j.subject.bedrooms ?? null, baths: j.subject.bathrooms ?? null,
+      sqft: j.subject.squareFootage ?? null, yearBuilt: j.subject.yearBuilt ?? null,
+      latitude: j.subject.latitude ?? null, longitude: j.subject.longitude ?? null,
+      owner: j.subject.owner ?? null, assessedValue: j.subject.assessedValue ?? null,
+      annualTax: j.subject.annualTax ?? null, taxYear: j.subject.taxYear ?? null,
+    } : null,
+    comps: Array.isArray(j.comps) ? j.comps : [],
+    source: j.source || "live",
+  };
+}
+
 export default function TradeTechPro() {
   // Saved choice wins; first-ever open follows the phone's language (the
   // product serves English-speaking realtors as fully as Spanish-speaking).
@@ -503,6 +527,8 @@ export default function TradeTechPro() {
   const [priceOverrides, setPriceOverrides] = useState({}); // address -> true MLS sold price entered by the realtor
   const [manualComps, setManualComps] = useState([]);       // comps the realtor added from their own MLS
   const [addComp, setAddComp] = useState(null);             // null | draft {address, price, sqft, beds, baths, soldDate}
+  const [radiusPref, setRadiusPref] = useState("auto");     // comp search ring: "auto" (expands as needed) | 1 | 2 | 5 mi
+  const [radiusBusy, setRadiusBusy] = useState(false);
   const [placeSugs, setPlaceSugs] = useState(null); // null = use built-in list
   const placesSeq = useRef(0);
 
@@ -616,6 +642,7 @@ export default function TradeTechPro() {
     setPriceOverrides({});
     setManualComps([]);
     setAddComp(null);
+    setRadiusPref("auto");
     setMeasuring(true);
     setMeasurePhase(0);
     const t0 = Date.now();
@@ -650,25 +677,7 @@ export default function TradeTechPro() {
           try { localStorage.setItem("alto_demo_meas", String((parseInt(localStorage.getItem("alto_demo_meas") || "0", 10) || 0) + 1)); } catch { /* private mode */ }
         }
         if (!j.found && j.lat != null) noDataCoords = { lat: j.lat, lng: j.lng, addr: j.addr || addr };
-        res = j.found ? {
-          addr: j.addr || addr, lat: j.lat ?? null, lng: j.lng ?? null,
-          parcel: j.parcel || null, // fence flow still uses the parcel boundary
-          value: j.value ?? null,
-          low: j.valueRange?.low ?? null, high: j.valueRange?.high ?? null,
-          confidence: j.confidence || null, method: j.method || null,
-          avgPpsf: j.avgPpsf ?? null, compsUsed: j.compsUsed ?? null, marketDriftMo: j.marketDriftMo ?? 0,
-          radius: j.radius ?? null, lookbackLabel: j.lookbackLabel || null,
-          subject: j.subject ? {
-            address: j.subject.address || j.addr || addr,
-            beds: j.subject.bedrooms ?? null, baths: j.subject.bathrooms ?? null,
-            sqft: j.subject.squareFootage ?? null, yearBuilt: j.subject.yearBuilt ?? null,
-            latitude: j.subject.latitude ?? null, longitude: j.subject.longitude ?? null,
-            owner: j.subject.owner ?? null, assessedValue: j.subject.assessedValue ?? null,
-            annualTax: j.subject.annualTax ?? null, taxYear: j.subject.taxYear ?? null,
-          } : null,
-          comps: Array.isArray(j.comps) ? j.comps : [],
-          source: j.source || "live",
-        } : null;
+        res = j.found ? mapCompsLookup(j, addr) : null;
       }
     } catch { /* backend unreachable */ }
     if (!answered) res = await mockLookup(addr);
@@ -953,6 +962,32 @@ export default function TradeTechPro() {
     }]);
     setAddComp(null);
   };
+  /* Re-run the comp search with a fixed ring (or back to Auto). Keeps the
+   * current result if the tighter ring has too few sales. */
+  const changeRadius = async (r) => {
+    if (radiusBusy || !lookup || radiusPref === r) return;
+    const prev = radiusPref;
+    setRadiusPref(r);
+    setRadiusBusy(true);
+    try {
+      const resp = await api("/api/lookup", {
+        method: "POST",
+        body: JSON.stringify({ address: lookup.subject?.address || lookup.addr, ...(r === "auto" ? {} : { radius: r }) }),
+      });
+      const j = resp.ok ? await resp.json() : null;
+      if (j?.found && j.value) {
+        setExcludedComps({}); setPriceOverrides({}); setManualComps([]); setAddComp(null);
+        setLookup(mapCompsLookup(j, lookup.addr));
+      } else {
+        setRadiusPref(prev);
+        showToast(resp?.status === 429 ? "🔒 " + t.demoLimit : (lang === "es" ? "Sin ventas suficientes en ese radio" : "Not enough sales at that radius"));
+      }
+    } catch {
+      setRadiusPref(prev);
+      showToast(lang === "es" ? "Sin conexión — intenta de nuevo" : "Offline — try again");
+    }
+    setRadiusBusy(false);
+  };
 
   const CompsResult = () => {
     const R = curatedView(lookup);
@@ -1018,6 +1053,21 @@ export default function TradeTechPro() {
                 : `Based on ${(R.compsUsed || comps.length)} nearby comparable sales within ${R.radius || 2} mi`}
               {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}{R.curated ? (lang === "es" ? " · tu selección" : " · your selection") : ""}.
             </p>
+          </div>
+
+          {/* Comp search radius — Auto expands only as far as needed */}
+          <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+            <span style={{ color: QC.muted2, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 2 }}>{lang === "es" ? "Radio" : "Radius"}</span>
+            {["auto", 1, 2, 5].map((r) => {
+              const on = radiusPref === r;
+              return (
+                <button key={String(r)} onClick={() => changeRadius(r)} disabled={radiusBusy}
+                  style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "5px 12px", fontSize: 11, fontWeight: 800, cursor: "pointer", opacity: radiusBusy ? 0.6 : 1 }}>
+                  {r === "auto" ? "Auto" : `${r} mi`}
+                </button>
+              );
+            })}
+            {radiusBusy && <span style={{ color: QC.muted, fontSize: 11, fontWeight: 700 }}>…</span>}
           </div>
 
           {/* Subject card */}

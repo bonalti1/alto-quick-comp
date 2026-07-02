@@ -582,8 +582,11 @@ async function rentcastLookup(address, opts = {}) {
     { days: 1095, label: "3 years" },
   ];
   const exactLookback = allLookbacks.find((l) => l.days === requestedDaysOld) || { days: requestedDaysOld, label: `${requestedDaysOld} days` };
-  const radii = autoExpand ? [2, 5, 10].filter((r) => r >= requestedRadius) : [requestedRadius];
-  const lookbacks = autoExpand ? allLookbacks.filter((l) => l.days >= requestedDaysOld) : [exactLookback];
+  const fixedRadius = Number(opts.fixedRadius) || null;
+  const radii = fixedRadius ? [fixedRadius]
+    : autoExpand ? [2, 5, 10].filter((r) => r >= requestedRadius) : [requestedRadius];
+  const lookbacks = fixedRadius ? allLookbacks
+    : autoExpand ? allLookbacks.filter((l) => l.days >= requestedDaysOld) : [exactLookback];
   let data = null;
   let usedRadius = radii[0] || 2;
   let usedLookback = lookbacks[0] || exactLookback;
@@ -766,7 +769,10 @@ app.post("/api/lookup", async (req, res) => {
     const lookupAddr = (geo && geo.formatted) || address;
     if (!lookupAddr) return res.json({ found: false, source: "live" });
     if (!RENTCAST_KEY) return res.json({ found: false, source: "demo" });
-    const comp = await rentcastLookup(lookupAddr).catch((e) => { console.error("comps failed:", e.message); return null; });
+    // Optional agent-chosen radius (Auto omits it): the ring is FIXED but the
+    // lookback still expands, so a tight radius can still find enough sales.
+    const fixedRadius = [1, 2, 5, 10].includes(Number(req.body?.radius)) ? Number(req.body.radius) : null;
+    const comp = await rentcastLookup(lookupAddr, fixedRadius ? { fixedRadius } : {}).catch((e) => { console.error("comps failed:", e.message); return null; });
     // We may know where the house is even when the market is too thin to value.
     if (!comp || !comp.value) {
       return res.json({ found: false, source: "live", addr: (geo && geo.formatted) || address, lat: geo?.lat ?? null, lng: geo?.lng ?? null });

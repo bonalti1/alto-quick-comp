@@ -180,6 +180,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
         profile: { biz: name, ...(email ? { email } : {}), ...(phone ? { phone } : {}) },
       });
       console.log(`stripe webhook: self-serve signup → created ${c.slug} [${planInfo?.plan || "plan?"}] (send their access link!)`);
+      notifyStaff(`💰 NEW self-serve signup: ${name} [${planInfo?.plan || "plan?"} $${planInfo?.planAmount || "?"}] — ${email || phone}. SEND THEIR ACCESS LINK from /admin → 🆕 mandar acceso.`);
       return res.json({ ok: true, created: c.slug, plan: planInfo?.plan || null });
     }
     console.log("stripe webhook: no contractor match for", event.type, customerId, email, phone);
@@ -202,6 +203,8 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
   }
   await db.saveContractorData(match.id, data);
   console.log(`stripe webhook: ${event.type} → ${match.slug} (${data.payStatus}${data.status ? ", " + data.status : ""})`);
+  if (event.type === "invoice.payment_failed") notifyStaff(`⚠️ Payment FAILED: ${match.name} (${match.slug}). Grace period started — follow up.`);
+  else if (event.type === "customer.subscription.deleted") notifyStaff(`🔻 Subscription canceled: ${match.name} (${match.slug}) — account paused.`);
   res.json({ ok: true });
 });
 
@@ -1969,6 +1972,20 @@ function forwardLead(c, lead) {
   }, 6000).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
 }
 
+/* Ping the team the moment something needs a human — a payment (send their
+ * access link!) or a new sales lead. Fire-and-forget to STAFF_WEBHOOK_URL
+ * (Slack/Discord-compatible {text} payload). No-op until it's configured, so
+ * nothing breaks before launch. Everything worth acting on already logs too. */
+function notifyStaff(text) {
+  const hook = process.env.STAFF_WEBHOOK_URL || "";
+  if (!/^https:\/\//.test(hook)) return;
+  fetchT(hook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: String(text).slice(0, 500), content: String(text).slice(0, 500) }),
+  }, 6000).catch(() => { /* best-effort — a dead alert must never block the flow */ });
+}
+
 // Widget (and anything public) drops a lead for a contractor by slug
 app.post("/api/widget/lead", async (req, res) => {
   const wlIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
@@ -1980,6 +1997,11 @@ app.post("/api/widget/lead", async (req, res) => {
   if (!phone) return res.status(400).json({ error: "phone required" });
   const id = await db.addLead(c.id, { name, phone, address, info });
   forwardLead(c, { id, name, phone, address, ...info });
+  // A lead on the sales/demo account is a PROSPECT AGENT (the /ventas quiz) —
+  // ping the team to call them today, which is what the quiz promised them.
+  if (c.slug === "alto-ventas" || c.slug === "alto-demo") {
+    notifyStaff(`📞 NEW sales lead: ${name || "(no name)"} · ${phone}${info?.work ? ` · ${info.work}` : ""}. Promised a call today — reach out.`);
+  }
   res.json({ ok: true, id });
 });
 
@@ -4553,6 +4575,47 @@ a.back{display:inline-block;margin-top:30px;color:#B07A00;font-weight:800;text-d
 <p class="intro">${S.toc}</p>
 ${S.secs.map(([h, body]) => `<h2>${h}</h2><p>${body}</p>`).join("")}
 <a class="back" href="/">${S.back}</a>
+</div></body></html>`);
+});
+
+/* ── Post-payment thank-you (Stripe Payment Link success URL points here) ──
+ * The app takes no Stripe secret key, so we can't identify the buyer here — but
+ * the webhook already created/activated their account and pinged the team, so
+ * this page reassures the buyer their access is coming and keeps them warm.
+ * Set each Payment Link's "after payment" redirect to https://APP/bienvenida. */
+app.get("/bienvenida", (req, res) => {
+  const es = req.query.lang !== "en";
+  const S = es ? {
+    t: "¡Pago recibido! 🎉", h: "Bienvenido a Quick Comp",
+    p: "Ya estás dentro. Te enviaremos tu <b>link de acceso personal</b> por WhatsApp o mensaje de texto en los próximos minutos — ábrelo desde tu teléfono y guárdalo.",
+    p2: "¿No te llega en 15 minutos? Escríbenos y te lo mandamos al instante.",
+    demo: "Mientras tanto, así se ve tu valuador 👇", demoBtn: "Ver el valuador", legal: "Términos y Privacidad",
+  } : {
+    t: "Payment received! 🎉", h: "Welcome to Quick Comp",
+    p: "You're in. We'll send your <b>personal access link</b> by WhatsApp or text within the next few minutes — open it from your phone and save it.",
+    p2: "Don't see it within 15 minutes? Message us and we'll send it right over.",
+    demo: "Meanwhile, here's your valuator 👇", demoBtn: "See the valuator", legal: "Terms & Privacy",
+  };
+  res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>${S.t}</title>
+<style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@600;700;800&display=swap');
+*{box-sizing:border-box;margin:0;font-family:Inter,Arial,sans-serif}
+body{background:#15244C;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:22px}
+.card{background:#fff;border-radius:24px;padding:38px 30px;max-width:440px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.4)}
+.em{font-size:46px}
+h1{color:#15244C;font-size:22px;font-weight:800;margin:10px 0 4px}
+.k{color:#C9973A;font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase}
+p{color:#4a5a7a;font-size:14.5px;font-weight:600;line-height:1.6;margin-top:14px}
+a.btn{display:inline-block;margin-top:22px;background:#15244C;color:#fff;border-radius:12px;padding:13px 22px;font-weight:800;text-decoration:none;font-size:14px}
+a.leg{display:block;margin-top:18px;color:#8A94A8;font-size:12px;font-weight:700;text-decoration:none}
+</style></head><body><div class="card">
+<div class="em">🎉</div>
+<p class="k">${S.t}</p>
+<h1>${S.h}</h1>
+<p>${S.p}</p>
+<p style="font-size:13px">${S.p2}</p>
+<a class="btn" href="/w/alto-demo?lang=${es ? "es" : "en"}" target="_blank">${S.demoBtn} →</a>
+<a class="leg" href="/legal${es ? "?lang=es" : ""}">${S.legal}</a>
 </div></body></html>`);
 });
 

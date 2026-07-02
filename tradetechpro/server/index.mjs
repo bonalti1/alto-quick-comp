@@ -5020,6 +5020,56 @@ app.get("/api/r/open", async (req, res) => {
   res.status(204).end();
 });
 
+/* ── AI listing writer ──
+ * The agent's most-hated chore, done in one tap: property facts (from a comp
+ * or typed in from anywhere) + the agent's own highlights → an MLS-ready
+ * description AND a social caption, in the chosen language. Fair-Housing
+ * constraints are enforced in the prompt; the agent reviews before posting. */
+app.post("/api/listing", async (req, res) => {
+  const me = await auth(req).catch(() => null);
+  const lwIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (!me && overQuota(`lst:${lwIp}`, 3)) return res.status(429).json({ error: "demo_limit" });
+  if (me && overQuota(`lstc:${me.id}`, 30)) return res.status(429).json({ error: "quota" });
+  const b = req.body || {};
+  const lang = b.lang === "es" ? "es" : "en";
+  const facts = {
+    address: String(b.address || "").slice(0, 140),
+    beds: Number(b.beds) || null,
+    baths: Number(b.baths) || null,
+    sqft: Number(b.sqft) || null,
+    yearBuilt: Number(b.year) || null,
+    agentHighlights: String(b.highlights || "").slice(0, 900),
+  };
+  if (!facts.address && !facts.agentHighlights) return res.status(400).json({ error: "facts required" });
+  if (!aiLive) {
+    // Demo fallback so the button always works
+    const es = lang === "es";
+    const bits = [facts.beds && `${facts.beds} ${es ? "recámaras" : "bedrooms"}`, facts.baths && `${facts.baths} ${es ? "baños" : "baths"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`, facts.yearBuilt && (es ? `construida en ${facts.yearBuilt}` : `built in ${facts.yearBuilt}`)].filter(Boolean).join(", ");
+    return res.json({
+      source: "demo",
+      mls: es
+        ? `Bienvenido a ${facts.address || "esta propiedad"} — una casa de ${bits}. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${facts.address || "this property"} — a ${bits} home. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Schedule your showing today — homes like this don't last.`,
+      social: es
+        ? `🏡 ¡NUEVO LISTING! ${facts.address || ""} · ${bits} ✨ Manda mensaje para verla 📲`
+        : `🏡 JUST LISTED! ${facts.address || ""} · ${bits} ✨ DM to see it 📲`,
+    });
+  }
+  try {
+    const raw = await aiChat({
+      maxTokens: 700,
+      system: `You are an expert US real-estate listing copywriter. Write in ${lang === "es" ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, schools, or conditions. (3) Weave the agent's highlights in naturally. Respond with ONLY a JSON object: {"mls": "an MLS-ready description, 110-170 words, engaging but professional, no emojis, ending with a showing call-to-action", "social": "a short social-media caption, max 45 words, with tasteful emojis and a DM call-to-action"}. No markdown.`,
+      messages: [{ role: "user", content: JSON.stringify(facts) }],
+    });
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    if (!j.mls) throw new Error("empty");
+    res.json({ source: "live", mls: String(j.mls).slice(0, 1600), social: String(j.social || "").slice(0, 500) });
+  } catch (e) {
+    console.error("listing writer failed:", e.message);
+    res.status(502).json({ error: "ai_failed" });
+  }
+});
+
 // The app asks how often its sent reports were opened (ids are opaque)
 app.get("/api/r/opens", async (req, res) => {
   const rsIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";

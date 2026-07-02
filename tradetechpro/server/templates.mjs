@@ -31,19 +31,87 @@ function shade(hex, f) {
   return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
-const DEFAULT_SERVICES = [
-  ["🏡", "Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
-  ["🔑", "Compra tu casa", "Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves."],
-  ["📊", "Valuación / CMA gratis", "Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy."],
-  ["🤝", "Asesoría de mercado", "Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy."],
-];
+const DEFAULT_SERVICES = {
+  es: [
+    ["🏡", "Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
+    ["🔑", "Compra tu casa", "Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves."],
+    ["📊", "Valuación / CMA gratis", "Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy."],
+    ["🤝", "Asesoría de mercado", "Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy."],
+  ],
+  en: [
+    ["🏡", "Sell your home", "Priced right from day one, with a marketing plan that attracts real buyers."],
+    ["🔑", "Buy your home", "Full buyer representation — we search, negotiate and handle every detail through closing."],
+    ["📊", "Free valuation / CMA", "A comparative market analysis from real nearby sales, so you know what your home is worth today."],
+    ["🤝", "Market guidance", "The honest read on the market — when to sell, when to wait — even if it's not today."],
+  ],
+};
+
+/* Every user-visible string in the site chrome, both languages. The client's
+ * site language comes from site.lang (set at onboarding) with the app profile
+ * language as fallback — English-speaking realtors get fully English sites. */
+const STR = {
+  es: {
+    metaDesc: (biz, city) => `${biz} — bienes raíces${city ? " en " + city : ""}. Conoce el valor de tu casa en 60 segundos, con ventas reales cercanas.`,
+    kick: "BIENES RAÍCES", years: "años de experiencia", dedication: "dedicación", both: "hablamos los dos",
+    madeWith: "Página hecha con ⚡ Quick Comp", lic: "Lic.",
+    call: "Llámanos", callShort: "📞 Llámanos",
+    heroCta: "VALÚA TU CASA EN 60 SEGUNDOS",
+    trustLicensed: "Agente licenciado", trustLocal: "Agente local", trustComps: "Ventas reales comparables",
+    trustFree: "Valuación gratis", trustLang: "Hablamos español",
+    quoteEyebrow: "Valuación instantánea", quoteTitle: "El valor de tu casa, <em>sin esperar</em>",
+    quoteSub: "Escribe tu dirección y mira el valor de tu casa con ventas reales cercanas. Gratis y sin compromiso.",
+    valTitle: "Valuador",
+    svcEyebrow: "Servicios", svcTitle: "Lo que hacemos <em>bien</em>", svcTitle3: "¿Cómo te <em>ayudamos</em>?",
+    aboutEyebrow: "Quiénes somos", aboutTitle: "Nuestra <em>historia</em>",
+    galEyebrow: "Galería", galTitle: "Momentos <em>recientes</em>",
+    ctaTitle: "¿Listo para vender<br><em>al mejor precio?</em>", ctaBtn: "VALÚA AHORA",
+    t1Hero: "Vende tu casa por<br>lo que <em>de verdad vale</em>",
+    t1Tag: "Conoce el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.",
+    t2Hero: "Vende <em>al mejor</em><br>precio.",
+    t2Tag: "Conoce el valor de tu casa en 60 segundos — con ventas reales cercanas, sin visitas y sin compromiso.",
+    t2Lab: "Valuación instantánea", t2T: "Tu valor <em>en 60 segundos</em>",
+    t2Lead: "Escribe tu dirección. Analizamos ventas comparables reales y te damos el valor estimado al instante. Gratis, sin compromiso, sin esperar a nadie.",
+    t2Cta: "Valúa ya", t2Bar: "🏡 Valúa gratis",
+    t3Pill: "🏡 Bienes raíces", t3Hero: "Vende tu casa.<br><em>Sin estrés.</em>",
+    t3Tag: "Conoce el valor de tu casa con ventas reales cercanas — aquí mismo, gratis y sin que nadie te visite.",
+    t3Cta: "Valúa gratis", t3QTag: "Valúa tu casa aquí — gratis",
+    t3CtaTitle: "¿Listo para empezar?", t3CtaSub: "Tu valuación está a 60 segundos de distancia.", t3CtaBtn: "Valúa ahora",
+  },
+  en: {
+    metaDesc: (biz, city) => `${biz} — real estate${city ? " in " + city : ""}. See your home's value in 60 seconds, from real nearby sales.`,
+    kick: "REAL ESTATE", years: "years of experience", dedication: "dedication", both: "English & Español",
+    madeWith: "Site made with ⚡ Quick Comp", lic: "Lic.",
+    call: "Call us", callShort: "📞 Call us",
+    heroCta: "VALUE YOUR HOME IN 60 SECONDS",
+    trustLicensed: "Licensed agent", trustLocal: "Local agent", trustComps: "Real comparable sales",
+    trustFree: "Free valuation", trustLang: "English & Español",
+    quoteEyebrow: "Instant valuation", quoteTitle: "Your home's value, <em>no waiting</em>",
+    quoteSub: "Type your address and see your home's value from real nearby sales. Free, no obligation.",
+    valTitle: "Home valuator",
+    svcEyebrow: "Services", svcTitle: "What we do <em>well</em>", svcTitle3: "How can we <em>help</em>?",
+    aboutEyebrow: "Who we are", aboutTitle: "Our <em>story</em>",
+    galEyebrow: "Gallery", galTitle: "Recent <em>moments</em>",
+    ctaTitle: "Ready to sell<br><em>for top dollar?</em>", ctaBtn: "GET MY VALUE",
+    t1Hero: "Sell your home for<br>what it's <em>really worth</em>",
+    t1Tag: "See your home's value instantly, from real nearby sales — free, with no one visiting your house.",
+    t2Hero: "Sell for <em>top</em><br>dollar.",
+    t2Tag: "See your home's value in 60 seconds — from real nearby sales, no visits, no obligation.",
+    t2Lab: "Instant valuation", t2T: "Your value <em>in 60 seconds</em>",
+    t2Lead: "Type your address. We analyze real comparable sales and give you an estimated value instantly. Free, no obligation, no waiting on anyone.",
+    t2Cta: "Get my value", t2Bar: "🏡 Free valuation",
+    t3Pill: "🏡 Real estate", t3Hero: "Sell your home.<br><em>Stress-free.</em>",
+    t3Tag: "See your home's value from real nearby sales — right here, free, with no one visiting your house.",
+    t3Cta: "Free valuation", t3QTag: "Value your home here — free",
+    t3CtaTitle: "Ready to get started?", t3CtaSub: "Your valuation is 60 seconds away.", t3CtaBtn: "Get my value",
+  },
+};
 
 /* Shared pieces */
-function headBase(d, css) {
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+function headBase(d, css, L) {
+  return `<!doctype html><html lang="${d.lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(d.biz)}${d.city ? " · " + esc(d.city) : ""}</title>
-<meta name="description" content="${esc(d.biz)} — bienes raíces${d.city ? " en " + esc(d.city) : ""}. Conoce el valor de tu casa en 60 segundos, con ventas reales cercanas.">
+<meta name="description" content="${esc(L.metaDesc(d.biz, d.city))}">
 <style>${css}</style></head><body>`;
 }
 
@@ -57,18 +125,20 @@ function backAltoHtml(opts) {
   return `<a style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:50;background:#15244C;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 22px;border-radius:99px;box-shadow:0 14px 36px rgba(16,27,48,.5);font-family:Inter,Arial,sans-serif;white-space:nowrap" href="/ventas#precio">← Volver a <span style="color:#C9973A">QUICK COMP</span></a>`;
 }
 
-function footerBits(d) {
-  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · Lic. ${esc(d.license)}` : ""}<br>Página hecha con ⚡ Quick Comp`;
+function footerBits(d, L) {
+  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · ${L.lic} ${esc(d.license)}` : ""}<br>${L.madeWith}`;
 }
 
-const statsCells = (d) => [
-  d.years ? [`${d.years}+`, "años de experiencia"] : null,
-  ["100%", "dedicación"],
-  ["ES/EN", "hablamos los dos"],
+const statsCells = (d, L) => [
+  d.years ? [`${d.years}+`, L.years] : null,
+  ["100%", L.dedication],
+  ["ES/EN", L.both],
 ].filter(Boolean);
 
 /* ── Template 1 · Clásico ── */
 function t1(d, opts) {
+  const L = STR[d.lang] || STR.es;
+  const wsrc = `/w/${esc(d.slug)}${d.lang === "en" ? "?lang=en" : ""}`;
   const c1 = d.color, c2 = shade(d.color, -0.45), cream = "#FAF8F5";
   const css = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=Inter:wght@400;500;600;700;800&display=swap');
@@ -119,7 +189,7 @@ section{padding:74px 0}
 .ctaband .a2{background:#25D366;color:#fff}
 footer{padding:40px 22px ${opts.backAlto ? "110px" : "44px"};text-align:center;color:#9AA0AC;font-size:13px;font-weight:500;line-height:2}
 footer b{color:#0F1216;font-family:'Fraunces',Georgia,serif;font-size:16px}`;
-  return `${headBase(d, css)}
+  return `${headBase(d, css, L)}
 ${ribbonHtml(opts)}
 <header><div class="wrap hrow">
   <span class="hbrand">${d.logo ? `<img src="${d.logo}" alt="${esc(d.biz)}">` : esc(d.biz)}</span>
@@ -127,47 +197,47 @@ ${ribbonHtml(opts)}
 </div></header>
 <div class="hero"><div class="veil"></div>
   <div class="wrap in">
-    <span class="kick">BIENES RAÍCES${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</span>
-    <h1>${d.hero ? sanHero(d.hero) : `Vende tu casa por<br>lo que <em>de verdad vale</em>`}</h1>
-    <p>${esc(d.tagline) || "Conoce el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite."}</p>
-    <a class="cta" href="#cotiza">VALÚA TU CASA EN 60 SEGUNDOS</a>${d.phone ? `<a class="cta ghost" href="tel:+1${d.phone}">Llámanos</a>` : ""}
+    <span class="kick">${L.kick}${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</span>
+    <h1>${d.hero ? sanHero(d.hero) : L.t1Hero}</h1>
+    <p>${esc(d.tagline) || L.t1Tag}</p>
+    <a class="cta" href="#cotiza">${L.heroCta}</a>${d.phone ? `<a class="cta ghost" href="tel:+1${d.phone}">${L.call}</a>` : ""}
   </div>
-  <div class="wrap stats">${statsCells(d).map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("")}</div>
+  <div class="wrap stats">${statsCells(d, L).map(([b, s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join("")}</div>
 </div>
-<div class="trust"><span>✓ ${d.license ? "Agente licenciado" : "Agente local"}</span><span>✓ Ventas reales comparables</span><span>✓ Valuación gratis</span><span>✓ Hablamos español</span></div>
+<div class="trust"><span>✓ ${d.license ? L.trustLicensed : L.trustLocal}</span><span>✓ ${L.trustComps}</span><span>✓ ${L.trustFree}</span><span>✓ ${L.trustLang}</span></div>
 
 <div class="wrap"><section id="cotiza">
-  <p class="eyebrow">Valuación instantánea</p>
-  <h2 class="t">El valor de tu casa, <em>sin esperar</em></h2>
-  <p class="sub">Escribe tu dirección y mira el valor de tu casa con ventas reales cercanas. Gratis y sin compromiso.</p>
-  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe></div>
+  <p class="eyebrow">${L.quoteEyebrow}</p>
+  <h2 class="t">${L.quoteTitle}</h2>
+  <p class="sub">${L.quoteSub}</p>
+  <div class="qframe"><iframe src="${wsrc}" loading="lazy" title="${L.valTitle}"></iframe></div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:6px">
-  <p class="eyebrow">Servicios</p>
-  <h2 class="t">Lo que hacemos <em>bien</em></h2>
+  <p class="eyebrow">${L.svcEyebrow}</p>
+  <h2 class="t">${L.svcTitle}</h2>
   <div style="margin-top:38px">
     ${d.services.map(([ic, t, x]) => `<div class="svc"><span class="ic">${ic}</span><div><h3>${esc(t)}</h3><p>${esc(x)}</p></div></div>`).join("")}
   </div>
 </section></div>
 
 ${d.about ? `<div class="about"><div class="wrap"><section><div class="bx">
-  <p class="eyebrow">Quiénes somos</p>
-  <h2 class="t">Nuestra <em>historia</em></h2>
+  <p class="eyebrow">${L.aboutEyebrow}</p>
+  <h2 class="t">${L.aboutTitle}</h2>
   <p class="body">${esc(d.about)}</p>
 </div></section></div></div>` : ""}
 
 ${d.photos.length ? `<div class="wrap"><section style="padding-top:10px">
-  <p class="eyebrow">Trabajos recientes</p>
-  <h2 class="t">Hecho con <em>orgullo</em></h2>
+  <p class="eyebrow">${L.galEyebrow}</p>
+  <h2 class="t">${L.galTitle}</h2>
   <div class="gal">${d.photos.map((p) => `<img loading="lazy" src="${esc(p)}" alt="">`).join("")}</div>
 </section></div>` : ""}
 
 <div class="ctaband">
-  <h2>¿Listo para vender<br><em>al mejor precio?</em></h2>
-  <a class="a1" href="#cotiza">VALÚA AHORA</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
+  <h2>${L.ctaTitle}</h2>
+  <a class="a1" href="#cotiza">${L.ctaBtn}</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
 </div>
-<footer>${footerBits(d)}</footer>
+<footer>${footerBits(d, L)}</footer>
 ${backAltoHtml(opts)}
 </body></html>`;
 }
@@ -175,6 +245,8 @@ ${backAltoHtml(opts)}
 /* ── Template 2 · Fuerte (industrial · oversized · dark) ── */
 function t2(d, opts) {
   const c1 = d.color, ink = "#0B0E13", panel = "#11151C";
+  const L = STR[d.lang] || STR.es;
+  const wsrc = `/w/${esc(d.slug)}${d.lang === "en" ? "?lang=en" : ""}`;
   const ghost = esc(String(d.biz || "Casa").split(" ")[0].toUpperCase());
   const css = `
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
@@ -228,7 +300,7 @@ header{position:sticky;top:0;z-index:40;background:${ink}E8;backdrop-filter:blur
 .bar a+a{background:#1FAF52}
 footer{padding:54px 26px ${opts.backAlto ? "120px" : "50px"};text-align:center;color:#ffffff70;font-size:13px;font-weight:600;line-height:2}
 footer b{color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:19px;text-transform:uppercase}`;
-  return `${headBase(d, css)}
+  return `${headBase(d, css, L)}
 ${ribbonHtml(opts)}
 <header><div class="wrap hrow">
   <span class="hbrand">${d.logo ? `<img src="${d.logo}" alt="${esc(d.biz)}">` : esc(d.biz)}</span>
@@ -237,34 +309,36 @@ ${ribbonHtml(opts)}
 <div class="hero">
   <div class="ghostword bc">${ghost}</div>
   <div class="wrap in">
-    <p class="hk">Bienes raíces${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</p>
-    <h1>${d.hero ? sanHero(d.hero) : `Vende <em>al mejor</em><br>precio.`}</h1>
-    <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa en 60 segundos — con ventas reales cercanas, sin visitas y sin compromiso."}</p>
-    <div class="ctas"><a class="btn p" href="#cotiza">Valúa ya</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">Llámanos</a>` : ""}</div>
+    <p class="hk">${L.kick}${d.city ? ` · ${esc(d.city).toUpperCase()}` : ""}</p>
+    <h1>${d.hero ? sanHero(d.hero) : L.t2Hero}</h1>
+    <p class="lede">${esc(d.tagline) || L.t2Tag}</p>
+    <div class="ctas"><a class="btn p" href="#cotiza">${L.t2Cta}</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">${L.call}</a>` : ""}</div>
   </div>
 </div>
-<div class="strip"><div class="wrap in">${statsCells(d).map(([b, s]) => `<div class="num"><b>${b}</b><span>${s}</span></div>`).join("")}</div></div>
+<div class="strip"><div class="wrap in">${statsCells(d, L).map(([b, s]) => `<div class="num"><b>${b}</b><span>${s}</span></div>`).join("")}</div></div>
 <div class="quote" id="cotiza"><div class="wrap"><div class="qgrid">
   <div>
-    <p class="lab">Valuación instantánea</p>
-    <h2 class="t">Tu valor <em>en 60 segundos</em></h2>
-    <p class="lead">Escribe tu dirección. Analizamos ventas comparables reales y te damos el valor estimado al instante. Gratis, sin compromiso, sin esperar a nadie.</p>
+    <p class="lab">${L.t2Lab}</p>
+    <h2 class="t">${L.t2T}</h2>
+    <p class="lead">${L.t2Lead}</p>
   </div>
-  <div class="qframe"><iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe></div>
+  <div class="qframe"><iframe src="${wsrc}" loading="lazy" title="${L.valTitle}"></iframe></div>
 </div></div></div>
 <div class="wrap"><div class="svcwrap">
   ${d.services.map(([ic, t, x], i) => `<div class="svc"><div class="no">${String(i + 1).padStart(2, "0")}</div><div><h3>${esc(t)}</h3><p>${esc(x)}</p></div><div class="ic">${ic}</div></div>`).join("")}
 </div></div>
 ${d.about ? `<div class="about"><div class="wrap"><div class="qm bc">&ldquo;</div><p>${esc(d.about)}</p></div></div>` : ""}
 ${d.photos.length ? `<div class="wrap"><div class="gal">${d.photos.map((p) => `<img loading="lazy" src="${esc(p)}" alt="">`).join("")}</div></div>` : ""}
-<footer>${footerBits(d)}</footer>
-<div class="bar"><a href="#cotiza">🏡 Valúa gratis</a>${d.phone ? `<a href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}</div>
+<footer>${footerBits(d, L)}</footer>
+<div class="bar"><a href="#cotiza">${L.t2Bar}</a>${d.phone ? `<a href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}</div>
 ${backAltoHtml(opts)}
 </body></html>`;
 }
 
 /* ── Template 3 · Limpio (warm · trust · quote-in-hero) ── */
 function t3(d, opts) {
+  const L = STR[d.lang] || STR.es;
+  const wsrc = `/w/${esc(d.slug)}${d.lang === "en" ? "?lang=en" : ""}`;
   const c1 = d.color, warm = "#FBFAF7", tint = shade(d.color, 0.92), ink = "#1B2330", soft = "#5C6675";
   const css = `
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -321,7 +395,7 @@ section{padding:64px 0}
 .ctacard .a2{background:#1FAF52;color:#fff}
 footer{padding:42px 22px ${opts.backAlto ? "115px" : "46px"};text-align:center;color:#9AA3B2;font-size:13px;font-weight:500;line-height:2}
 footer b{color:${ink};font-size:15px}`;
-  return `${headBase(d, css)}
+  return `${headBase(d, css, L)}
 ${ribbonHtml(opts)}
 <header><div class="wrap hrow">
   <span class="hbrand">${d.logo ? `<img src="${d.logo}" alt="${esc(d.biz)}">` : esc(d.biz)}</span>
@@ -329,36 +403,36 @@ ${ribbonHtml(opts)}
 </div></header>
 <div class="hero"><div class="wrap"><div class="hgrid">
   <div>
-    <span class="pill">🏡 Bienes raíces${d.city ? ` · ${esc(d.city)}` : ""}</span>
-    <h1>${d.hero ? sanHero(d.hero) : `Vende tu casa.<br><em>Sin estrés.</em>`}</h1>
-    <p class="lede">${esc(d.tagline) || "Conoce el valor de tu casa con ventas reales cercanas — aquí mismo, gratis y sin que nadie te visite."}</p>
-    <div class="hcta"><a class="btn p" href="#cotiza">Valúa gratis</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">📞 Llámanos</a>` : ""}</div>
+    <span class="pill">${L.t3Pill}${d.city ? ` · ${esc(d.city)}` : ""}</span>
+    <h1>${d.hero ? sanHero(d.hero) : L.t3Hero}</h1>
+    <p class="lede">${esc(d.tagline) || L.t3Tag}</p>
+    <div class="hcta"><a class="btn p" href="#cotiza">${L.t3Cta}</a>${d.phone ? `<a class="btn g" href="tel:+1${d.phone}">${L.callShort}</a>` : ""}</div>
   </div>
   <div class="qcard" id="cotiza">
-    <div class="qtag"><span class="dot"></span> Valúa tu casa aquí — gratis</div>
-    <iframe src="/w/${esc(d.slug)}" loading="lazy" title="Valuador"></iframe>
+    <div class="qtag"><span class="dot"></span> ${L.t3QTag}</div>
+    <iframe src="${wsrc}" loading="lazy" title="${L.valTitle}"></iframe>
   </div>
 </div>
-<div class="trust" style="margin-top:36px">${statsCells(d).map(([b, s]) => `<span>✓ ${b} ${s}</span>`).join("")}<span>✓ Valuación gratis</span></div>
+<div class="trust" style="margin-top:36px">${statsCells(d, L).map(([b, s]) => `<span>✓ ${b} ${s}</span>`).join("")}<span>✓ ${L.trustFree}</span></div>
 </div></div>
 <div class="wrap"><section>
-  <div class="head"><p class="eye">Servicios</p><h2 class="t">¿Cómo te <em>ayudamos</em>?</h2></div>
+  <div class="head"><p class="eye">${L.svcEyebrow}</p><h2 class="t">${L.svcTitle3}</h2></div>
   <div class="svcs">${d.services.map(([ic, t, x]) => `<div class="svc"><div class="ic">${ic}</div><h3>${esc(t)}</h3><p>${esc(x)}</p></div>`).join("")}</div>
 </section></div>
 ${d.about ? `<div class="wrap"><section style="padding-top:6px"><div class="about">
   <div class="badge">🏡</div>
-  <div><p class="eye">Quiénes somos</p><h2 class="t">Nuestra <em>historia</em></h2><p class="body">${esc(d.about)}</p></div>
+  <div><p class="eye">${L.aboutEyebrow}</p><h2 class="t">${L.aboutTitle}</h2><p class="body">${esc(d.about)}</p></div>
 </div></section></div>` : ""}
 ${d.photos.length ? `<div class="wrap"><section style="padding-top:6px">
-  <div class="head"><p class="eye">Galería</p><h2 class="t">Trabajos <em>recientes</em></h2></div>
+  <div class="head"><p class="eye">${L.galEyebrow}</p><h2 class="t">${L.galTitle}</h2></div>
   <div class="gal">${d.photos.map((p) => `<img loading="lazy" src="${esc(p)}" alt="">`).join("")}</div>
 </section></div>` : ""}
 <div class="wrap"><section style="padding-top:6px"><div class="ctacard">
-  <h2>¿Listo para empezar?</h2>
-  <p>Tu valuación está a 60 segundos de distancia.</p>
-  <a class="a1" href="#cotiza">Valúa ahora</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
+  <h2>${L.t3CtaTitle}</h2>
+  <p>${L.t3CtaSub}</p>
+  <a class="a1" href="#cotiza">${L.t3CtaBtn}</a>${d.phone ? `<a class="a2" href="https://wa.me/1${d.phone}">💬 WhatsApp</a>` : ""}
 </div></section></div>
-<footer>${footerBits(d)}</footer>
+<footer>${footerBits(d, L)}</footer>
 ${backAltoHtml(opts)}
 </body></html>`;
 }
@@ -366,12 +440,14 @@ ${backAltoHtml(opts)}
 const TEMPLATES = { 1: t1, 2: t2, 3: t3 };
 
 export function renderSite(data, opts = {}) {
+  const lang = data.lang === "en" ? "en" : "es";
   const d = {
-    services: DEFAULT_SERVICES,
     photos: [],
     color: "#B30F24",
     ...data,
+    lang,
   };
+  if (!Array.isArray(d.services) || !d.services.length) d.services = DEFAULT_SERVICES[lang];
   const fn = TEMPLATES[String(d.template || "1")] || t1;
   return fn(d, opts);
 }

@@ -90,6 +90,28 @@ const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === "production");
  * Configure in Stripe: endpoint /api/stripe/webhook, then put the signing
  * secret in Render as STRIPE_WEBHOOK_SECRET. */
 const STRIPE_WH_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+/* Map a Stripe payment amount (cents) to the plan the client bought, so
+ * fulfillment, MRR, and the dashboard all know which of the three tiers it is.
+ * No setup fees → the amount equals the monthly. Tolerance absorbs proration
+ * and tax rounding; an unrecognized amount stays null (never guessed). */
+const PLAN_BY_AMOUNT = [
+  { plan: "pro", dollars: 67 },
+  { plan: "widget", dollars: 197 },
+  { plan: "complete", dollars: 297 },
+];
+function planFromCents(cents) {
+  const d = Number(cents) / 100;
+  if (!Number.isFinite(d) || d <= 0) return null;
+  let best = null, bestDiff = Infinity;
+  for (const p of PLAN_BY_AMOUNT) { const diff = Math.abs(d - p.dollars); if (diff < bestDiff) { bestDiff = diff; best = p; } }
+  // accept only within $10 of a known tier — otherwise we don't know the plan
+  return best && bestDiff <= 10 ? { plan: best.plan, planAmount: best.dollars } : null;
+}
+// Pull the paid amount out of whichever Stripe object this event carries.
+function amountCentsOf(obj) {
+  return obj.amount_total ?? obj.amount_paid ?? obj.amount_due ?? obj.plan?.amount ?? obj.lines?.data?.[0]?.amount ?? null;
+}
+
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   if (!STRIPE_WH_SECRET) return res.status(503).json({ error: "webhook not configured" });
   try {
@@ -103,8 +125,17 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
 
   let event;
   try { event = JSON.parse(req.body.toString("utf8")); } catch { return res.status(400).json({ error: "bad json" }); }
+  // Idempotency: Stripe delivers at-least-once, so the same event can arrive
+  // twice (or race itself). Process each event id only once — this alone kills
+  // the duplicate self-serve accounts that retries would otherwise create.
+  if (event.id) {
+    const seen = await db.kvGet(`evt:${event.id}`, 7 * 24 * 3600 * 1000).catch(() => null);
+    if (seen) return res.json({ ok: true, duplicate: true });
+    await db.kvSet(`evt:${event.id}`, { at: new Date().toISOString(), type: event.type }).catch(() => {});
+  }
   const obj = event.data?.object || {};
   const customerId = obj.customer || null;
+  const planInfo = planFromCents(amountCentsOf(obj)); // {plan, planAmount} | null
   const email = String(obj.customer_email || obj.customer_details?.email || "").toLowerCase();
   const phone = String(obj.customer_phone || obj.customer_details?.phone || "").replace(/\D/g, "").replace(/^1/, "");
 
@@ -118,8 +149,9 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
     // Payment often arrives BEFORE the closer finishes creating the client — remember it
     // so the new account activates itself on creation.
     if (["invoice.paid", "invoice.payment_succeeded", "checkout.session.completed"].includes(event.type)) {
-      if (phone) await db.kvSet(`paid:${phone}`, { customerId, email, phone }).catch(() => {});
-      if (email) await db.kvSet(`paid:${email}`, { customerId, email, phone }).catch(() => {});
+      const marker = { customerId, email, phone, ...(planInfo || {}) };
+      if (phone) await db.kvSet(`paid:${phone}`, marker).catch(() => {});
+      if (email) await db.kvSet(`paid:${email}`, marker).catch(() => {});
     }
     // Self-serve purchase from the landing page: nobody is on a call, so no
     // account will ever be created by hand. Create it NOW, active, flagged
@@ -131,11 +163,12 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
       await db.saveContractorData(c.id, {
         payStatus: "ok",
         selfServe: true,
+        ...(planInfo || {}),
         ...(customerId ? { stripeCustomer: customerId } : {}),
         profile: { biz: name, ...(email ? { email } : {}), ...(phone ? { phone } : {}) },
       });
-      console.log(`stripe webhook: self-serve signup → created ${c.slug} (send their access link!)`);
-      return res.json({ ok: true, created: c.slug });
+      console.log(`stripe webhook: self-serve signup → created ${c.slug} [${planInfo?.plan || "plan?"}] (send their access link!)`);
+      return res.json({ ok: true, created: c.slug, plan: planInfo?.plan || null });
     }
     console.log("stripe webhook: no contractor match for", event.type, customerId, email, phone);
     return res.json({ ok: true, matched: false });
@@ -147,6 +180,7 @@ app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), async
     delete data.status; // unpause — access back the second the card goes through
     delete data.payFailedAt;
     data.payStatus = "ok";
+    if (planInfo) { data.plan = planInfo.plan; data.planAmount = planInfo.planAmount; } // remember which tier they pay for
   } else if (event.type === "invoice.payment_failed") {
     data.payStatus = "failed";
     data.payFailedAt = data.payFailedAt || new Date().toISOString();
@@ -1199,7 +1233,12 @@ app.get("/admin", async (req, res) => {
   const paying = payCount("ok");
   const pendingPay = payCount("pending");
   const failedPay = payCount("failed");
-  const mrr = paying * 297;
+  // Real MRR sums each paying client's actual plan price (legacy/unknown → $297).
+  const payingClients = realClients.filter((c) => (c.data?.payStatus || "") === "ok");
+  const mrr = payingClients.reduce((sum, c) => sum + (Number(c.data?.planAmount) || 297), 0);
+  const planCount = (p) => payingClients.filter((c) => c.data?.plan === p).length;
+  const proN = planCount("pro"), widgetN = planCount("widget"), completeN = planCount("complete");
+  const unknownPlanN = payingClients.filter((c) => !c.data?.plan).length;
   // last-7-days series for the chart (visits per day)
   const days = [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10));
   const get = (d, e) => Number(rows.find((r) => r.day === d && r.event === e)?.n || 0);
@@ -1303,7 +1342,7 @@ td .pill{margin:2px 3px 2px 0}
 ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D93025;color:#9B1C10;border-radius:14px;padding:13px 16px;font-weight:700;font-size:13.5px;margin-bottom:16px">⚠️ SIN BASE DE DATOS — los datos se guardan en el disco temporal del servidor y <b>se pierden en cada reinicio</b>. Configura DATABASE_URL (Postgres) en Render antes de aceptar clientes reales.</div>` : ""}
 <div class="cards">
   <div class="card gold"><div class="v">$${mrr.toLocaleString("en-US")}</div><div class="l" style="color:#9DA8C4">MRR · clientes pagando</div></div>
-  <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
+  <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${paying ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${[proN ? `${proN} Pro` : "", widgetN ? `${widgetN} Widget` : "", completeN ? `${completeN} Complete` : "", unknownPlanN ? `${unknownPlanN} s/plan` : ""].filter(Boolean).join(" · ")}</div>` : ""}${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
   <div class="card"><div class="v">${realClients.length}</div><div class="l">Agentes total</div></div>
   <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
   <div class="card"><div class="v">${tot("visit")}</div><div class="l">Visitas · 7 días</div></div>
@@ -1888,9 +1927,20 @@ app.put("/api/state", async (req, res) => {
   const c = await auth(req);
   if (!c) return res.status(401).json({ error: "no session" });
   await db.saveState(c.id, req.body?.state || {});
-  // MERGE into the account's data — never replace it. The data column also
-  // holds payStatus/stripeCustomer/site/webhook, which the app must not wipe.
-  if (req.body?.profile) await db.saveContractorData(c.id, { ...(c.data || {}), ...req.body.profile });
+  // MERGE into the account's data — never replace it, and NEVER let the app
+  // write server-owned billing/system keys. The client controls req.body.profile
+  // entirely, so we (a) strip protected keys from what it sends and (b) force the
+  // real stored values back on top — a signed-in client cannot mark itself paid,
+  // unpause itself, hijack its Stripe customer, or set its webhook/site/plan.
+  if (req.body?.profile && typeof req.body.profile === "object" && !Array.isArray(req.body.profile)) {
+    const PROTECTED = ["payStatus", "status", "payFailedAt", "stripeCustomer", "selfServe", "plan", "planAmount", "webhook", "site", "createdAt"];
+    const cur = c.data || {};
+    const incoming = { ...req.body.profile };
+    for (const k of PROTECTED) delete incoming[k];
+    const merged = { ...cur, ...incoming };
+    for (const k of PROTECTED) { if (k in cur) merged[k] = cur[k]; else delete merged[k]; }
+    await db.saveContractorData(c.id, merged);
+  }
   res.json({ ok: true });
 });
 
@@ -4096,7 +4146,7 @@ app.post("/api/closer/contractors", async (req, res) => {
   const digits = String(phone || "").replace(/\D/g, "").replace(/^1/, "");
   const paid = digits ? await db.kvGet(`paid:${digits}`, 48 * 3600 * 1000).catch(() => null) : null;
   const cData = paid
-    ? { payStatus: "ok", ...(paid.customerId ? { stripeCustomer: paid.customerId } : {}) }
+    ? { payStatus: "ok", ...(paid.customerId ? { stripeCustomer: paid.customerId } : {}), ...(paid.plan ? { plan: paid.plan, planAmount: paid.planAmount } : {}) }
     : { payStatus: "pending" };
   await db.saveContractorData(c.id, cData);
   const invite = await db.createInvite(c.id);

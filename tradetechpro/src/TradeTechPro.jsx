@@ -474,6 +474,9 @@ export default function TradeTechPro() {
   // effects below, which read them
   const [sentReports, setSentReports] = useState(() => { try { return JSON.parse(localStorage.getItem("qc_reports") || "[]"); } catch { return []; } });
   const [reportOpens, setReportOpens] = useState({});
+  // "new views" dot on the Workspace tab: total opens the agent has already seen
+  const [seenViews, setSeenViews] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenviews") || "0", 10) || 0; } catch { return 0; } });
+  const opensFetched = useRef(false);
   const [hideInstall, setHideInstall] = useState(() => {
     try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
   });
@@ -587,6 +590,74 @@ export default function TradeTechPro() {
       return next;
     });
   };
+  /* One tap re-opens a saved search exactly as it was — no re-search, no wait.
+   * Curation state is reset so edits from a previous property never bleed in. */
+  const reopenSaved = (it) => {
+    setExcludedComps({}); setPriceOverrides({}); setManualComps([]); setAddComp(null);
+    setRadiusPref("auto");
+    setLookup(it);
+    setLendPrice(null);
+    setScreen("comps");
+  };
+
+  /* ── AI listing writer — prefilled from a search, editable, works standalone ── */
+  const [listingDraft, setListingDraft] = useState({ address: "", beds: "", baths: "", sqft: "", year: "", highlights: "" });
+  const [listingOut, setListingOut] = useState(null);   // {mls, social, source}
+  const [listingBusy, setListingBusy] = useState(false);
+  const openListing = (subj) => {
+    const addr = (subj && subj.address) || "";
+    // A new property prefills fresh facts; reopening the same one (or entering
+    // standalone) keeps whatever the agent already typed.
+    if (subj && addr !== listingDraft.address) {
+      setListingDraft({ address: addr, beds: subj.beds ?? "", baths: subj.baths ?? "", sqft: subj.sqft ?? "", year: subj.yearBuilt ?? "", highlights: "" });
+      setListingOut(null);
+    }
+    setScreen("listing");
+  };
+  const generateListing = async () => {
+    const d = listingDraft;
+    if (!String(d.address).trim() && !String(d.highlights).trim()) {
+      showToast(lang === "es" ? "Pon la dirección o los datos de la propiedad" : "Enter the address or the property facts");
+      return;
+    }
+    setListingBusy(true);
+    setListingOut(null);
+    try {
+      const r = await api("/api/listing", {
+        method: "POST",
+        body: JSON.stringify({ lang, address: d.address, beds: d.beds, baths: d.baths, sqft: d.sqft, year: d.year, highlights: d.highlights }),
+      });
+      if (r.status === 429) {
+        setListingBusy(false);
+        showToast("🔒 " + (lang === "es" ? "Límite de hoy alcanzado" : "Daily limit reached"));
+        return;
+      }
+      const j = r.ok ? await r.json() : null;
+      if (j?.mls) { setListingOut(j); setListingBusy(false); return; }
+    } catch { /* backend unreachable — compose locally below */ }
+    // Offline/demo fallback — the button always answers with something usable
+    const es = lang === "es";
+    const bits = [
+      d.beds && `${d.beds} ${es ? "recámaras" : "bedrooms"}`,
+      d.baths && `${d.baths} ${es ? "baños" : "baths"}`,
+      d.sqft && `${Number(String(d.sqft).replace(/[^0-9.]/g, "")).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`,
+      d.year && (es ? `construida en ${d.year}` : `built in ${d.year}`),
+    ].filter(Boolean).join(", ");
+    const hl = String(d.highlights || "").trim().replace(/[.\s]+$/, "");
+    setListingOut({
+      source: "demo",
+      mls: es
+        ? `Bienvenido a ${d.address || "esta propiedad"} — una casa de ${bits || "gran potencial"}. ${hl ? hl + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${d.address || "this property"} — a ${bits || "wonderful"} home. ${hl ? hl + ". " : ""}Schedule your showing today — homes like this don't last.`,
+      social: es
+        ? `🏡 ¡NUEVO LISTING! ${d.address || ""}${bits ? " · " + bits : ""} ✨ Manda mensaje para verla 📲`
+        : `🏡 JUST LISTED! ${d.address || ""}${bits ? " · " + bits : ""} ✨ DM to see it 📲`,
+    });
+    setListingBusy(false);
+  };
+  const copyText = async (txt) => {
+    try { await navigator.clipboard.writeText(txt); showToast(lang === "es" ? "Copiado ✓" : "Copied ✓"); } catch { /* ignore */ }
+  };
 
   const [showDetails, setShowDetails] = useState(false); // shared with the fence estimator
   const [dragOff, setDragOff] = useState([0, 0]);        // live pan offset (fence map drag)
@@ -656,12 +727,26 @@ export default function TradeTechPro() {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2400); };
   useEffect(() => { try { localStorage.setItem("qc_reports", JSON.stringify(sentReports.slice(0, 30))); } catch { /* private mode */ } }, [sentReports]);
   useEffect(() => {
-    if (screen !== "workspace" || !sentReports.length) return;
+    // Refresh open counts on every Workspace visit, plus once at launch so the
+    // "new views" dot can appear without opening the tab first.
+    if (!sentReports.length) return;
+    if (screen !== "workspace" && opensFetched.current) return;
+    opensFetched.current = true;
     const rids = sentReports.slice(0, 30).map((r) => r.rid).filter(Boolean).join(",");
     if (!rids) return;
     api(`/api/r/opens?rids=${rids}`).then((r) => (r.ok ? r.json() : null)).then((j) => { if (j?.opens) setReportOpens(j.opens); }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
+  useEffect(() => {
+    // Visiting the Workspace marks every report open as seen — the dot clears.
+    if (screen !== "workspace") return;
+    const total = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
+    if (total > seenViews) {
+      setSeenViews(total);
+      try { localStorage.setItem("qc_seenviews", String(total)); } catch { /* private mode */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, reportOpens]);
   /* Monthly payment from the Lending tab's current settings, for the report's
    * optional buyer card — same PMI/MIP/fee math as the Lending screen. */
   const paymentFor = (price) => {
@@ -830,16 +915,21 @@ export default function TradeTechPro() {
       ["tax", lang === "es" ? "Impuestos" : "Tax"],
       ["workspace", lang === "es" ? "Trabajo" : "Workspace"],
     ];
+    // Unseen report opens light a small gold dot on the Workspace tab
+    const totalViews = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
     return (
       <div className="flex justify-around items-center gap-1.5 px-2 py-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}` }}>
         {items.map(([s, label], i) => {
           const on = screen === s;
           return (
             <button key={s} onClick={() => setScreen(s)}
-              className="flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl"
+              className="relative flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl"
               style={{ background: on ? C.navy : "transparent", border: "none" }}>
               <span className="text-xs font-extrabold" style={{ color: on ? C.orange : C.slate, letterSpacing: 0.5 }}>{`0${i + 1}`}</span>
               <span className="text-[11px] font-bold uppercase truncate" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.5 }}>{label}</span>
+              {s === "workspace" && totalViews > seenViews && (
+                <span className="absolute" style={{ top: 5, right: "24%", width: 9, height: 9, borderRadius: 5, background: "#FFD700", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
+              )}
             </button>
           );
         })}
@@ -931,6 +1021,23 @@ export default function TradeTechPro() {
             {lang === "es" ? "Ver valor de mercado" : "Get Market Value"}
           </button>
           <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Ventas comparables cercanas · 100% gratis" : "Nearby comparable sales · 100% free"} · DEMO</p>
+          {/* Last searches — one tap re-opens the full result instantly */}
+          {savedWork.length > 0 && (
+            <div className="rounded-2xl px-4 py-3 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <p className="mb-0.5" style={{ color: QC.muted2, fontSize: 10, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Recientes" : "Recent"}</p>
+              {savedWork.slice(0, 4).map((it, i) => (
+                <button key={it.addr + i} onClick={() => reopenSaved(it)} className="w-full flex items-center gap-2.5 py-2.5 text-left active:opacity-80"
+                  style={{ background: "none", border: "none", borderTop: i ? `1px solid ${QC.line}` : "none", cursor: "pointer" }}>
+                  <span style={{ color: QC.navy }}>🏠</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr}</span>
+                    {it.value != null && <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(it.value)}</span>}
+                  </span>
+                  <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1307,6 +1414,10 @@ export default function TradeTechPro() {
             style={{ background: `linear-gradient(135deg,${QC.gold},#BD8426)`, color: QC.navyDeep, border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 800, letterSpacing: "0.01em", boxShadow: "0 4px 14px rgba(189,132,38,0.35)" }}>
             📄 {lang === "es" ? "Crear informe para el cliente" : "Create client report"}
           </button>
+          <button onClick={() => openListing({ ...subj, address: subj.address || R.addr })} className="w-full active:translate-y-px transition-transform mb-2.5"
+            style={{ background: "#fff", color: QC.navy, border: `2px solid ${QC.goldLine}`, borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800 }}>
+            ✨ {lang === "es" ? "Escribir el listing (IA)" : "Write the listing (AI)"}
+          </button>
           <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setLookup(null); setScreen("comps"); }} className="w-full active:translate-y-px transition-transform"
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
             {t.cmpNew}
@@ -1550,11 +1661,7 @@ export default function TradeTechPro() {
 
   /* ── 04 · WORKSPACE — saved work + Realtor branding ── */
   const Workspace = () => {
-    const reopen = (it) => {
-      setLookup(it);
-      setLendPrice(null);
-      setScreen("comps");
-    };
+    const reopen = reopenSaved;
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
@@ -1563,6 +1670,17 @@ export default function TradeTechPro() {
             <p className="text-white font-extrabold" style={{ fontSize: 26, margin: "4px 0 6px" }}>{savedWork.length} {lang === "es" ? (savedWork.length === 1 ? "elemento reciente" : "elementos recientes") : (savedWork.length === 1 ? "recent item" : "recent items")}</p>
             <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Reabre comps, estimados de financiamiento e impuestos sin empezar de cero." : "Reopen past comps, lending estimates, and tax snapshots without starting over."}</p>
           </div>
+
+          {/* Listing writer — standalone entry: type the facts from anywhere */}
+          <button onClick={() => openListing(null)} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+            <span style={{ fontSize: 22 }}>✨</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Redactor de listing (IA)" : "Listing writer (AI)"}</span>
+              <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Escribe los datos de donde sea — descripción MLS + post social al instante." : "Type the facts from anywhere — instant MLS description + social caption."}</span>
+            </span>
+            <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
+          </button>
 
           {sentReports.length > 0 && (
             <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -1878,12 +1996,89 @@ export default function TradeTechPro() {
     );
   };
 
+  /* ── AI listing writer — facts in, MLS description + social caption out ── */
+  const ListingWriter = () => {
+    const es = lang === "es";
+    const d = listingDraft;
+    const set = (k) => (e) => setListingDraft((f) => ({ ...f, [k]: e.target.value }));
+    const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
+    return (
+      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
+            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Redactor de listing" : "Listing writer"}</p>
+            <p className="text-white font-extrabold" style={{ fontSize: 20, margin: "4px 0 6px" }}>{es ? "De datos a listing en segundos" : "From facts to a listing in seconds"}</p>
+            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{es ? "Los datos se llenan solos desde tu búsqueda — o escríbelos de donde sea. Agrega lo que solo tú sabes." : "Facts prefill from your search — or type them in from anywhere. Add the things only you know."}</p>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{es ? "Datos de la propiedad" : "Property facts"}</p>
+            <input value={d.address} onChange={set("address")} placeholder={es ? "Dirección" : "Address"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={inputStyle} />
+            <div className="flex gap-2 mb-2">
+              <input value={d.beds} onChange={set("beds")} placeholder={t.beds} inputMode="numeric"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <input value={d.baths} onChange={set("baths")} placeholder={t.baths} inputMode="decimal"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+            </div>
+            <div className="flex gap-2 mb-3">
+              <input value={d.sqft} onChange={set("sqft")} placeholder="Sq ft" inputMode="numeric"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <input value={d.year} onChange={set("year")} placeholder={es ? "Año de construcción" : "Year built"} inputMode="numeric"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+            </div>
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{es ? "Lo que la hace especial (opcional — tú la conoces mejor)" : "What makes it special (optional — you know it best)"}</p>
+            <div className="flex items-start gap-2 rounded-xl px-3 py-1 mb-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
+              <textarea rows={3} value={d.highlights} onChange={set("highlights")}
+                placeholder={es ? "Ej. cocina remodelada 2023, alberca, sin vecinos atrás…" : "e.g. remodeled kitchen 2023, pool, no back neighbors…"}
+                className="flex-1 py-2 font-semibold outline-none bg-transparent resize-none" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.5 }} />
+              {hasVoice && (
+                <button onClick={() => startVoice((txt) => setListingDraft((f) => ({ ...f, highlights: (f.highlights ? f.highlights.trim() + " " : "") + txt })))}
+                  className="text-xl mt-2 active:scale-90 transition-transform" style={{ background: "none", border: "none", opacity: listening ? 1 : 0.6 }}>{listening ? "🔴" : "🎤"}</button>
+              )}
+            </div>
+            <button onClick={generateListing} disabled={listingBusy} className="w-full active:translate-y-px transition-transform"
+              style={{ background: listingBusy ? QC.line : `linear-gradient(135deg,${QC.gold},#BD8426)`, color: QC.navyDeep, border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 800, boxShadow: listingBusy ? "none" : "0 4px 14px rgba(189,132,38,0.35)" }}>
+              {listingBusy ? (es ? "Escribiendo…" : "Writing…") : "✨ " + (es ? "Escribir el listing" : "Write the listing")}
+            </button>
+          </div>
+
+          {listingOut && (
+            <>
+              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>📝 {es ? "Descripción MLS" : "MLS description"}</p>
+                  <button onClick={() => copyText(listingOut.mls)}
+                    style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{es ? "Copiar" : "Copy"}</button>
+                </div>
+                <p style={{ color: QC.body, fontSize: 13.5, lineHeight: 1.65, fontWeight: 500, whiteSpace: "pre-wrap" }}>{listingOut.mls}</p>
+              </div>
+              {listingOut.social && (
+                <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>📲 {es ? "Post para redes" : "Social caption"}</p>
+                    <button onClick={() => copyText(listingOut.social)}
+                      style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>{es ? "Copiar" : "Copy"}</button>
+                  </div>
+                  <p style={{ color: QC.body, fontSize: 13.5, lineHeight: 1.65, fontWeight: 500, whiteSpace: "pre-wrap" }}>{listingOut.social}</p>
+                </div>
+              )}
+              <p style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Revisa antes de publicar — tú eres responsable del texto final. Escrito con reglas de Vivienda Justa (solo describe la propiedad, nunca al comprador)." : "Review before you publish — you own the final text. Written under Fair Housing rules (describes the property, never the buyer)."}</p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   /* ── Router ── */
   const titles = {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
+    listing: "✨ " + (lang === "es" ? "Redactor de listing" : "Listing writer"),
   };
   const backMap = {
     report: "comps",
+    listing: "comps",
   };
   const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
@@ -1916,6 +2111,7 @@ export default function TradeTechPro() {
         {screen === "tax" && Tax()}
         {screen === "workspace" && Workspace()}
         {screen === "report" && Report()}
+        {screen === "listing" && ListingWriter()}
         {withNav.includes(screen) && <BottomNav />}
         {toast && (
           <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>

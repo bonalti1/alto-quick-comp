@@ -282,7 +282,7 @@ const mockLookup = (addr) => new Promise((resolve) => {
       return {
         address: `${100 + g} ${["Oak", "Pecan", "Cenizo", "Mesquite", "Palm", "Sabal"][i]} ${["Dr", "Ln", "Ct", "Blvd"][g % 4]}, TX`,
         soldPrice, sqft, beds: beds + ((g % 3) - 1), baths,
-        soldDate: dt.toISOString().slice(0, 10), yearBuilt: subjYear + ((g % 20) - 10),
+        soldDate: dt.toISOString().slice(0, 10), yearBuilt: Math.min(subjYear + ((g % 20) - 10), new Date().getFullYear()),
         distance: +((0.2 + (g % 18) / 10)).toFixed(2),
         latitude: +(baseLat + (g - 50) / 4000).toFixed(5), longitude: +(baseLng + (g - 50) / 4000).toFixed(5),
         matchScore: Math.max(45, 98 - i * 6), ppsf: Math.round(ppsf),
@@ -356,7 +356,9 @@ const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 
 /* ─── Main App ─── */
 export default function TradeTechPro() {
-  const [lang, setLang] = useState(savedProfile.lang || "es");
+  // Saved choice wins; first-ever open follows the phone's language (the
+  // product serves English-speaking realtors as fully as Spanish-speaking).
+  const [lang, setLang] = useState(savedProfile.lang || (/^es/i.test(navigator.language || "") ? "es" : "en"));
   const t = TR[lang];
   const welcomedInit = (() => { try { return !!localStorage.getItem("qc_welcomed"); } catch { return false; } })();
   const [screen, setScreen] = useState(WANT_ROOF ? "comps" : (welcomedInit ? "comps" : "welcome"));

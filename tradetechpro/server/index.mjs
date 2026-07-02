@@ -2332,10 +2332,13 @@ function render(j){track('w_result');var s4=document.getElementById('s4'),h='';
 /* ── Sales landing page (served at the bare ROOT_DOMAIN, and at /ventas) ──
  * One bold page that sells the bundle by SHOWING it: the live widget is
  * embedded so a visitor can measure a real roof right on the page.
- * Interested roofers leave name + phone → lead in the "alto-ventas" account. */
+ * Interested realtors leave name + phone → lead in the "alto-ventas" account. */
 function landingPage(req) {
   const base = canonBase(req);
-  const en = req.query.lang === "en";
+  // ?lang always wins; otherwise follow the visitor's browser language so
+  // English-speaking realtors land in English without hunting for a toggle.
+  const en = req.query.lang === "en"
+    || (req.query.lang !== "es" && /^en/i.test(String(req.headers["accept-language"] || "")));
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   // Meta Pixel for ad tracking — only renders once META_PIXEL_ID is set
   const pixelId = (process.env.META_PIXEL_ID || "").replace(/[^0-9]/g, "");
@@ -2837,6 +2840,7 @@ function siteDataOf(c) {
   const site = c.data?.site || {};
   return {
     slug: c.slug,
+    lang: site.lang || p.lang || "es",
     biz: p.biz || c.name,
     phone: String(p.phone || c.phone || "").replace(/\D/g, "").replace(/^1/, ""),
     logo: /^data:image\/(png|jpeg);base64,/.test(String(p.logo || "")) ? p.logo : null,
@@ -2925,6 +2929,7 @@ app.get("/plantilla/:n", (req, res) => {
   const SIG = { 1: "#B30F24", 2: "#E8540C", 3: "#1B6FB8" };
   res.send(renderSite({
     slug: "alto-demo",
+    lang: req.query.lang === "en" ? "en" : "es",
     biz: "Casa Bella Realty",
     phone: "9565550100",
     logo: null,
@@ -3416,6 +3421,9 @@ textarea.big{min-height:150px;font-size:16px}
           <label>Especialidad o enfoque (opcional)</label><input id="warranty" value="${v(st.warranty)}" placeholder="Ej. familias hispanas, primera casa, Starr County">
           <label>¿Qué te hace diferente? (opcional)</label><input id="diff" value="${v(st.diff)}" placeholder="Ej. agente local, atención personal en cada cierre">
           <label>Licencia / designaciones (opcional)</label><input id="license" value="${v(p.license)}" placeholder="TREC #123456 · Realtor®">
+          <label>Idioma de su página</label>
+          <select id="sitelang"><option value="es" ${(st.lang || "es") !== "en" ? "selected" : ""}>Español</option><option value="en" ${st.lang === "en" ? "selected" : ""}>English</option></select>
+          <p class="hint">Todo su sitio y su valuador se entregan en este idioma.</p>
         </div>
       </div>
     </section>
@@ -3668,7 +3676,7 @@ function aiWrite(){
   btn.disabled=true;btn.textContent='✨ Escribiendo…';hint.textContent='';
   fetch('/api/onboarding/ai?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     biz:document.getElementById('biz').value,city:document.getElementById('city').value,
-    years:document.getElementById('years').value,rough:rough
+    years:document.getElementById('years').value,rough:rough,lang:document.getElementById('sitelang').value
   })}).then(function(r){return r.json();}).then(function(j){
     btn.disabled=false;btn.textContent='✨ Escribir con IA';
     if(j&&j.source==='live'){
@@ -3689,6 +3697,7 @@ function save(){
     city:document.getElementById('city').value,area:document.getElementById('area').value,
     years:document.getElementById('years').value,services:services,
     warranty:document.getElementById('warranty').value,diff:document.getElementById('diff').value,
+    lang:document.getElementById('sitelang').value,
     license:document.getElementById('license').value,hero:document.getElementById('hero').value,
     tagline:document.getElementById('tagline').value,about:document.getElementById('about').value,
     logo:LOGO,photos:PHOTOS
@@ -3736,6 +3745,7 @@ app.post("/api/onboarding/save", async (req, res) => {
     years: b.years ? Math.max(0, Math.min(99, parseInt(b.years) || 0)) : null,
     services: Array.isArray(b.services) ? b.services.map((x) => String(x).slice(0, 60)).slice(0, 12) : (data.site?.services || []),
     warranty: String(b.warranty || "").slice(0, 120),
+    lang: b.lang === "en" ? "en" : "es",
     diff: String(b.diff || "").slice(0, 300),
     tagline: String(b.tagline || "").slice(0, 300),
     hero: String(b.hero || "").slice(0, 160),
@@ -3763,7 +3773,7 @@ app.post("/api/onboarding/ai", async (req, res) => {
   try {
     const raw = await aiChat({
       maxTokens: 400,
-      system: `Eres redactor publicitario para un agente de bienes raíces (realtor) hispano en Texas. Con los datos que te doy, escribe el texto de su página web en español, cálido y confiable, enfocado en ayudar a la gente a vender o comprar su casa, sin exagerar ni inventar datos que no te dieron. Responde SOLO con un objeto JSON: {"hero": titular corto y fuerte (máx 6 palabras), "tagline": una frase de apoyo (máx 18 palabras), "about": párrafo de "nuestra historia" en 2-3 oraciones, en primera persona del agente}. Nada de markdown, nada de comillas tipográficas.`,
+      system: `Eres redactor publicitario para un agente de bienes raíces (realtor) en Texas. Con los datos que te doy, escribe el texto de su página web ${b.lang === "en" ? "EN INGLÉS (the entire output in natural, native English)" : "en español"}, cálido y confiable, enfocado en ayudar a la gente a vender o comprar su casa, sin exagerar ni inventar datos que no te dieron. Responde SOLO con un objeto JSON: {"hero": titular corto y fuerte (máx 6 palabras), "tagline": una frase de apoyo (máx 18 palabras), "about": párrafo de "nuestra historia" en 2-3 oraciones, en primera persona del agente}. Nada de markdown, nada de comillas tipográficas.`,
       messages: [{ role: "user", content: facts }],
     });
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");

@@ -2577,6 +2577,9 @@ section{padding:64px 0}
 .phone2{width:300px;flex-shrink:0;background:#0B1226;border:11px solid #1E2A45;border-radius:44px;padding:12px 10px;box-shadow:0 40px 96px rgba(0,0,0,.42)}
 .phone2 .notch{width:120px;height:24px;background:#1E2A45;border-radius:0 0 15px 15px;margin:-12px auto 10px}
 .phone2 iframe{width:100%;height:560px;border:0;border-radius:28px;display:block;background:#F1F4FA}
+.ptrywrap{position:relative;width:100%;height:560px;border-radius:28px;overflow:hidden;background:#F1F4FA}
+.ptrywrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+.ptrywrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;opacity:0;pointer-events:none;transition:opacity .5s ease}
 .trybox{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;max-width:400px;box-shadow:0 18px 50px rgba(16,27,48,.10)}
 .trybox .tbh{font-weight:900;font-size:21px;line-height:1.2}
 .trybox .tbs{color:#5A6478;font-weight:600;font-size:14px;line-height:1.55;margin:8px 0 18px}
@@ -2635,7 +2638,10 @@ footer a{color:#8A94A8}
   <p class="sec-sub">${L.appTrySub}</p>
   <div class="apptry">
     <div class="phone2"><div class="notch"></div>
-      <iframe src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+      <div class="ptrywrap">
+        <iframe id="ptryframe" src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+        <video id="ptryvid" src="/landing/app-trial-demo.mp4" autoplay muted playsinline></video>
+      </div>
     </div>
     <div class="trybox">
       <p class="tbh">${L.phT}</p>
@@ -2763,6 +2769,14 @@ function qShow(i){
 }
 function qPick(key,val){qAns[key]=val;track('quiz_'+key);qShow(qCur+1)}
 function qBack(){qShow(qCur-1)}
+// Scripted walkthrough plays over the live app, then fades out so the
+// visitor can try their own address on the real thing underneath.
+(function(){
+  var v=document.getElementById('ptryvid');
+  if(!v)return;
+  v.addEventListener('playing',function(){v.style.opacity='1'});
+  v.addEventListener('ended',function(){v.style.opacity='0'});
+})();
 // "Try it on your phone" — captures the prospect as a sales lead, then reveals
 // the trial link so they can open the app on their phone right away.
 function sendTrial(){

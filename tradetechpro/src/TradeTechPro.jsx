@@ -935,7 +935,7 @@ export default function TradeTechPro() {
               <span className="text-xs font-extrabold" style={{ color: on ? C.orange : C.slate, letterSpacing: 0.5 }}>{`0${i + 1}`}</span>
               <span className="text-[11px] font-bold uppercase truncate" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.5 }}>{label}</span>
               {s === "workspace" && totalViews > seenViews && (
-                <span className="absolute" style={{ top: 5, right: "24%", width: 9, height: 9, borderRadius: 5, background: "#FFD700", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
+                <span className="absolute" style={{ top: 5, right: "24%", width: 9, height: 9, borderRadius: 5, background: "#E3B54E", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
               )}
             </button>
           );
@@ -950,7 +950,7 @@ export default function TradeTechPro() {
     navy: "#1B2A5C", navyDeep: "#111B42",
     cardGrad: "linear-gradient(135deg,#162655,#223B72)",
     headGrad: "linear-gradient(135deg,#07162D 0%,#111B42 62%,#1D2F5A 100%)",
-    gold: "#D7B665", goldHi: "#E6BF6A", goldLine: "#FFD700",
+    gold: "#D7B665", goldHi: "#E6BF6A", goldLine: "#E3B54E",
     bg: "#F0F4FA", line: "#dde4f0", line2: "#D9E1EF",
     muted: "#9aaac8", muted2: "#6b7db3", body: "#4a5a7a",
     green: "#1E9E5A", red: "#E8442E",
@@ -1283,7 +1283,7 @@ export default function TradeTechPro() {
             const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
             const out = !!c.excludedAsOutlier;
             const manualOut = !!excludedComps[c.address];
-            const rankBg = i === 0 ? "linear-gradient(135deg,#FFD700,#FFA500)" : i === 1 ? "linear-gradient(135deg,#C0C0C0,#A0A0A0)" : i === 2 ? "linear-gradient(135deg,#CD7F32,#8B5A00)" : QC.bg;
+            const rankBg = i === 0 ? "linear-gradient(135deg,#E6BF6A,#C9973A)" : i === 1 ? "linear-gradient(135deg,#C0C0C0,#A0A0A0)" : i === 2 ? "linear-gradient(135deg,#CD7F32,#8B5A00)" : QC.bg;
             const rankTxt = i <= 2 ? QC.navy : QC.muted;
             const barColor = i === 0 ? QC.goldLine : i <= 2 ? QC.navy : QC.line;
             const belowMkt = c.soldPrice && c.soldPrice < R.value * 0.95;

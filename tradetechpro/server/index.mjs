@@ -1506,7 +1506,7 @@ app.post("/api/admin/ceo", async (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: "no auth" });
   const en = req.body?.lang === "en";
   const m = req.body?.metrics || {};
-  const system = `You are a sharp, no-nonsense fractional CEO / growth advisor for Quick Comp, a Spanish-first SaaS sold to Hispanic real-estate agents at about $297-349/month (website + home-value widget + app + AI secretary + leads). Given the numbers, write a concise, PRIORITIZED action plan in ${en ? "English" : "Spanish"}, max 160 words, plain text (no markdown headers). Be direct and specific: if close rate is low, say to fix/coach/replace closers BEFORE scaling ads; if unit economics are strong (LTV:CAC >= 3, payback < 3mo), say to scale ad spend and by roughly how much; flag churn and failed payments as fires to put out first. End with the single most important next action. No fluff.`;
+  const system = `You are a sharp, no-nonsense fractional CEO / growth advisor for Quick Comp, a bilingual SaaS sold to real-estate agents in three plans with no setup fees — $67/mo (app only), $197/mo (widget on their existing site), $297/mo (website + widget + app + AI secretary + leads). Given the numbers, write a concise, PRIORITIZED action plan in ${en ? "English" : "Spanish"}, max 160 words, plain text (no markdown headers). Be direct and specific: if close rate is low, say to fix/coach/replace closers BEFORE scaling ads; if unit economics are strong (LTV:CAC >= 3, payback < 3mo), say to scale ad spend and by roughly how much; flag churn and failed payments as fires to put out first. End with the single most important next action. No fluff.`;
   const user = `Numbers: ${JSON.stringify(m)}`;
   try {
     const text = await aiChat({ system, messages: [{ role: "user", content: user }], maxTokens: 380 });
@@ -2267,10 +2267,10 @@ function landingPage(req) {
       { name: "PRO · THE TOOL", amt: 67, setup: null, link: stripeLinkPro,
         desc: "Just want the tool? The full Quick Comp app, self-serve.",
         inc: ["Instant values from real comparable sales", "CMA reports with your brand", "Lending, tax & seller net sheet", "AI listing writer + appraisal packet", "English y Español"] },
-      { name: "WIDGET · YOUR SITE", amt: 197, setup: "+ $97 setup (one time)", pop: true, link: stripeLinkWidget,
+      { name: "WIDGET · YOUR SITE", amt: 197, setup: null, pop: true, link: stripeLinkWidget,
         desc: "Already have a website? We send you the code — you (or your web person) paste it in.",
         inc: ["Everything in Pro", "The home-value tool on YOUR website", "Seller leads straight to your WhatsApp", "Works on WordPress, Wix, GoDaddy — any site"] },
-      { name: "COMPLETE · DONE FOR YOU", amt: 297, setup: "+ $297 to start (one time)", link: stripeLink,
+      { name: "COMPLETE · DONE FOR YOU", amt: 297, setup: null, link: stripeLink,
         desc: "No website — or want a better one? We build it for you from our templates.",
         inc: ["Everything in Widget", "Your professional website with your brand", "Live in days — you pick the template", "Your domain (yourname.com) is yours — by contract", "Bilingual support"] },
     ],
@@ -2313,10 +2313,10 @@ function landingPage(req) {
       { name: "PRO · LA HERRAMIENTA", amt: 67, setup: null, link: stripeLinkPro,
         desc: "¿Solo quieres la herramienta? La app completa de Quick Comp, tú solo.",
         inc: ["Valores al instante con ventas comparables reales", "Reportes CMA con tu marca", "Crédito, impuestos y hoja neta del vendedor", "Redactor de listing con IA + paquete para avalúo", "English y Español"] },
-      { name: "WIDGET · TU PÁGINA", amt: 197, setup: "+ $97 de inicio (una sola vez)", pop: true, link: stripeLinkWidget,
+      { name: "WIDGET · TU PÁGINA", amt: 197, setup: null, pop: true, link: stripeLinkWidget,
         desc: "¿Ya tienes página? Te mandamos el código — lo pegas tú (o tu web developer).",
         inc: ["Todo lo de Pro", "El valuador de casas en TU página", "Leads de venta directo a tu WhatsApp", "Funciona en WordPress, Wix, GoDaddy — cualquier sitio"] },
-      { name: "COMPLETE · TODO HECHO", amt: 297, setup: "+ $297 para empezar (una sola vez)", link: stripeLink,
+      { name: "COMPLETE · TODO HECHO", amt: 297, setup: null, link: stripeLink,
         desc: "¿No tienes página — o quieres una mejor? Te la hacemos con nuestras plantillas.",
         inc: ["Todo lo de Widget", "Tu página web profesional con tu marca", "Lista en días — tú eliges la plantilla", "Tu dominio (tunombre.com) es tuyo — por contrato", "Soporte en español"] },
     ],
@@ -3897,7 +3897,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
       <div class="card"><div class="ic">📲</div><h3>La app Quick Comp</h3><p>Valúa casas, arma el CMA, recibe los leads.</p></div>
       <div class="card"><div class="ic">🤖</div><h3>Secretaria IA</h3><p>Contesta y agenda citas a cualquier hora.</p></div>
     </div>
-    <div class="glass"><div><b>$297</b><span>para empezar</span></div><div><b>$297</b><span>al mes</span></div></div>
+    <div class="glass"><div><b>desde $67</b><span>al mes</span></div><div><b>$0</b><span>costo de inicio</span></div></div>
   </div>
 </section>
 
@@ -4157,7 +4157,7 @@ app.get("/closer", async (req, res) => {
     playT: "The close, step by step (all on the same call)",
     play: ["Press <b>P</b> in the presentation → payment link copied → send it on WhatsApp.", "While they pay: <b>create their account above</b> and copy their access link.", "Press <b>B</b> → welcome message copied → paste their access link → send it.", "Book their <b>onboarding</b> before hanging up."],
     linksT: "Links & messages",
-    payT: "💳 Payment link — $297 today + $297/mo", payMissing: "Not configured yet (STRIPE_PAYMENT_LINK in Render).",
+    payT: "💳 Payment link — $297/mo (Complete) · no setup fee", payMissing: "Not configured yet (STRIPE_PAYMENT_LINK in Render).",
     welT: "👋 Welcome (paste their access link)", demoT: "🏡 Valuator demo", demoMsgT: "👀 Demo message",
     open: "Open", copy: "Copy",
     scriptT: "🎤 Talk track — what you say on each slide",
@@ -4168,7 +4168,7 @@ app.get("/closer", async (req, res) => {
       ["04 · Your website", "“This is what YOUR site would look like — phone and computer. Now the good part: type YOUR address in the valuator. (wait for the wow — say nothing) That feeling? That's what your sellers will feel.”"],
       ["05 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
       ["06 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
-      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us: 297 a month, 297 to start. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
+      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
       ["08 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
     ],
     keysT: "⌨️ Secret shortcuts in the presentation (/demo)",
@@ -4197,7 +4197,7 @@ app.get("/closer", async (req, res) => {
     playT: "El cierre, paso a paso (todo en la misma llamada)",
     play: ["Tecla <b>P</b> en la presentación → link de pago copiado → mándalo por WhatsApp.", "Mientras paga: <b>crea su cuenta aquí arriba</b> y copia su link de acceso.", "Tecla <b>B</b> → bienvenida copiada → pega su link de acceso → envíala.", "Agenda su <b>onboarding</b> antes de colgar."],
     linksT: "Links y mensajes",
-    payT: "💳 Link de pago — $297 hoy + $297/mes", payMissing: "Aún no configurado (STRIPE_PAYMENT_LINK en Render).",
+    payT: "💳 Link de pago — $297/mes (Complete) · sin costo de inicio", payMissing: "Aún no configurado (STRIPE_PAYMENT_LINK en Render).",
     welT: "👋 Bienvenida (pega su link de acceso)", demoT: "🏡 Demo del valuador", demoMsgT: "👀 Mensaje de demo",
     open: "Abrir", copy: "Copiar",
     scriptT: "🎤 Guion — qué dices en cada slide",
@@ -4208,7 +4208,7 @@ app.get("/closer", async (req, res) => {
       ["04 · Tu página", "“Así se vería TU página — en celular y computadora. Ahora lo bueno: pon TU dirección en el valuador. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores.”"],
       ["05 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
       ["06 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
-      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros: 297 al mes y 297 para empezar. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
+      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
       ["08 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
     ],
     keysT: "⌨️ Atajos secretos en la presentación (/demo)",
@@ -4429,7 +4429,7 @@ ol li{margin-bottom:10px}small{color:#67718A}
 <li>Agenda su <b>onboarding</b> antes de colgar.</li>
 </ol>
 <h2>Links y mensajes</h2>
-<div class="link"><span><b>💳 Link de pago — $297 hoy + $297/mes</b><br><small>${esc(stripeLink || "buy.stripe.com/… (ejemplo — aún sin configurar)")}</small></span><a href="${stripeLink || "#"}" ${stripeLink ? `target="_blank" rel="noreferrer"` : `onclick="alert('Aún no está configurado: crea el Payment Link en Stripe y agrégalo en Render como STRIPE_PAYMENT_LINK');return false"`} style="background:#101B30;color:#fff;border-radius:8px;padding:8px 14px;font-weight:800;text-decoration:none;flex-shrink:0">Abrir</a><button onclick="${stripeLink ? `cp(this,'${stripeLink}')` : `alert('Aún no está configurado: crea el Payment Link en Stripe y agrégalo en Render como STRIPE_PAYMENT_LINK')`}">Copiar</button></div>
+<div class="link"><span><b>💳 Link de pago — $297/mes (Complete) · sin costo de inicio</b><br><small>${esc(stripeLink || "buy.stripe.com/… (ejemplo — aún sin configurar)")}</small></span><a href="${stripeLink || "#"}" ${stripeLink ? `target="_blank" rel="noreferrer"` : `onclick="alert('Aún no está configurado: crea el Payment Link en Stripe y agrégalo en Render como STRIPE_PAYMENT_LINK');return false"`} style="background:#101B30;color:#fff;border-radius:8px;padding:8px 14px;font-weight:800;text-decoration:none;flex-shrink:0">Abrir</a><button onclick="${stripeLink ? `cp(this,'${stripeLink}')` : `alert('Aún no está configurado: crea el Payment Link en Stripe y agrégalo en Render como STRIPE_PAYMENT_LINK')`}">Copiar</button></div>
 <p style="font-size:12px;color:#67718A;margin:-2px 0 10px"><b>Copiar</b> → se lo mandas por WhatsApp y paga desde su teléfono. <b>Abrir</b> → si te da la tarjeta por teléfono, la escribes tú aquí mismo.${stripeLink ? "" : ` <b style="color:#D93025">⚠️ Link de ejemplo — falta configurar STRIPE_PAYMENT_LINK en Render.</b>`}</p>
 <div class="link"><span><b>👋 Bienvenida (pega su link de acceso)</b><br><small>${esc(welcome.slice(0, 70))}…</small></span><button onclick='cp(this,${JSON.stringify(welcome)})'>Copiar</button></div>
 <div class="link"><span><b>🏡 Demo del valuador</b><br><small>${base}/w/alto-demo</small></span><button onclick="cp(this,'${base}/w/alto-demo')">Copiar</button></div>
@@ -4507,11 +4507,12 @@ app.get("/demo", (req, res) => {
     p6a: "Replies instantly — even at 11 at night", p6b: "Books the appointment for you. You just show up.", p6c: "You can read every conversation whenever you want", p6d: "Ready in 10–14 days — carrier registration of your number takes a few days",
     chHead: "🔴 LIVE DEMO — text it like you're the homeowner", chGreet: "Hi! 👋 I'm the assistant at Casa Bella Realty. How can I help you buy or sell a home?",
     chPh: "Type as the homeowner… (e.g., I want to sell my house)", chFoot: "This same AI will answer YOUR leads' texts", chRetry: "Give me one moment 🙏 (try again)",
-    k7: "07 · YOUR INVESTMENT", h7a: "All of this,", h7b: "one single price.",
+    k7: "07 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
     b7: "What this would cost separately (typical market prices):",
     s7a: "🌐 Professional website with your brand", s7b: "🏡 Home-value tool on your site", s7c: "🤖 AI secretary that texts and books", s7d: "📲 Values, CMAs & leads app", s7e: "🇺🇸 Domain, hosting & bilingual support",
     s7tot: "Separately", roi7: '💰 <b style="color:#fff">One commission is thousands of dollars.</b> One single extra deal pays for your whole year.',
-    pk7: "WITH QUICK COMP · ALL INCLUDED", mo: "/mo", setup7: "+ $297 to start, one time only",
+    pk7: "WITH QUICK COMP · PICK YOUR PLAN", mo: "/mo", setup7: "No setup fees — just the monthly.",
+    tiers7: [["PRO — just the app", 67, 0], ["WIDGET — on the site you already have", 197, 1], ["COMPLETE — website + everything", 297, 0]],
     pr7a: "✓ No long contracts", pr7b: "✓ Cancel anytime", pr7c: "✓ Your domain is YOURS — by contract",
     k8: "08 · LET'S BEGIN", h8a: "Let's start", h8b: "today.",
     b8: "Getting started is this easy — everything begins on this very call:",
@@ -4547,11 +4548,12 @@ app.get("/demo", (req, res) => {
     p6a: "Contesta al momento — aunque sean las 11 de la noche", p6b: "Agenda la cita por ti. Tú solo llegas a hacerla.", p6c: "Puedes ver cada conversación cuando quieras", p6d: "Lista en 10–14 días — el registro de tu número con las telefónicas tarda unos días",
     chHead: "🔴 DEMO EN VIVO — escríbele como si fueras el dueño", chGreet: "¡Hola! 👋 Soy la asistente de Casa Bella Realty. ¿Le puedo ayudar a comprar o vender una casa?",
     chPh: "Escribe como dueño… (ej. quiero vender mi casa)", chFoot: "Esta misma IA contestará los textos de TUS leads", chRetry: "Dame un momentito y te contesto 🙏 (intenta de nuevo)",
-    k7: "07 · TU INVERSIÓN", h7a: "Todo esto,", h7b: "un solo precio.",
+    k7: "07 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
     b7: "Lo que esto costaría por separado (precios típicos del mercado):",
     s7a: "🌐 Página web profesional con tu marca", s7b: "🏡 Valuador de casas en tu página", s7c: "🤖 Secretaria IA que textea y agenda", s7d: "📲 App de valores, CMAs y leads", s7e: "🇺🇸 Dominio, hosting y soporte en español",
     s7tot: "Por separado", roi7: '💰 <b style="color:#fff">Una comisión son miles de dólares.</b> Un solo cierre extra paga tu año entero.',
-    pk7: "CON QUICK COMP · TODO INCLUIDO", mo: "/mes", setup7: "+ $297 para empezar, una sola vez",
+    pk7: "CON QUICK COMP · ELIGE TU PLAN", mo: "/mes", setup7: "Sin costo de inicio — solo la mensualidad.",
+    tiers7: [["PRO — solo la app", 67, 0], ["WIDGET — en la página que ya tienes", 197, 1], ["COMPLETE — página web + todo", 297, 0]],
     pr7a: "✓ Sin contratos largos", pr7b: "✓ Cancelas cuando quieras", pr7c: "✓ Tu dominio es TUYO — por contrato",
     k8: "08 · EMPECEMOS", h8a: "Empecemos", h8b: "hoy mismo.",
     b8: "Así de fácil es arrancar — todo empieza en esta misma llamada:",
@@ -4635,6 +4637,11 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 .pcard .pamt{font-family:'Fraunces',Georgia,serif;font-size:74px;font-weight:700;line-height:1;margin-top:10px}
 .pcard .pamt small{font-size:24px;color:#67718A}
 .pcard .psetup{color:#67718A;font-weight:700;font-size:14px;margin-top:8px}
+.pcard .trow{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid #F0F2F6;text-align:left}
+.pcard .trow span{font-weight:700;font-size:13px;color:#3A455C;line-height:1.35}
+.pcard .trow b{font-family:'Fraunces',Georgia,serif;font-size:30px;font-weight:700;white-space:nowrap}
+.pcard .trow b small{font-size:14px;color:#67718A;font-family:Inter,Arial,sans-serif;font-weight:700}
+.pcard .trow.star{background:#FFF8E3;border:1.5px solid #F8B408;border-radius:14px;padding:11px 12px;margin:4px -12px}
 .pcard .pdiv{height:1px;background:#E9EAEE;margin:20px 0}
 .pcard .prow{font-weight:700;font-size:14px;padding:5px 0;text-align:left}
 .chat{background:#fff;border-radius:22px;padding:16px;width:min(350px,100%);box-shadow:0 30px 70px rgba(0,0,0,.5)}
@@ -4840,7 +4847,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
       </div>
       <div class="pcard">
         <p class="pk">${L.pk7}</p>
-        <div class="pamt">$297<small>${L.mo}</small></div>
+        ${L.tiers7.map(([nm, amt, star]) => `<div class="trow${star ? " star" : ""}"><span>${star ? "⭐ " : ""}${nm}</span><b>$${amt}<small>${L.mo}</small></b></div>`).join("")}
         <p class="psetup">${L.setup7}</p>
         <div class="pdiv"></div>
         <p class="prow">${L.pr7a}</p>

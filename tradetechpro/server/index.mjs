@@ -2158,7 +2158,7 @@ app.post("/api/widget/quote", async (req, res) => {
     value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null,
   });
 
-  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, img: null });
+  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null });
 });
 
 app.get("/w/:slug", async (req, res) => {
@@ -2188,28 +2188,38 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const logo = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(prof.logo || "")) ? prof.logo : null;
   const es = (req.query.lang || prof.lang || "es") !== "en";
   const L = es ? {
-    title: `El valor de tu casa en 60 segundos`,
-    sub: "Basado en ventas reales cercanas · 100% gratis · Sin compromiso",
-    addr: "Dirección de tu casa", cont: "CONTINUAR →",
-    who: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
-    see: "VER EL VALOR →", back: "← Cambiar dirección",
-    m1: "Buscando tu propiedad…", m2: "Analizando ventas comparables…", m3: "Calculando el valor…",
-    range: "VALOR ESTIMADO", rangeSub: "Basado en ventas recientes de casas similares. Estimado automático — no es un avalúo. Contáctanos para un análisis completo (CMA).",
-    sent: "✓ Recibimos tus datos", call: (b) => `${b} te contacta hoy mismo.`,
+    title: `¿Cuánto vale tu casa hoy?`,
+    sub: "Un estimado real basado en ventas cercanas — en 60 segundos.",
+    chips: ["🏡 Ventas reales", "🔒 100% gratis", "⚡ 60 segundos"],
+    addr: "Dirección de tu casa", cont: "VER MI VALOR →",
+    gate: "Estás a un paso 🎉", gateSub: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
+    smsNote: "🔒 Te mandamos tu estimado por mensaje a este número.",
+    see: "VER MI VALOR AHORA →", back: "← Cambiar dirección",
+    m1: "Encontramos tu propiedad", m2: "Buscando ventas recientes cercanas", m3: "Calculando tu valor…",
+    range: "VALOR ESTIMADO DE TU CASA", yourHome: "TU CASA",
+    basedOn: (n) => n ? `Basado en ${n} ventas recientes de casas similares cerca de ti.` : "Basado en ventas recientes de casas similares cerca de ti.",
+    rangeSub: "Estimado automático — no es un avalúo.",
+    exact: "¿Quieres el número exacto?", exactSub: (b) => `${b} puede sacar las comparables reales y darte un valor preciso — gratis.`,
+    sent: (b) => `✓ ${b} te contacta hoy mismo.`,
     nores: "¡Listo! Recibimos tu información.", noresSub: (b) => `${b} te llama hoy con el valor de tu casa.`,
-    callBtn: "📞 LLAMAR AHORA", phoneErr: "Pon un teléfono de 10 dígitos", addrErr: "Pon la dirección de tu casa",
+    callBtn: "📞 LLAMAR", textBtn: "💬 MENSAJE", phoneErr: "Pon un teléfono de 10 dígitos", addrErr: "Pon la dirección de tu casa",
     err: "Algo falló — intenta otra vez o llámanos.",
   } : {
-    title: "Your home's value in 60 seconds",
-    sub: "Based on real nearby sales · 100% free · No obligation",
-    addr: "Your home address", cont: "CONTINUE →",
-    who: "Where do we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
-    see: "SEE MY VALUE →", back: "← Change address",
-    m1: "Finding your property…", m2: "Analyzing comparable sales…", m3: "Calculating your value…",
-    range: "ESTIMATED VALUE", rangeSub: "Based on recent sales of similar homes. Automated estimate — not an appraisal. Contact us for a full CMA.",
-    sent: "✓ We got your info", call: (b) => `${b} will contact you today.`,
+    title: "What's your home worth today?",
+    sub: "A real estimate from nearby sales — in 60 seconds.",
+    chips: ["🏡 Real sales", "🔒 100% free", "⚡ 60 seconds"],
+    addr: "Your home address", cont: "SEE MY VALUE →",
+    gate: "You're one step away 🎉", gateSub: "Where should we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
+    smsNote: "🔒 We'll text your estimate to this number.",
+    see: "SEE MY VALUE NOW →", back: "← Change address",
+    m1: "Found your property", m2: "Pulling recent nearby sales", m3: "Calculating your value…",
+    range: "YOUR HOME'S ESTIMATED VALUE", yourHome: "YOUR HOME",
+    basedOn: (n) => n ? `Based on ${n} recent sales of similar homes near you.` : "Based on recent sales of similar homes near you.",
+    rangeSub: "Automated estimate — not an appraisal.",
+    exact: "Want the exact number?", exactSub: (b) => `${b} can pull the real comparables and give you a precise value — free.`,
+    sent: (b) => `✓ ${b} will contact you today.`,
     nores: "Done! We received your information.", noresSub: (b) => `${b} will call you today with your home's value.`,
-    callBtn: "📞 CALL NOW", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
+    callBtn: "📞 CALL", textBtn: "💬 TEXT", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
     err: "Something went wrong — try again or call us.",
   };
   const wBase = `${req.protocol}://${req.get("host")}`;
@@ -2220,68 +2230,104 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
 <meta property="og:image" content="${wBase}/landing/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
-body{margin:0;background:#F4F6FA;color:#101B30}
-.wrap{max-width:430px;margin:0 auto;padding:18px 16px 28px}
-.brand{display:flex;align-items:center;gap:10px;margin-bottom:14px}
-.brand img{max-height:44px;max-width:140px;border-radius:8px}
-.brand .nm{font-weight:800;font-size:18px}
-.card{background:#fff;border:1.5px solid #E6E8EC;border-radius:18px;padding:20px;box-shadow:0 6px 22px rgba(16,27,48,.06)}
-h1{font-size:24px;margin:0 0 4px;line-height:1.15}
-.sub{color:#67718A;font-size:13px;font-weight:600;margin:0 0 16px}
-input{width:100%;padding:14px;border:1.5px solid #E6E8EC;border-radius:12px;font-size:16px;font-weight:600;outline:none;margin-bottom:10px}
-input:focus{border-color:#C9973A}
-.btn{width:100%;padding:15px;border:none;border-radius:12px;background:#C9973A;color:#fff;font-size:16px;font-weight:800;cursor:pointer}
-.btn:active{transform:scale(.98)}
-.btn[disabled]{opacity:.5}
-.sug{border:1.5px solid #E6E8EC;border-top:none;border-radius:0 0 12px 12px;margin:-12px 0 10px;background:#fff;overflow:hidden}
-.sug button{display:block;width:100%;text-align:left;padding:11px 13px;border:none;background:#fff;font-size:14px;font-weight:600;cursor:pointer;border-top:1px solid #F0F2F6}
+*{box-sizing:border-box;font-family:Inter,-apple-system,BlinkMacSystemFont,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:linear-gradient(180deg,#EEF1F7 0%,#F4F6FA 30%);color:#101B30;min-height:100vh}
+.wrap{max-width:440px;margin:0 auto;padding:22px 16px 30px}
+.brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:16px;min-height:46px}
+.brand img{max-height:52px;max-width:190px;object-fit:contain}
+.brand .nm{font-weight:800;font-size:19px;letter-spacing:-.01em}
+.card{background:#fff;border:1px solid #EAECF1;border-radius:22px;padding:24px 22px;box-shadow:0 18px 50px rgba(16,27,48,.10),0 2px 8px rgba(16,27,48,.04)}
+.chips{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin:0 0 18px}
+.chip{background:#F5F1E6;color:#8A6A00;border:1px solid #EADFBE;border-radius:99px;padding:5px 11px;font-size:11.5px;font-weight:800}
+h1{font-size:26px;margin:0 0 6px;line-height:1.12;letter-spacing:-.02em;text-align:center}
+.sub{color:#67718A;font-size:14px;font-weight:600;margin:0 0 20px;text-align:center;line-height:1.45}
+.field{position:relative;margin-bottom:12px}
+label.fl{display:block;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:#9098A8;margin:0 0 6px}
+input{width:100%;padding:15px 14px;border:1.5px solid #E2E5EB;border-radius:13px;font-size:16px;font-weight:600;outline:none;background:#FBFBFD;transition:border-color .15s,box-shadow .15s}
+input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);background:#fff}
+.btn{width:100%;padding:16px;border:none;border-radius:13px;background:linear-gradient(180deg,#D4A64A,#C9973A);color:#fff;font-size:16px;font-weight:800;letter-spacing:.01em;cursor:pointer;box-shadow:0 8px 20px rgba(201,151,58,.32);transition:transform .1s,filter .15s}
+.btn:hover{filter:brightness(1.04)}.btn:active{transform:scale(.985)}
+.btn[disabled]{opacity:.55;box-shadow:none}
+.sug{border:1.5px solid #E2E5EB;border-top:none;border-radius:0 0 13px 13px;margin:-12px 0 12px;background:#fff;overflow:hidden;box-shadow:0 10px 24px rgba(16,27,48,.08)}
+.sug button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:12px 13px;border:none;background:#fff;font-size:14px;font-weight:600;cursor:pointer;border-top:1px solid #F2F4F7}
 .sug button:active{background:#F7EFD8}
-.ghost{background:none;border:none;color:#67718A;font-weight:700;font-size:13px;cursor:pointer;padding:10px 0}
-.load{text-align:center;padding:30px 0}
-.spin{width:46px;height:46px;border:5px solid #F7EFD8;border-top-color:#C9973A;border-radius:50%;margin:0 auto 14px;animation:sp 1s linear infinite}
-@keyframes sp{to{transform:rotate(360deg)}}
-.lmsg{font-weight:700;color:#67718A;font-size:14px}
-.photo{width:100%;border-radius:14px;display:block;margin-bottom:12px}
-.range{background:#101B30;border-radius:14px;padding:16px;text-align:center;margin-bottom:12px}
-.range .lbl{color:#C9973A;font-size:11px;font-weight:800;letter-spacing:2px}
-.range .val{color:#fff;font-size:30px;font-weight:800;margin-top:4px}
-.note{color:#67718A;font-size:12px;font-weight:600;line-height:1.5}
-.ok{background:#EAF8EF;border:1.5px solid #34A853;color:#1E7B3C;border-radius:12px;padding:12px;font-weight:700;font-size:14px;margin:12px 0}
-.manual{background:#F7EFD8;border:1.5px solid #C9973A;color:#7A5A00;border-radius:12px;padding:12px;font-weight:700;font-size:13px;line-height:1.5;margin:12px 0}
-.call{display:block;text-align:center;text-decoration:none;margin-top:12px;padding:15px;border-radius:12px;background:#101B30;color:#fff;font-weight:800;font-size:16px}
-.ft{text-align:center;color:#9AA3B5;font-size:11px;font-weight:600;margin-top:18px}
-.err{color:#D93025;font-size:13px;font-weight:700;margin:-4px 0 8px}
+.ghost{display:block;width:100%;background:none;border:none;color:#9098A8;font-weight:700;font-size:13px;cursor:pointer;padding:12px 0 2px}
+.addrpill{display:flex;align-items:center;gap:8px;background:#F5F7FB;border:1px solid #E8EBF1;border-radius:12px;padding:11px 13px;margin-bottom:16px;font-size:13.5px;font-weight:700;color:#3A455C}
+.smsnote{display:flex;align-items:center;gap:7px;color:#67718A;font-size:12px;font-weight:600;margin:2px 0 14px;line-height:1.4}
+.load{text-align:center;padding:14px 0 6px}
+.pbar{height:7px;background:#EEF0F5;border-radius:99px;overflow:hidden;margin:20px 0 22px}
+.pfill{height:100%;width:8%;background:linear-gradient(90deg,#D4A64A,#C9973A);border-radius:99px;transition:width .5s cubic-bezier(.4,0,.2,1)}
+.lstep{display:flex;align-items:center;gap:11px;padding:9px 0;font-size:14.5px;font-weight:700;color:#C2C8D2;transition:color .3s}
+.lstep .dot{width:22px;height:22px;border-radius:50%;background:#EEF0F5;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;transition:background .3s}
+.lstep.on{color:#101B30}.lstep.on .dot{background:#C9973A;color:#fff}
+.lstep.doing{color:#101B30}.lstep.doing .dot{background:#F7EFD8;color:#C9973A;animation:pls 1s ease-in-out infinite}
+@keyframes pls{50%{transform:scale(1.12)}}
+.reveal{animation:rv .6s cubic-bezier(.2,.7,.2,1)}
+@keyframes rv{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.photo{width:100%;height:150px;object-fit:cover;border-radius:14px;display:block;margin-bottom:14px;background:#EEF0F5}
+.range{background:radial-gradient(120% 130% at 80% 0%,#233A6B 0%,#15224C 55%,#0C1631 100%);border-radius:18px;padding:22px 18px;text-align:center;margin-bottom:14px;box-shadow:0 16px 40px rgba(12,22,49,.28)}
+.range .lbl{color:#E6BF6A;font-size:10.5px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
+.range .val{color:#fff;font-size:34px;font-weight:900;margin-top:7px;letter-spacing:-.02em;line-height:1}
+.range .mid{color:rgba(255,255,255,.62);font-size:12px;font-weight:700;margin-top:8px}
+.based{color:#67718A;font-size:12.5px;font-weight:600;line-height:1.5;text-align:center;margin:0 0 4px}
+.note{color:#9098A8;font-size:11px;font-weight:600;line-height:1.5;text-align:center}
+.cta{background:#FBF7EE;border:1.5px solid #EADFBE;border-radius:16px;padding:16px;margin:16px 0 4px;text-align:center}
+.cta .h{font-weight:900;font-size:16px;color:#101B30;margin-bottom:3px}
+.cta .x{color:#67718A;font-size:12.5px;font-weight:600;line-height:1.45;margin-bottom:13px}
+.cta .row{display:flex;gap:9px}
+.cta a{flex:1;display:block;text-decoration:none;padding:14px 8px;border-radius:12px;font-weight:800;font-size:15px}
+.cta a.call{background:#101B30;color:#fff}
+.cta a.text{background:#25D366;color:#fff}
+.ok{background:#EAF8EF;border:1px solid #A7E0BC;color:#1E7B3C;border-radius:12px;padding:12px;font-weight:800;font-size:14px;margin:12px 0 0;text-align:center}
+.manual{background:#F7EFD8;border:1.5px solid #C9973A;color:#7A5A00;border-radius:12px;padding:12px;font-weight:700;font-size:13px;line-height:1.5;margin:14px 0 0}
+.ft{text-align:center;color:#A6AEBD;font-size:11px;font-weight:700;margin-top:18px;letter-spacing:.02em}
+.err{color:#D93025;font-size:13px;font-weight:700;margin:-6px 0 10px}
+.legal{font-size:11px;color:#9098A8;line-height:1.5;margin-top:14px;text-align:center}
+.legal a{color:#9098A8;text-decoration:underline}
 </style></head><body><div class="wrap">
-<div class="brand">${logo ? `<img src="${logo}" alt="">` : ""}<span class="nm">${biz}</span></div>
+<div class="brand">${logo ? `<img src="${logo}" alt="${biz}">` : `<span class="nm">${biz}</span>`}</div>
 <div class="card" id="card">
   <div id="s1">
+    <div class="chips">${L.chips.map((x) => `<span class="chip">${x}</span>`).join("")}</div>
     <h1>${L.title}</h1><p class="sub">${L.sub}</p>
-    <input id="addr" placeholder="${L.addr}" autocomplete="street-address">
-    <div class="sug" id="sug" style="display:none"></div>
+    <div class="field">
+      <input id="addr" placeholder="${L.addr}" autocomplete="street-address">
+      <div class="sug" id="sug" style="display:none"></div>
+    </div>
     <p class="err" id="e1" style="display:none">${L.addrErr}</p>
     <button class="btn" onclick="toStep2()">${L.cont}</button>
   </div>
   <div id="s2" style="display:none">
-    <h1>${L.who}</h1><p class="sub" id="addrEcho"></p>
+    <h1 style="font-size:22px">${L.gate}</h1><p class="sub" style="margin-bottom:14px">${L.gateSub}</p>
+    <div class="addrpill" id="addrEcho"></div>
+    <label class="fl">${L.name}</label>
     <input id="nm" placeholder="${L.name}" autocomplete="name">
+    <label class="fl" style="margin-top:4px">${L.phone}</label>
     <input id="ph" placeholder="${L.phone}" type="tel" autocomplete="tel" inputmode="numeric">
     <p class="err" id="e2" style="display:none">${L.phoneErr}</p>
+    <p class="smsnote">${L.smsNote}</p>
     <button class="btn" id="go" onclick="submit()">${L.see}</button>
     <button class="ghost" onclick="back1()">${L.back}</button>
-    <p style="font-size:11px;color:#8A94A8;line-height:1.5;margin-top:12px;text-align:center">${!es
-      ? `By continuing you agree that ${esc(prof.biz || c.name)} may call or text you about your home's value. Msg &amp; data rates may apply. This is an estimate, not an appraisal. <a href="/legal" target="_blank" style="color:#8A94A8;text-decoration:underline">Privacy &amp; Terms</a>.`
-      : `Al continuar aceptas que ${esc(prof.biz || c.name)} te llame o mande mensajes sobre el valor de tu casa. Pueden aplicar tarifas de mensajes. Esto es un estimado, no un avalúo. <a href="/legal?lang=es" target="_blank" style="color:#8A94A8;text-decoration:underline">Privacidad y Términos</a>.`}</p>
+    <p class="legal">${!es
+      ? `By continuing you agree that ${esc(prof.biz || c.name)} may call or text you about your home's value. Msg &amp; data rates may apply. This is an estimate, not an appraisal. <a href="/legal" target="_blank">Privacy &amp; Terms</a>.`
+      : `Al continuar aceptas que ${esc(prof.biz || c.name)} te llame o mande mensajes sobre el valor de tu casa. Pueden aplicar tarifas de mensajes. Esto es un estimado, no un avalúo. <a href="/legal?lang=es" target="_blank">Privacidad y Términos</a>.`}</p>
   </div>
-  <div id="s3" style="display:none" class="load"><div class="spin"></div><p class="lmsg" id="lmsg">${L.m1}</p></div>
+  <div id="s3" style="display:none" class="load">
+    <div class="pbar"><div class="pfill" id="pfill"></div></div>
+    <div class="lstep" id="ls0"><span class="dot">1</span><span>${L.m1}</span></div>
+    <div class="lstep" id="ls1"><span class="dot">2</span><span>${L.m2}</span></div>
+    <div class="lstep" id="ls2"><span class="dot">3</span><span>${L.m3}</span></div>
+  </div>
   <div id="s4" style="display:none"></div>
 </div>
-<div class="ft">⚡ Quick Comp</div>
+<div class="ft">⚡ Powered by Quick Comp</div>
 </div>
 <script>
 var SLUG=${JSON.stringify(c.slug)},BIZ=${JSON.stringify(prof.biz || c.name)},BPH=${JSON.stringify(bizPhone)};
-var L=${JSON.stringify({ m1: L.m1, m2: L.m2, m3: L.m3, range: L.range, rangeSub: L.rangeSub, sent: L.sent, callTxt: L.call(prof.biz || c.name), nores: L.nores, noresSub: L.noresSub(prof.biz || c.name), callBtn: L.callBtn, err: L.err,
-  // contractor-facing note, demo widget only — homeowners on client sites get the free-inspection line instead
+var L=${JSON.stringify({ range: L.range, yourHome: L.yourHome, rangeSub: L.rangeSub, based0: L.basedOn(null),
+  sent: L.sent(prof.biz || c.name), nores: L.nores, noresSub: L.noresSub(prof.biz || c.name),
+  exact: L.exact, exactSub: L.exactSub(prof.biz || c.name), callBtn: L.callBtn, textBtn: L.textBtn, err: L.err,
+  basedPre: es ? "Basado en " : "Based on ", basedPost: es ? " ventas recientes de casas similares cerca de ti." : " recent sales of similar homes near you.",
   manual: c.slug === "alto-demo" ? (es
     ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."
     : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null })};
@@ -2297,36 +2343,47 @@ addr.addEventListener('input',function(){placeId=null;clearTimeout(tmr);var q=ad
     sug.style.display='block';
     Array.prototype.forEach.call(sug.children,function(b){b.onclick=function(){var x=s[+b.dataset.i];addr.value=x.text;placeId=x.placeId;sug.style.display='none'}});
   }).catch(function(){})},250)});
+addr.addEventListener('keydown',function(e){if(e.key==='Enter')toStep2()});
 function show(id){['s1','s2','s3','s4'].forEach(function(s){document.getElementById(s).style.display=s===id?'block':'none'})}
 function toStep2(){if(addr.value.trim().length<6){document.getElementById('e1').style.display='block';return}
-  document.getElementById('e1').style.display='none';
-  document.getElementById('addrEcho').textContent='📍 '+addr.value.trim();show('s2');document.getElementById('nm').focus()}
+  document.getElementById('e1').style.display='none';sug.style.display='none';
+  document.getElementById('addrEcho').innerHTML='📍 '+addr.value.trim().replace(/</g,'&lt;');show('s2');document.getElementById('nm').focus()}
 function back1(){show('s1')}
+function fmt(n){return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0})}
 function submit(){
   var ph=document.getElementById('ph').value.replace(/\\D/g,'');
   if(ph.length<10){document.getElementById('e2').style.display='block';return}
   document.getElementById('e2').style.display='none';show('s3');
-  var msgs=[L.m1,L.m2,L.m3],mi=0,lm=document.getElementById('lmsg');
-  var mt=setInterval(function(){mi=(mi+1)%msgs.length;lm.textContent=msgs[mi]},1600);
-  var wait=new Promise(function(r){setTimeout(r,2800)});
+  // Animated analyzing steps — builds anticipation and perceived value
+  var fill=document.getElementById('pfill'),steps=['ls0','ls1','ls2'],si=0;
+  function markDoing(i){steps.forEach(function(id,k){var el=document.getElementById(id);el.className='lstep'+(k<i?' on':k===i?' doing':'');if(k<i)el.querySelector('.dot').textContent='✓'});}
+  markDoing(0);fill.style.width='34%';
+  var pt=setTimeout(function(){markDoing(1);fill.style.width='68%'},1000);
+  var pt2=setTimeout(function(){markDoing(2);fill.style.width='92%'},2000);
+  var wait=new Promise(function(r){setTimeout(r,2900)});
   var req=fetch('/api/widget/quote',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({slug:SLUG,name:document.getElementById('nm').value.trim(),phone:ph,address:addr.value.trim(),placeId:placeId})
   }).then(function(r){return r.ok?r.json():null}).catch(function(){return null});
-  Promise.all([req,wait]).then(function(a){clearInterval(mt);render(a[0])})}
-function fmt(n){return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0})}
-function render(j){track('w_result');var s4=document.getElementById('s4'),h='';
+  Promise.all([req,wait]).then(function(a){clearTimeout(pt);clearTimeout(pt2);fill.style.width='100%';markDoing(3);render(a[0])})}
+function render(j){track('w_result');if(window.parent!==window){try{window.parent.postMessage({qc:'lead'},'*')}catch(e){}}
+  var s4=document.getElementById('s4'),h='';
   if(!j){s4.innerHTML='<p class="err">'+L.err+'</p>';show('s4');return}
   if(j.measured){
-    if(j.img)h+='<img class="photo" src="'+j.img+'" alt="">';
-    h+='<div class="range"><div class="lbl">'+L.range+'</div><div class="val">'+fmt(j.low)+' – '+fmt(j.high)+'</div></div>';
+    if(j.lat!=null&&j.lng!=null)h+='<img class="photo" src="/api/streetview?lat='+j.lat+'&lng='+j.lng+'" alt="" onerror="this.style.display=\\'none\\'">';
+    var mid=fmt(Math.round((j.low+j.high)/2/1000)*1000);
+    h+='<div class="range"><div class="lbl">'+L.range+'</div><div class="val">'+fmt(j.low)+' – '+fmt(j.high)+'</div><div class="mid">~'+mid+'</div></div>';
+    h+='<p class="based">'+(L.basedPre+(j.comps?j.comps:'')+L.basedPost).replace('  ',' ')+'</p>';
     h+='<p class="note">'+L.rangeSub+'</p>';
-    h+='<div class="ok">'+L.sent+' — '+L.callTxt+'</div>';
+    h+='<div class="ok">'+L.sent+'</div>';
   }else{
-    h+='<div class="ok">'+L.nores+'</div><p class="note">'+L.noresSub+'</p>';
+    h+='<div class="ok">'+L.nores+'</div><p class="based" style="margin-top:8px">'+L.noresSub+'</p>';
   }
+  // Strong CTA to talk to the agent — the whole point is the lead, then the call
+  if(BPH){h+='<div class="cta"><div class="h">'+L.exact+'</div><div class="x">'+L.exactSub+'</div><div class="row">'
+    +'<a class="call" href="tel:+1'+BPH+'">'+L.callBtn+'</a>'
+    +'<a class="text" href="sms:+1'+BPH+'">'+L.textBtn+'</a></div></div>';}
   if(L.manual)h+='<div class="manual">'+L.manual+'</div>';
-  if(BPH)h+='<a class="call" href="tel:+1'+BPH+'">'+L.callBtn+'</a>';
-  s4.innerHTML=h;show('s4')}
+  s4.innerHTML=h;s4.className='reveal';show('s4')}
 </script></body></html>`);
 });
 
@@ -5536,10 +5593,14 @@ async function ensureAccount(slug, name, profile) {
     c = await db.createContractor({ name, slug });
     await db.saveContractorData(c.id, { profile });
     console.log(`created built-in account: ${slug}`);
+  } else if (profile.phone && !c.data?.profile?.phone) {
+    // keep the built-in demo's contact info current (adds the demo phone so the
+    // widget's Call/Text CTA shows in the sales demo)
+    await db.saveContractorData(c.id, { ...(c.data || {}), profile: { ...(c.data?.profile || {}), phone: profile.phone } });
   }
   return c;
 }
-await ensureAccount("alto-demo", "Casa Bella Realty (Demo)", { biz: "Casa Bella Realty (Demo)", lang: "es", trade: "realtor" });
+await ensureAccount("alto-demo", "Casa Bella Realty (Demo)", { biz: "Casa Bella Realty (Demo)", phone: "9565550142", lang: "es", trade: "realtor" });
 await ensureAccount("alto-ventas", "Quick Comp Ventas", { biz: "Quick Comp", lang: "es", trade: "realtor" });
 
 app.listen(PORT, () => {

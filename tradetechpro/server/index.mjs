@@ -2442,7 +2442,6 @@ function landingPage(req) {
     pNew: "1 NEW", pNew2: "NEW",
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
-    cap1: "Valued from comps<br>in 60 seconds", cap2: "Want to be sure?<br>Pick your own comparables", cap3: "Professional CMA with your<br>brand, ready to send",
     appTryT: "TRY THE APP <em>YOURSELF</em>",
     appTrySub: "This is the real tool — type any address and watch it price the home from real comps in seconds. It's yours from $67/mo.",
     phT: "Try it on your phone 📲", phSub: "It's built for your phone. Drop your number and get your trial link — no App Store needed.",
@@ -2498,7 +2497,6 @@ function landingPage(req) {
     phT: "Pruébala en tu teléfono 📲", phSub: "Está hecha para tu teléfono. Deja tu número y recibe tu link de prueba — sin App Store.",
     phName: "Tu nombre", phPhone: "Tu teléfono (celular)", phBtn: "QUIERO MI LINK →", phErr: "Pon un teléfono de 10 dígitos",
     phOk: "✓ Aquí está tu prueba — toca para abrir Quick Comp en tu teléfono:", phTry: "Abrir Quick Comp →",
-    cap1: "Valuado con comparables<br>en 60 segundos", cap2: "¿Quieres estar seguro?<br>Escoge tú mismo las comparables", cap3: "CMA profesional con tu<br>marca, listo para mandar",
     priceT: "ELIGE TU <em>PLAN</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras.",
     mo: "/mes", buyNow: "Comenzar ahora →", orBook: "¿No sabes cuál? Agenda una llamada — te decimos con honestidad.",
     popTag: "MÁS POPULAR", noSetup: "sin costo de inicio",
@@ -2578,9 +2576,6 @@ section{padding:64px 0}
 .ben{max-width:430px}
 .ben li{list-style:none;padding:11px 0;font-weight:600;font-size:16px;color:#E7ECF6;border-bottom:1px solid rgba(255,255,255,.09)}
 .ben li b{color:#C9973A}
-.shots{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
-.shot img{width:240px;border-radius:26px;border:1px solid #E6EBF3;display:block;box-shadow:0 22px 56px rgba(16,27,48,.14)}
-.shot p{text-align:center;color:#5A6478;font-size:13px;font-weight:700;margin-top:13px;line-height:1.45}
 .apptry{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:44px}
 .phone2{width:300px;flex-shrink:0;background:#0B1226;border:11px solid #1E2A45;border-radius:44px;padding:12px 10px;box-shadow:0 40px 96px rgba(0,0,0,.42)}
 .phone2 .notch{width:120px;height:24px;background:#1E2A45;border-radius:0 0 15px 15px;margin:-12px auto 10px}
@@ -2665,11 +2660,6 @@ footer a{color:#8A94A8}
         <a class="cta" style="width:100%;background:#101B30;color:#fff;margin-top:12px" href="${appLiveUrl}${en ? "&lang=en" : ""}" target="_blank">${L.phTry}</a>
       </div>
     </div>
-  </div>
-  <div class="shots" style="margin-top:48px">
-    <div class="shot"><img src="/landing/app-measure.png" alt="" loading="lazy"><p>${L.cap1}</p></div>
-    <div class="shot"><img src="/landing/app-trace.png" alt="" loading="lazy"><p>${L.cap2}</p></div>
-    <div class="shot"><img src="/landing/app-quote.png" alt="" loading="lazy"><p>${L.cap3}</p></div>
   </div>
 </section></div>
 
@@ -5672,10 +5662,16 @@ async function ensureAccount(slug, name, profile) {
     c = await db.createContractor({ name, slug });
     await db.saveContractorData(c.id, { profile });
     console.log(`created built-in account: ${slug}`);
-  } else if (profile.phone && !c.data?.profile?.phone) {
-    // keep the built-in demo's contact info current (adds the demo phone so the
-    // widget's Call/Text CTA shows in the sales demo)
-    await db.saveContractorData(c.id, { ...(c.data || {}), profile: { ...(c.data?.profile || {}), phone: profile.phone } });
+  } else {
+    // Built-in demo accounts are app-owned, not a real client's — keep their
+    // branding synced to the code (e.g. after a product pivot leaves a stale
+    // name/biz in the db) and backfill any missing contact info.
+    const curProfile = c.data?.profile || {};
+    const next = { ...curProfile };
+    let changed = false;
+    if (profile.biz && curProfile.biz !== profile.biz) { next.biz = profile.biz; changed = true; }
+    if (profile.phone && !curProfile.phone) { next.phone = profile.phone; changed = true; }
+    if (changed) await db.saveContractorData(c.id, { ...(c.data || {}), profile: next });
   }
   return c;
 }

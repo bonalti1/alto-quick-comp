@@ -926,11 +926,16 @@ app.get("/api/roofimg", async (req, res) => {
  * Google has coverage, otherwise a top-down satellite frame. Proxied so the
  * Maps key stays server-side. Demo mode (no key) returns 404 → UI hides it. */
 app.get("/api/streetview", async (req, res) => {
-  const { lat, lng } = req.query;
-  if (!GOOGLE_KEY || !lat || !lng) return res.status(404).end();
+  const { lat, lng, address } = req.query;
+  // Accept either lat/lng (used for real searches, where we already geocoded
+  // the address) or a free-text address — Google's Street View/Static Map
+  // APIs geocode a `location`/`center` string themselves, which is more
+  // reliable than us guessing coordinates (used for the fixed demo example).
+  const hasCoords = lat && lng;
+  if (!GOOGLE_KEY || (!hasCoords && !address)) return res.status(404).end();
   const svIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
   if (overQuota(`sv:${svIp}`, 120)) return res.status(429).end();
-  const loc = `${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+  const loc = hasCoords ? `${encodeURIComponent(lat)},${encodeURIComponent(lng)}` : encodeURIComponent(String(address).slice(0, 200));
   try {
     // Prefer a street-level photo of the house; check coverage first.
     let hasStreet = false;
@@ -2242,14 +2247,14 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   // Synthetic example result for showcase mode — same numbers used elsewhere
   // in the demo materials, so the story is consistent across touchpoints.
   const fmtN = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
-  const scLow = 299000, scHigh = 337000, scLat = 26.3827418, scLng = -98.8196915;
+  const scLow = 299000, scHigh = 337000, scAddress = "456 Oak Dr, Rio Grande City, TX";
   const scMid = fmtN(Math.round((scLow + scHigh) / 2 / 1000) * 1000);
   const scManual = c.slug === "alto-demo" ? (es
     ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."
     : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null;
   const showcaseHtml = showcase ? `
-    <img class="photo" src="/api/streetview?lat=${scLat}&lng=${scLng}" alt="" onerror="this.style.display='none'">
-    <p class="addrline">📍 456 Oak Dr, Rio Grande City, TX</p>
+    <img class="photo" src="/api/streetview?address=${encodeURIComponent(scAddress)}" alt="" onerror="this.style.display='none'">
+    <p class="addrline">📍 ${scAddress}</p>
     <div class="specs">
       <div class="spec"><b>4</b><span>${L.bedsLbl}</span></div>
       <div class="spec"><b>3</b><span>${L.bathsLbl}</span></div>

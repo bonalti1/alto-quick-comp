@@ -1482,7 +1482,7 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
     const pay = c.data && c.data.payStatus;
     const payTag = pay === "failed" ? ' <span class="pill warn">💳 falló</span>'
       : pay === "canceled" ? ' <span class="pill dim">canceló</span>'
-      : pay === "pending" ? ' <span class="pill gold" title="Clic en «activo» para activar tras confirmar el pago">💳 pendiente</span>' : "";
+      : pay === "pending" ? ` <a href="#" onclick="activatePending('${c.id}','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill gold" title="Pagó por otro medio (cash/Zelle)? Clic para activar su cuenta ahora.">💳 pendiente — clic para activar</span></a>` : "";
     const dev = devCounts[String(c.id)] || 0;
     const devTag = (!isB && dev >= 4) ? ` <span class="pill warn" title="${dev} dispositivos/aperturas — posible link compartido. Ofrécele cuentas para su equipo.">📱 ${dev}</span>` : "";
     // Paid on the website with no human on the call — until someone sends
@@ -1541,6 +1541,11 @@ function setStatus(id, status, name){
     : '¿Reactivar a ' + name + '? Su valuador vuelve a recibir leads al instante.';
   if (!confirm(q)) return;
   fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=' + status, {method:'POST'})
+    .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
+}
+function activatePending(id, name){
+  if (!confirm('¿Confirmas que ' + name + ' ya pagó (efectivo, Zelle u otro medio)? Esto activa su cuenta ahora mismo.')) return;
+  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=active', {method:'POST'})
     .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
 }
 function setHook(id, name){
@@ -1840,6 +1845,9 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   ${isPaused
     ? `<button class="b-gold" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=active','¿Reactivar?')">▶ Reactivar</button>`
     : `<button class="b-red" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=paused','¿Pausar? Su sitio y valuador dejan de recibir leads.')">⏸ Pausar</button>`}
+  ${(!isPaused && pay === "pending")
+    ? `<button class="b-gold" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=active','¿Confirmas que ya pagó (efectivo, Zelle u otro medio)? Esto activa su cuenta ahora mismo.')">✓ Activar (pago manual)</button>`
+    : ""}
   <button class="b-dark" onclick="pub(${st.published ? "false" : "true"})">${st.published ? "Ocultar página" : "🚀 Publicar página"}</button>
   <a class="b-line" href="/onboarding?key=${KEY}&slug=${c.slug}">🎨 Onboarding</a>
   <a class="b-line" href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 Link de acceso</a>

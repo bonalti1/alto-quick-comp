@@ -2642,7 +2642,7 @@ footer a{color:#8A94A8}
   <div class="apptry">
     <div class="phone2"><div class="notch"></div>
       <div class="ptrywrap">
-        <iframe id="ptryframe" src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+        <iframe id="ptryframe" width="258" height="560" scrolling="no" src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
         <video id="ptryvid" src="/landing/app-trial-demo.mp4" autoplay muted playsinline></video>
       </div>
     </div>

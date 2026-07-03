@@ -2247,7 +2247,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   // Synthetic example result for showcase mode — same numbers used elsewhere
   // in the demo materials, so the story is consistent across touchpoints.
   const fmtN = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
-  const scLow = 299000, scHigh = 337000, scAddress = "456 Oak Dr, Rio Grande City, TX";
+  const scLow = 299000, scHigh = 337000, scAddress = "9803 Sagemark Dr, Houston, TX 77089";
   const scMid = fmtN(Math.round((scLow + scHigh) / 2 / 1000) * 1000);
   const scManual = c.slug === "alto-demo" ? (es
     ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."

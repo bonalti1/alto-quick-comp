@@ -2273,7 +2273,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz}</title>
 <meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 10 segundos" : "Your home's value in 10 seconds"}">
 <meta property="og:description" content="${es ? "Pon tu dirección y mira el valor estimado de tu casa, basado en ventas reales cercanas. Gratis, sin compromiso." : "Type your address and see your home's estimated value from real nearby sales. Free, no obligation."}">
-<meta property="og:image" content="${wBase}/landing/og.png">
+<meta property="og:image" content="${wBase}/landing/og-widget.png">
 <meta name="twitter:card" content="summary_large_image">
 <style>
 *{box-sizing:border-box;font-family:Inter,-apple-system,BlinkMacSystemFont,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
@@ -2477,8 +2477,8 @@ function landingPage(req) {
     lang: "en", langBtn: "🇲🇽 Español", langHref: "/?lang=es",
     title: "Quick Comp — Your website finds you sellers by itself",
     desc: "Website + instant home-value tool + app. Homeowners leave their phone to see their home's value and you get them as seller leads. Built for realtors.",
-    ogTitle: "Quick Comp — Your website finds you sellers by itself",
-    ogDesc: "The homeowner types their address, sees their home's value from real comps, and their phone number lands in your phone. Try it live.",
+    ogTitle: "Quick Comp — The Perfect Realtor Tool: Comps in 10 Seconds",
+    ogDesc: "Instant comps, CMAs, lending & tax — plus a website that finds you sellers 24/7. Try it live.",
     h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>10 SECONDS</em>",
     sub: "The all-in-one tool for realtors — instant comps, CMAs, lending & tax, right from your phone. Walk into any listing appointment knowing the number. <b>Plus a website that captures sellers while you sleep.</b>",
     cta1: "SEE THE LIVE DEMO ↓", cta2: "See pricing",
@@ -2527,8 +2527,8 @@ function landingPage(req) {
     lang: "es", langBtn: "🇺🇸 English", langHref: "/?lang=en",
     title: "Quick Comp — Tu página web te consigue vendedores sola",
     desc: "Página web + valuador de casas instantáneo + app. Los dueños dejan su teléfono para ver el valor de su casa y tú los recibes como leads de venta. Para agentes de bienes raíces.",
-    ogTitle: "Quick Comp — Tu página web te consigue vendedores sola",
-    ogDesc: "El dueño pone su dirección, ve el valor de su casa con ventas reales, y su teléfono te llega a tu celular. Pruébalo en vivo.",
+    ogTitle: "Quick Comp — La Herramienta Perfecta: Comparables en 10 Segundos",
+    ogDesc: "Comparables, CMAs, crédito e impuestos al instante — más una página que te consigue vendedores 24/7. Pruébalo en vivo.",
     h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>10 SEGUNDOS</em>",
     sub: "La herramienta todo-en-uno para agentes — comparables, CMAs, crédito e impuestos al instante, desde tu teléfono. Llega a cualquier cita de listing sabiendo el número. <b>Y una página que captura vendedores mientras duermes.</b>",
     cta1: "VER DEMO EN VIVO ↓", cta2: "Ver precio",

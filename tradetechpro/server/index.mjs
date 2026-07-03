@@ -2142,6 +2142,8 @@ app.post("/api/widget/quote", async (req, res) => {
           lng: geo?.lng ?? comp.subject?.longitude ?? null,
           value: comp.value, low: comp.low, high: comp.high,
           confidence: comp.confidence, compsUsed: comp.usedCompCount,
+          beds: comp.subject?.bedrooms ?? null, baths: comp.subject?.bathrooms ?? null,
+          sqft: comp.subject?.squareFootage ?? null, built: comp.subject?.yearBuilt ?? null,
         };
         quoteCache.set(ck, { at: Date.now(), data: m });
         if (quoteCache.size > 500) quoteCache.delete(quoteCache.keys().next().value);
@@ -2166,7 +2168,7 @@ app.post("/api/widget/quote", async (req, res) => {
     value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null,
   });
 
-  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null });
+  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null, beds: m?.beds ?? null, baths: m?.baths ?? null, sqft: m?.sqft ?? null, built: m?.built ?? null });
 });
 
 app.get("/w/:slug", async (req, res) => {
@@ -2210,6 +2212,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     see: "VER MI VALOR AHORA →", back: "← Cambiar dirección",
     m1: "Encontramos tu propiedad", m2: "Buscando ventas recientes cercanas", m3: "Calculando tu valor…",
     range: "VALOR ESTIMADO DE TU CASA", yourHome: "TU CASA",
+    bedsLbl: "Recámaras", bathsLbl: "Baños", sqftLbl: "Pie²", builtLbl: "Construida",
     basedOn: (n) => n ? `Basado en ${n} ventas recientes de casas similares cerca de ti.` : "Basado en ventas recientes de casas similares cerca de ti.",
     rangeSub: "Estimado automático — no es un avalúo.",
     exact: "¿Quieres el número exacto?", exactSub: (b) => `${b} puede sacar las comparables reales y darte un valor preciso — gratis.`,
@@ -2227,6 +2230,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     see: "SEE MY VALUE NOW →", back: "← Change address",
     m1: "Found your property", m2: "Pulling recent nearby sales", m3: "Calculating your value…",
     range: "YOUR HOME'S ESTIMATED VALUE", yourHome: "YOUR HOME",
+    bedsLbl: "Beds", bathsLbl: "Baths", sqftLbl: "Sq Ft", builtLbl: "Built",
     basedOn: (n) => n ? `Based on ${n} recent sales of similar homes near you.` : "Based on recent sales of similar homes near you.",
     rangeSub: "Automated estimate — not an appraisal.",
     exact: "Want the exact number?", exactSub: (b) => `${b} can pull the real comparables and give you a precise value — free.`,
@@ -2245,6 +2249,13 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null;
   const showcaseHtml = showcase ? `
     <img class="photo" src="/api/streetview?lat=${scLat}&lng=${scLng}" alt="" onerror="this.style.display='none'">
+    <p class="addrline">📍 456 Oak Dr, Rio Grande City, TX</p>
+    <div class="specs">
+      <div class="spec"><b>4</b><span>${L.bedsLbl}</span></div>
+      <div class="spec"><b>3</b><span>${L.bathsLbl}</span></div>
+      <div class="spec"><b>2,340</b><span>${L.sqftLbl}</span></div>
+      <div class="spec"><b>2019</b><span>${L.builtLbl}</span></div>
+    </div>
     <div class="range"><div class="lbl">${L.range}</div><div class="val">${fmtN(scLow)} – ${fmtN(scHigh)}</div><div class="mid">~${scMid}</div></div>
     <p class="based">${L.basedOn(6)}</p>
     <p class="note">${L.rangeSub}</p>
@@ -2294,7 +2305,12 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 @keyframes pls{50%{transform:scale(1.12)}}
 .reveal{animation:rv .6s cubic-bezier(.2,.7,.2,1)}
 @keyframes rv{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.photo{width:100%;height:150px;object-fit:cover;border-radius:14px;display:block;margin-bottom:14px;background:#EEF0F5}
+.photo{width:100%;height:190px;object-fit:cover;border-radius:14px;display:block;margin-bottom:12px;background:#EEF0F5}
+.addrline{font-weight:800;font-size:14.5px;color:#101B30;text-align:center;margin:0 0 12px}
+.specs{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px}
+.spec{background:#F5F7FB;border:1px solid #E8EBF1;border-radius:12px;padding:9px 4px;text-align:center}
+.spec b{display:block;font-size:15px;font-weight:900;color:#101B30;line-height:1.2}
+.spec span{display:block;font-size:9px;font-weight:800;color:#8A94A8;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
 .range{background:radial-gradient(120% 130% at 80% 0%,#233A6B 0%,#15224C 55%,#0C1631 100%);border-radius:18px;padding:22px 18px;text-align:center;margin-bottom:14px;box-shadow:0 16px 40px rgba(12,22,49,.28)}
 .range .lbl{color:#E6BF6A;font-size:10.5px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
 .range .val{color:#fff;font-size:34px;font-weight:900;margin-top:7px;letter-spacing:-.02em;line-height:1}
@@ -2355,6 +2371,7 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 <script>
 var SLUG=${JSON.stringify(c.slug)},BIZ=${JSON.stringify(prof.biz || c.name)},BPH=${JSON.stringify(bizPhone)};
 var L=${JSON.stringify({ range: L.range, yourHome: L.yourHome, rangeSub: L.rangeSub, based0: L.basedOn(null),
+  bedsLbl: L.bedsLbl, bathsLbl: L.bathsLbl, sqftLbl: L.sqftLbl, builtLbl: L.builtLbl,
   sent: L.sent(prof.biz || c.name), nores: L.nores, noresSub: L.noresSub(prof.biz || c.name),
   exact: L.exact, exactSub: L.exactSub(prof.biz || c.name), callBtn: L.callBtn, textBtn: L.textBtn, err: L.err,
   basedPre: es ? "Basado en " : "Based on ", basedPost: es ? " ventas recientes de casas similares cerca de ti." : " recent sales of similar homes near you.",
@@ -2401,6 +2418,15 @@ function render(j){track('w_result');if(window.parent!==window){try{window.paren
   if(!j){s4.innerHTML='<p class="err">'+L.err+'</p>';show('s4');return}
   if(j.measured){
     if(j.lat!=null&&j.lng!=null)h+='<img class="photo" src="/api/streetview?lat='+j.lat+'&lng='+j.lng+'" alt="" onerror="this.style.display=\\'none\\'">';
+    if(j.addr)h+='<p class="addrline">📍 '+String(j.addr).replace(/</g,'&lt;')+'</p>';
+    if(j.beds||j.baths||j.sqft||j.built){
+      h+='<div class="specs">';
+      h+='<div class="spec"><b>'+(j.beds||'—')+'</b><span>'+L.bedsLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.baths||'—')+'</b><span>'+L.bathsLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.sqft?Number(j.sqft).toLocaleString('en-US'):'—')+'</b><span>'+L.sqftLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.built||'—')+'</b><span>'+L.builtLbl+'</span></div>';
+      h+='</div>';
+    }
     var mid=fmt(Math.round((j.low+j.high)/2/1000)*1000);
     h+='<div class="range"><div class="lbl">'+L.range+'</div><div class="val">'+fmt(j.low)+' – '+fmt(j.high)+'</div><div class="mid">~'+mid+'</div></div>';
     h+='<p class="based">'+(L.basedPre+(j.comps?j.comps:'')+L.basedPost).replace('  ',' ')+'</p>';
@@ -2580,7 +2606,7 @@ section{padding:64px 0}
 .sec-sub{color:#5A6478;text-align:center;font-weight:600;margin:12px auto 34px;max-width:600px;font-size:15px;line-height:1.6}
 .dark .sec-sub{color:#9DA8C4}
 .demo-frame{background:#fff;border:1px solid #E6EBF3;border-radius:26px;padding:10px;max-width:460px;margin:0 auto;box-shadow:0 26px 70px rgba(16,27,48,.13)}
-.demo-frame iframe{width:100%;height:770px;border:0;border-radius:18px;display:block}
+.demo-frame iframe{width:100%;height:900px;border:0;border-radius:18px;display:block}
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
 .step{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;box-shadow:0 10px 30px rgba(16,27,48,.05)}
 .step .n{font-family:'Barlow Condensed',sans-serif;color:#C9973A;font-size:44px;font-weight:800}
@@ -2954,7 +2980,7 @@ section{padding:84px 0}
 .qcopy li{padding:9px 0;font-weight:600;font-size:15px;display:flex;gap:10px;align-items:baseline}
 .qcopy li::before{content:"—";color:var(--red);font-weight:800}
 .qframe{background:#fff;border:1px solid var(--line);border-radius:26px;padding:10px;box-shadow:0 34px 90px rgba(15,18,22,.14)}
-.qframe iframe{width:100%;height:770px;border:0;border-radius:18px;display:block}
+.qframe iframe{width:100%;height:900px;border:0;border-radius:18px;display:block}
 .svc{display:grid;grid-template-columns:54px 1fr auto;gap:18px;align-items:baseline;padding:30px 6px;border-bottom:1px solid var(--line)}
 .svc:first-of-type{border-top:1px solid var(--line)}
 .svc .no{font-family:'Fraunces',Georgia,serif;color:#C9CDD6;font-size:20px;font-weight:700}

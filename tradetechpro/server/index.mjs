@@ -2670,7 +2670,7 @@ footer a{color:#8A94A8}
   <div style="text-align:center;margin-top:38px">
     <p style="font-weight:800;font-size:17px;margin-bottom:4px">${L.fullQ}</p>
     <p class="sec-sub" style="margin-bottom:18px">${L.fullSub}</p>
-    <a class="cta" href="/ejemplo" target="_blank">${L.fullBtn}</a>
+    <a class="cta" href="/ejemplo${en ? "?lang=en" : "?lang=es"}" target="_blank">${L.fullBtn}</a>
   </div>
 </section></div></div>
 
@@ -2815,9 +2815,78 @@ app.get("/ventas", (req, res) => res.send(landingPage(req)));
 app.get("/ejemplo", (req, res) => {
   // ?embed=1 (deck mockups): hide the ALTO ribbon and the back button
   const embed = req.query.embed != null;
-  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8">
+  // English by default — this sample site is shown to prospects off the
+  // (default English) sales page; ?lang=es keeps the Spanish version reachable.
+  const en = req.query.lang !== "es";
+  const langHref = `?${embed ? "embed=1&" : ""}lang=${en ? "es" : "en"}`;
+  const T = en ? {
+    title: "Casa Bella Realty — Quick Comp Example",
+    ribbon: "📋 SAMPLE PAGE — imagine YOUR logo and YOUR name here. This is what your site would look like with Quick Comp.",
+    langBtn: "🇲🇽 Español",
+    hours: "Mon–Sat · 7am–7pm",
+    kicker: "REAL ESTATE · YOUR CITY, TX",
+    h1a: "Sell your home for", h1b: "what it's really worth",
+    heroSub: "Find out your home's value instantly, from real nearby sales — free, with no one visiting your home.",
+    ctaValue: "VALUE YOUR HOME IN 60 SECONDS", ctaCall: "Call us",
+    statYears: "years", statSold: "homes sold", statDedication: "dedication",
+    qEyebrow: "Instant valuation", qH: ["The value of your home, ", "no waiting"],
+    qTitle: "Type your address.<br>Real sales do the rest.", qDesc: "Our system analyzes recent comparable sales and gives you an instant estimated value — free, no obligation.",
+    qLi: ["The real value of YOUR home", "Estimated in under a minute", "Full CMA report, free"],
+    svcEyebrow: "Services", svcH: ["What we do ", "well"],
+    svc: [
+      ["Sell your home", "We price it right from day one, with a marketing plan that brings real buyers."],
+      ["Buy a home", "We represent you as the buyer — we search, negotiate, and handle every detail through closing."],
+      ["Free valuation / CMA", "A comparative market analysis using real nearby sales, so you know what your home is worth today."],
+      ["Market guidance", "We tell you the truth about the market — when to sell, when to wait — even if it's not today."],
+    ],
+    soldEyebrow: "Recent sales", soldH: ["Homes sold ", "at the best price"],
+    soldSub: "Every sale starts with the right price, backed by real comparable sales — so we sell fast without leaving money on the table.",
+    sold: [["Sold in 9 days", "3 bd · 2 ba · over asking"], ["Sold in 14 days", "4 bd · 3 ba · at asking"], ["Buyer represented", "Closed $12k under asking"]],
+    procEyebrow: "Our process", procH: ["Simple, ", "start to finish"],
+    steps: [["Valuation", "We analyze real comparable sales to know exactly what your home is worth today. Free."], ["Pricing strategy", "A clear, written price and marketing plan to sell fast and for the most money."], ["Closing", "We negotiate on your behalf and handle every detail of the paperwork until you get your check."]],
+    revEyebrow: "Reviews", revH: ["What ", "our clients say"],
+    revBody: "Your real Google reviews go here.<br>(We don't invent testimonials on this sample page.)",
+    ctaH: ["Ready to sell for", "the best price?"], ctaSub: "Value your home in 60 seconds or send us a WhatsApp message.",
+    ctaValueBtn: "VALUE NOW", ctaWa: "💬 WhatsApp",
+    footBiz: "Casa Bella Realty", footLine: "Your City, TX · Lic. #00000 · Mon–Sat 9am–7pm",
+    footMade: "Sample page built with ⚡ Quick Comp — ", footMadeLink: "yours could look like this",
+    back: "← Back to ", backB: "QUICK COMP",
+  } : {
+    title: "Casa Bella Realty — Ejemplo Quick Comp",
+    ribbon: "📋 PÁGINA DE EJEMPLO — imagina TU logo y TU nombre aquí. Así se vería tu página con Quick Comp.",
+    langBtn: "🇺🇸 English",
+    hours: "Lun–Sáb · 7am–7pm",
+    kicker: "BIENES RAÍCES · TU CIUDAD, TX",
+    h1a: "Vende tu casa por", h1b: "lo que de verdad vale",
+    heroSub: "Descubre el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.",
+    ctaValue: "VALÚA TU CASA EN 60 SEGUNDOS", ctaCall: "Llámanos",
+    statYears: "años", statSold: "casas vendidas", statDedication: "dedicación",
+    qEyebrow: "Valuación instantánea", qH: ["El valor de tu casa, ", "sin esperar"],
+    qTitle: "Escribe tu dirección.<br>Las ventas reales hacen el resto.", qDesc: "Nuestro sistema analiza ventas comparables recientes y te da el valor estimado al instante — gratis y sin compromiso.",
+    qLi: ["Valor real de TU casa", "Estimado en menos de un minuto", "Análisis completo (CMA) gratis"],
+    svcEyebrow: "Servicios", svcH: ["Lo que hacemos ", "bien"],
+    svc: [
+      ["Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
+      ["Compra tu casa", "Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves."],
+      ["Valuación / CMA gratis", "Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy."],
+      ["Asesoría de mercado", "Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy."],
+    ],
+    soldEyebrow: "Ventas recientes", soldH: ["Casas vendidas ", "al mejor precio"],
+    soldSub: "Cada venta empieza con un precio correcto, basado en ventas comparables reales — así vendemos rápido y sin dejar dinero en la mesa.",
+    sold: [["Vendida en 9 días", "3 rec · 2 baños · sobre el precio de lista"], ["Vendida en 14 días", "4 rec · 3 baños · al precio de lista"], ["Comprador representado", "Cerró $12k bajo el precio de lista"]],
+    procEyebrow: "Nuestro proceso", procH: ["Simple, ", "de principio a fin"],
+    steps: [["Valuación", "Analizamos ventas comparables reales para saber exactamente qué vale tu casa hoy. Gratis."], ["Estrategia de precio", "Un plan claro de precio y marketing por escrito para vender rápido y al mejor valor."], ["Cierre", "Negociamos por ti y cuidamos cada detalle del papeleo hasta que recibes tu cheque."]],
+    revEyebrow: "Reseñas", revH: ["Lo que dicen ", "nuestros clientes"],
+    revBody: "Aquí van las reseñas reales de TUS clientes de Google.<br>(En esta página de ejemplo no inventamos testimonios.)",
+    ctaH: ["¿Listo para vender", "al mejor precio?"], ctaSub: "Valúa tu casa en 60 segundos o mándanos un WhatsApp.",
+    ctaValueBtn: "VALÚA AHORA", ctaWa: "💬 WhatsApp",
+    footBiz: "Casa Bella Realty", footLine: "Tu Ciudad, TX · Lic. #00000 · Lun–Sáb 9am–7pm",
+    footMade: "Página de ejemplo hecha con ⚡ Quick Comp — ", footMadeLink: "así puede ser la tuya",
+    back: "← Volver a ", backB: "QUICK COMP",
+  };
+  res.send(`<!doctype html><html lang="${en ? "en" : "es"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Casa Bella Realty — Ejemplo Quick Comp</title>
+<title>${T.title}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
@@ -2833,6 +2902,7 @@ header{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.82);backdro
 .hcall small{font-weight:700;color:var(--mut);font-size:12px;display:none}
 @media(min-width:640px){.hcall small{display:block}}
 .callbtn{background:var(--red);color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;box-shadow:0 8px 22px rgba(179,15,36,.28)}
+.langpill{background:#fff;border:1.5px solid var(--line);color:var(--ink);text-decoration:none;font-weight:700;font-size:13px;padding:11px 16px;border-radius:10px;white-space:nowrap}
 .hero{position:relative;color:#fff;overflow:hidden;background:#1A0509}
 .hero .bgimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;filter:saturate(.7) contrast(1.05)}
 .hero .veil{position:absolute;inset:0;background:linear-gradient(165deg,rgba(20,3,6,.92) 0%,rgba(90,8,20,.78) 60%,rgba(179,15,36,.55) 100%)}
@@ -2904,81 +2974,78 @@ footer a{color:#9AA0AC}
 .fade.on{opacity:1;transform:none}
 @media (prefers-reduced-motion: reduce){.fade{opacity:1;transform:none;transition:none}}
 </style></head><body>
-${embed ? "" : `<div class="ribbon">📋 PÁGINA DE EJEMPLO — imagina TU logo y TU nombre aquí. Así se vería tu página con Quick Comp.</div>`}
+${embed ? "" : `<div class="ribbon">${T.ribbon}</div>`}
 <header><div class="wrap hrow">
-  <span class="logo-ph">TU LOGO</span>
-  <span class="hcall"><small>Lun–Sáb · 7am–7pm</small><a class="callbtn" href="tel:+19565550100">📞 (956) 555-0100</a></span>
+  <span class="logo-ph">${en ? "YOUR LOGO" : "TU LOGO"}</span>
+  <span class="hcall"><small>${T.hours}</small><a class="callbtn" href="tel:+19565550100">📞 (956) 555-0100</a>${embed ? "" : `<a class="langpill" href="${langHref}">${T.langBtn}</a>`}</span>
 </div></header>
 
 <div class="hero">
   <img class="bgimg" src="/api/roofimg?lat=26.3828&lng=-98.8198&zoom=18" alt="">
   <div class="veil"></div>
   <div class="wrap in">
-    <span class="kick">BIENES RAÍCES · TU CIUDAD, TX</span>
-    <h1>Vende tu casa por<br>lo que <em>de verdad vale</em></h1>
-    <p>Descubre el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.</p>
-    <a class="cta" href="#cotiza">VALÚA TU CASA EN 60 SEGUNDOS</a><a class="cta ghost" href="tel:+19565550100">Llámanos</a>
+    <span class="kick">${T.kicker}</span>
+    <h1>${T.h1a}<br><em>${T.h1b}</em></h1>
+    <p>${T.heroSub}</p>
+    <a class="cta" href="#cotiza">${T.ctaValue}</a><a class="cta ghost" href="tel:+19565550100">${T.ctaCall}</a>
   </div>
   <div class="wrap stats">
-    <div class="stat"><b>15+</b><span>años</span></div>
-    <div class="stat"><b>300+</b><span>casas vendidas</span></div>
-    <div class="stat"><b>100%</b><span>dedicación</span></div>
+    <div class="stat"><b>15+</b><span>${T.statYears}</span></div>
+    <div class="stat"><b>300+</b><span>${T.statSold}</span></div>
+    <div class="stat"><b>100%</b><span>${T.statDedication}</span></div>
   </div>
 </div>
 
 <div class="wrap"><section id="cotiza">
-  <p class="eyebrow">Valuación instantánea</p>
-  <h2 class="t">El valor de tu casa, <em>sin esperar</em></h2>
+  <p class="eyebrow">${T.qEyebrow}</p>
+  <h2 class="t">${T.qH[0]}<em>${T.qH[1]}</em></h2>
   <div class="qwrap fade">
     <div class="qgrid">
       <div class="qcopy">
-        <h3>Escribe tu dirección.<br>Las ventas reales hacen el resto.</h3>
-        <p>Nuestro sistema analiza ventas comparables recientes y te da el valor estimado al instante — gratis y sin compromiso.</p>
-        <ul><li>Valor real de TU casa</li><li>Estimado en menos de un minuto</li><li>Análisis completo (CMA) gratis</li></ul>
+        <h3>${T.qTitle}</h3>
+        <p>${T.qDesc}</p>
+        <ul>${T.qLi.map((x) => `<li>${x}</li>`).join("")}</ul>
       </div>
-      <div class="qframe"><iframe src="/w/alto-demo" loading="lazy" title="Valuador"></iframe></div>
+      <div class="qframe"><iframe src="/w/alto-demo${en ? "?lang=en" : ""}" loading="lazy" title="${en ? "Valuator" : "Valuador"}"></iframe></div>
     </div>
   </div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:10px">
-  <p class="eyebrow">Servicios</p>
-  <h2 class="t">Lo que hacemos <em>bien</em></h2>
+  <p class="eyebrow">${T.svcEyebrow}</p>
+  <h2 class="t">${T.svcH[0]}<em>${T.svcH[1]}</em></h2>
   <div style="margin-top:44px">
-    <div class="svc fade"><span class="no">01</span><div><h3>Vende tu casa</h3><p>Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">02</span><div><h3>Compra tu casa</h3><p>Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">03</span><div><h3>Valuación / CMA gratis</h3><p>Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">04</span><div><h3>Asesoría de mercado</h3><p>Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy.</p></div><span class="arr">→</span></div>
+    ${T.svc.map(([h, p], i) => `<div class="svc fade"><span class="no">0${i + 1}</span><div><h3>${h}</h3><p>${p}</p></div><span class="arr">→</span></div>`).join("\n    ")}
   </div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:10px">
-  <p class="eyebrow">Ventas recientes</p>
-  <h2 class="t">Casas vendidas <em>al mejor precio</em></h2>
-  <p class="sub">Cada venta empieza con un precio correcto, basado en ventas comparables reales — así vendemos rápido y sin dejar dinero en la mesa.</p>
+  <p class="eyebrow">${T.soldEyebrow}</p>
+  <h2 class="t">${T.soldH[0]}<em>${T.soldH[1]}</em></h2>
+  <p class="sub">${T.soldSub}</p>
   <div class="projgrid">
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3827418&lng=-98.8196915&zoom=20" alt=""><span class="tag">Vendida en 9 días<small>3 rec · 2 baños · sobre el precio de lista</small></span></div>
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3795779&lng=-98.8186812&zoom=20" alt=""><span class="tag">Vendida en 14 días<small>4 rec · 3 baños · al precio de lista</small></span></div>
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3807212&lng=-98.8148616&zoom=20" alt=""><span class="tag">Comprador representado<small>Cerró $12k bajo el precio de lista</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3827418&lng=-98.8196915&zoom=20" alt=""><span class="tag">${T.sold[0][0]}<small>${T.sold[0][1]}</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3795779&lng=-98.8186812&zoom=20" alt=""><span class="tag">${T.sold[1][0]}<small>${T.sold[1][1]}</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3807212&lng=-98.8148616&zoom=20" alt=""><span class="tag">${T.sold[2][0]}<small>${T.sold[2][1]}</small></span></div>
   </div>
 </section></div>
 
 <div class="gband"><div class="wrap"><section>
-  <p class="eyebrow">Nuestro proceso</p>
-  <h2 class="t">Simple, <em>de principio a fin</em></h2>
+  <p class="eyebrow">${T.procEyebrow}</p>
+  <h2 class="t">${T.procH[0]}<em>${T.procH[1]}</em></h2>
   <div class="steps">
-    <div class="pstep fade"><div class="pn">1</div><h3>Valuación</h3><p>Analizamos ventas comparables reales para saber exactamente qué vale tu casa hoy. Gratis.</p></div>
-    <div class="pstep fade"><div class="pn">2</div><h3>Estrategia de precio</h3><p>Un plan claro de precio y marketing por escrito para vender rápido y al mejor valor.</p></div>
-    <div class="pstep fade"><div class="pn">3</div><h3>Cierre</h3><p>Negociamos por ti y cuidamos cada detalle del papeleo hasta que recibes tu cheque.</p></div>
+    <div class="pstep fade"><div class="pn">1</div><h3>${T.steps[0][0]}</h3><p>${T.steps[0][1]}</p></div>
+    <div class="pstep fade"><div class="pn">2</div><h3>${T.steps[1][0]}</h3><p>${T.steps[1][1]}</p></div>
+    <div class="pstep fade"><div class="pn">3</div><h3>${T.steps[2][0]}</h3><p>${T.steps[2][1]}</p></div>
   </div>
 </section></div></div>
 
 <div class="wrap"><section>
-  <p class="eyebrow">Reseñas</p>
-  <h2 class="t">Lo que dicen <em>nuestros clientes</em></h2>
+  <p class="eyebrow">${T.revEyebrow}</p>
+  <h2 class="t">${T.revH[0]}<em>${T.revH[1]}</em></h2>
   <div class="rev fade">
     <div class="stars">★★★★★</div>
-    <p>Aquí van las reseñas reales de TUS clientes de Google.<br>(En esta página de ejemplo no inventamos testimonios.)</p>
+    <p>${T.revBody}</p>
   </div>
 </section></div>
 
@@ -2986,13 +3053,13 @@ ${embed ? "" : `<div class="ribbon">📋 PÁGINA DE EJEMPLO — imagina TU logo 
   <img class="bgimg" src="/api/roofimg?lat=26.3828&lng=-98.8198&zoom=17" alt="">
   <div class="veil"></div>
   <div class="in">
-    <h2>¿Listo para vender<br><em>al mejor precio?</em></h2>
-    <p>Valúa tu casa en 60 segundos o mándanos un WhatsApp.</p>
-    <a class="a1" href="#cotiza">VALÚA AHORA</a><a class="a2" href="https://wa.me/19565550100">💬 WhatsApp</a>
+    <h2>${T.ctaH[0]}<br><em>${T.ctaH[1]}</em></h2>
+    <p>${T.ctaSub}</p>
+    <a class="a1" href="#cotiza">${T.ctaValueBtn}</a><a class="a2" href="https://wa.me/19565550100">${T.ctaWa}</a>
   </div>
 </div>
-<footer><b>Casa Bella Realty</b><br>Tu Ciudad, TX · Lic. #00000 · Lun–Sáb 9am–7pm<br>Página de ejemplo hecha con ⚡ Quick Comp — <a href="/ventas">así puede ser la tuya</a></footer>
-${embed ? "" : `<a class="backalto" href="/ventas#precio">← Volver a <span>QUICK COMP</span></a>`}
+<footer><b>${T.footBiz}</b><br>${T.footLine}<br>${T.footMade}<a href="/ventas${en ? "" : "?lang=es"}">${T.footMadeLink}</a></footer>
+${embed ? "" : `<a class="backalto" href="/ventas${en ? "" : "?lang=es"}#precio">${T.back}<span>${T.backB}</span></a>`}
 <script>
 var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target)}})},{threshold:.15});
 document.querySelectorAll('.fade').forEach(function(el){io.observe(el)});
@@ -4583,8 +4650,8 @@ body{max-width:none;margin:0;padding:0}
 ${periodSeg("/closer", range, en)}
 <div class="toolbar">
   <a class="navbtn primary" href="/demo" target="_blank">🎤 ${en ? "Open presentation" : "Abrir presentación"}</a>
-  <a class="navbtn" href="/w/alto-demo" target="_blank">🏡 ${en ? "Valuator demo" : "Demo del valuador"}</a>
-  <a class="navbtn" href="/ejemplo" target="_blank">🏠 ${en ? "Example site" : "Página de ejemplo"}</a>
+  <a class="navbtn" href="/w/alto-demo${en ? "?lang=en" : ""}" target="_blank">🏡 ${en ? "Valuator demo" : "Demo del valuador"}</a>
+  <a class="navbtn" href="/ejemplo${en ? "?lang=en" : "?lang=es"}" target="_blank">🏠 ${en ? "Example site" : "Página de ejemplo"}</a>
   <a class="navbtn" href="/plantillas" target="_blank">🎨 ${en ? "Templates" : "Las 3 plantillas"}</a>
 </div>
 <div class="panel">

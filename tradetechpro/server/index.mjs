@@ -2636,7 +2636,7 @@ section{padding:64px 0}
 .phone2 iframe{width:100%;height:560px;border:0;border-radius:28px;display:block;background:#F1F4FA}
 .ptrywrap{position:relative;width:100%;height:560px;border-radius:28px;overflow:hidden;background:#0B1226}
 .ptrywrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
-.ptrywrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;opacity:1;pointer-events:none;transition:opacity .5s ease}
+.ptrywrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;opacity:1;background:#0B1226;pointer-events:none;transition:opacity .5s ease}
 .trybox{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;max-width:400px;box-shadow:0 18px 50px rgba(16,27,48,.10)}
 .trybox .tbh{font-weight:900;font-size:21px;line-height:1.2}
 .trybox .tbs{color:#5A6478;font-weight:600;font-size:14px;line-height:1.55;margin:8px 0 18px}

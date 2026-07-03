@@ -2209,8 +2209,8 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const showcase = req.query.showcase != null;
   const L = es ? {
     title: `¿Cuánto vale tu casa hoy?`,
-    sub: "Un estimado real basado en ventas cercanas — en 60 segundos.",
-    chips: ["🏡 Ventas reales", "🔒 100% gratis", "⚡ 60 segundos"],
+    sub: "Un estimado real basado en ventas cercanas — en 10 segundos.",
+    chips: ["🏡 Ventas reales", "🔒 100% gratis", "⚡ 10 segundos"],
     addr: "Dirección de tu casa", cont: "VER MI VALOR →",
     gate: "Estás a un paso 🎉", gateSub: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
     smsNote: "🔒 Te mandamos tu estimado por mensaje a este número.",
@@ -2227,8 +2227,8 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     err: "Algo falló — intenta otra vez o llámanos.",
   } : {
     title: "What's your home worth today?",
-    sub: "A real estimate from nearby sales — in 60 seconds.",
-    chips: ["🏡 Real sales", "🔒 100% free", "⚡ 60 seconds"],
+    sub: "A real estimate from nearby sales — in 10 seconds.",
+    chips: ["🏡 Real sales", "🔒 100% free", "⚡ 10 seconds"],
     addr: "Your home address", cont: "SEE MY VALUE →",
     gate: "You're one step away 🎉", gateSub: "Where should we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
     smsNote: "🔒 We'll text your estimate to this number.",
@@ -2271,7 +2271,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const wBase = `${req.protocol}://${req.get("host")}`;
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz}</title>
-<meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 60 segundos" : "Your home's value in 60 seconds"}">
+<meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 10 segundos" : "Your home's value in 10 seconds"}">
 <meta property="og:description" content="${es ? "Pon tu dirección y mira el valor estimado de tu casa, basado en ventas reales cercanas. Gratis, sin compromiso." : "Type your address and see your home's estimated value from real nearby sales. Free, no obligation."}">
 <meta property="og:image" content="${wBase}/landing/og.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -2479,7 +2479,7 @@ function landingPage(req) {
     desc: "Website + instant home-value tool + app. Homeowners leave their phone to see their home's value and you get them as seller leads. Built for realtors.",
     ogTitle: "Quick Comp — Your website finds you sellers by itself",
     ogDesc: "The homeowner types their address, sees their home's value from real comps, and their phone number lands in your phone. Try it live.",
-    h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>60 SECONDS</em>",
+    h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>10 SECONDS</em>",
     sub: "The all-in-one tool for realtors — instant comps, CMAs, lending & tax, right from your phone. Walk into any listing appointment knowing the number. <b>Plus a website that captures sellers while you sleep.</b>",
     cta1: "SEE THE LIVE DEMO ↓", cta2: "See pricing",
     chips: ["🇺🇸 Bilingual", "🏡 Built for realtors", "📲 No App Store"],
@@ -2492,7 +2492,7 @@ function landingPage(req) {
     s2t: "They leave their phone to see the value", s2x: `<b style="color:#B07A00">No name and phone, no value.</b> The engine pulls recent comparable sales and calculates a value range for their home — instantly, branded as you.`,
     s3t: "The seller lead hits your phone", s3x: "Name, address, phone and the value they saw — instantly, in your app. One button and you're already writing them on WhatsApp with the message pre-written.",
     leadsT: "SELLERS LAND<br><em>ON YOUR PHONE</em>",
-    leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 60 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
+    leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 10 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
     pNew: "1 NEW", pNew2: "NEW",
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
@@ -2529,7 +2529,7 @@ function landingPage(req) {
     desc: "Página web + valuador de casas instantáneo + app. Los dueños dejan su teléfono para ver el valor de su casa y tú los recibes como leads de venta. Para agentes de bienes raíces.",
     ogTitle: "Quick Comp — Tu página web te consigue vendedores sola",
     ogDesc: "El dueño pone su dirección, ve el valor de su casa con ventas reales, y su teléfono te llega a tu celular. Pruébalo en vivo.",
-    h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>60 SEGUNDOS</em>",
+    h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>10 SEGUNDOS</em>",
     sub: "La herramienta todo-en-uno para agentes — comparables, CMAs, crédito e impuestos al instante, desde tu teléfono. Llega a cualquier cita de listing sabiendo el número. <b>Y una página que captura vendedores mientras duermes.</b>",
     cta1: "VER DEMO EN VIVO ↓", cta2: "Ver precio",
     chips: ["🇺🇸 En español", "🏡 Hecho para agentes", "📲 Sin App Store"],
@@ -2542,7 +2542,7 @@ function landingPage(req) {
     s2t: "Deja su teléfono para ver el valor", s2x: `<b style="color:#B07A00">Sin nombre y teléfono, no hay valor.</b> El motor saca ventas comparables recientes y calcula un rango de valor para su casa — al instante, con tu marca.`,
     s3t: "El lead de venta te llega a tu teléfono", s3x: "Nombre, dirección, teléfono y el valor que vio — al instante, en tu app. Un botón y ya le estás escribiendo por WhatsApp con el mensaje listo.",
     leadsT: "LOS VENDEDORES LLEGAN<br><em>A TU TELÉFONO</em>",
-    leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 60 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
+    leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 10 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
     pNew: "1 NUEVO", pNew2: "NUEVO",
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
@@ -2898,11 +2898,11 @@ app.get("/ejemplo", (req, res) => {
     kicker: "REAL ESTATE · YOUR CITY, TX",
     h1a: "Sell your home for", h1b: "what it's really worth",
     heroSub: "Find out your home's value instantly, from real nearby sales — free, with no one visiting your home.",
-    ctaValue: "VALUE YOUR HOME IN 60 SECONDS", ctaCall: "Call us",
+    ctaValue: "VALUE YOUR HOME IN 10 SECONDS", ctaCall: "Call us",
     statYears: "years", statSold: "homes sold", statDedication: "dedication",
     qEyebrow: "Instant valuation", qH: ["The value of your home, ", "no waiting"],
     qTitle: "Type your address.<br>Real sales do the rest.", qDesc: "Our system analyzes recent comparable sales and gives you an instant estimated value — free, no obligation.",
-    qLi: ["The real value of YOUR home", "Estimated in under a minute", "Full CMA report, free"],
+    qLi: ["The real value of YOUR home", "Estimated in 10 seconds", "Full CMA report, free"],
     svcEyebrow: "Services", svcH: ["What we do ", "well"],
     svc: [
       ["Sell your home", "We price it right from day one, with a marketing plan that brings real buyers."],
@@ -2917,7 +2917,7 @@ app.get("/ejemplo", (req, res) => {
     steps: [["Valuation", "We analyze real comparable sales to know exactly what your home is worth today. Free."], ["Pricing strategy", "A clear, written price and marketing plan to sell fast and for the most money."], ["Closing", "We negotiate on your behalf and handle every detail of the paperwork until you get your check."]],
     revEyebrow: "Reviews", revH: ["What ", "our clients say"],
     revBody: "Your real Google reviews go here.<br>(We don't invent testimonials on this sample page.)",
-    ctaH: ["Ready to sell for", "the best price?"], ctaSub: "Value your home in 60 seconds or send us a WhatsApp message.",
+    ctaH: ["Ready to sell for", "the best price?"], ctaSub: "Value your home in 10 seconds or send us a WhatsApp message.",
     ctaValueBtn: "VALUE NOW", ctaWa: "💬 WhatsApp",
     footBiz: "Casa Bella Realty", footLine: "Your City, TX · Lic. #00000 · Mon–Sat 9am–7pm",
     footMade: "Sample page built with ⚡ Quick Comp — ", footMadeLink: "yours could look like this",
@@ -2930,11 +2930,11 @@ app.get("/ejemplo", (req, res) => {
     kicker: "BIENES RAÍCES · TU CIUDAD, TX",
     h1a: "Vende tu casa por", h1b: "lo que de verdad vale",
     heroSub: "Descubre el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.",
-    ctaValue: "VALÚA TU CASA EN 60 SEGUNDOS", ctaCall: "Llámanos",
+    ctaValue: "VALÚA TU CASA EN 10 SEGUNDOS", ctaCall: "Llámanos",
     statYears: "años", statSold: "casas vendidas", statDedication: "dedicación",
     qEyebrow: "Valuación instantánea", qH: ["El valor de tu casa, ", "sin esperar"],
     qTitle: "Escribe tu dirección.<br>Las ventas reales hacen el resto.", qDesc: "Nuestro sistema analiza ventas comparables recientes y te da el valor estimado al instante — gratis y sin compromiso.",
-    qLi: ["Valor real de TU casa", "Estimado en menos de un minuto", "Análisis completo (CMA) gratis"],
+    qLi: ["Valor real de TU casa", "Estimado en 10 segundos", "Análisis completo (CMA) gratis"],
     svcEyebrow: "Servicios", svcH: ["Lo que hacemos ", "bien"],
     svc: [
       ["Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
@@ -2949,7 +2949,7 @@ app.get("/ejemplo", (req, res) => {
     steps: [["Valuación", "Analizamos ventas comparables reales para saber exactamente qué vale tu casa hoy. Gratis."], ["Estrategia de precio", "Un plan claro de precio y marketing por escrito para vender rápido y al mejor valor."], ["Cierre", "Negociamos por ti y cuidamos cada detalle del papeleo hasta que recibes tu cheque."]],
     revEyebrow: "Reseñas", revH: ["Lo que dicen ", "nuestros clientes"],
     revBody: "Aquí van las reseñas reales de TUS clientes de Google.<br>(En esta página de ejemplo no inventamos testimonios.)",
-    ctaH: ["¿Listo para vender", "al mejor precio?"], ctaSub: "Valúa tu casa en 60 segundos o mándanos un WhatsApp.",
+    ctaH: ["¿Listo para vender", "al mejor precio?"], ctaSub: "Valúa tu casa en 10 segundos o mándanos un WhatsApp.",
     ctaValueBtn: "VALÚA AHORA", ctaWa: "💬 WhatsApp",
     footBiz: "Casa Bella Realty", footLine: "Tu Ciudad, TX · Lic. #00000 · Lun–Sáb 9am–7pm",
     footMade: "Página de ejemplo hecha con ⚡ Quick Comp — ", footMadeLink: "así puede ser la tuya",
@@ -4271,7 +4271,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <div class="rule"></div>
     <div class="grid">
       <div class="card"><div class="ic">🌐</div><h3>Página web</h3><p>Profesional, con su marca. Lista en 10-14 días.</p></div>
-      <div class="card"><div class="ic">🏡</div><h3>Valuador de casas</h3><p>El dueño pone su dirección y ve el valor de su casa en 60 seg.</p></div>
+      <div class="card"><div class="ic">🏡</div><h3>Valuador de casas</h3><p>El dueño pone su dirección y ve el valor de su casa en 10 seg.</p></div>
       <div class="card"><div class="ic">📲</div><h3>La app Quick Comp</h3><p>Valúa casas, arma el CMA, recibe los leads.</p></div>
       <div class="card"><div class="ic">🤖</div><h3>Secretaria IA</h3><p>Contesta y agenda citas a cualquier hora.</p></div>
     </div>
@@ -4353,7 +4353,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <div class="grid">
       <div class="card"><div class="ic">🎬</div><h3>Anuncios cortos (9:16)</h3><p>15-40 seg para WhatsApp/Reels. Hook fuerte en los primeros 3 seg.</p></div>
       <div class="card"><div class="ic">🎥</div><h3>VSL (1-2 min)</h3><p>Video para la página explicando la oferta — tú a cámara, directo.</p></div>
-      <div class="card"><div class="ic">📱</div><h3>Grabación de pantalla</h3><p>Valuando una casa en 60 seg — el wow en video.</p></div>
+      <div class="card"><div class="ic">📱</div><h3>Grabación de pantalla</h3><p>Valuando una casa en 10 seg — el wow en video.</p></div>
       <div class="card"><div class="ic">📸</div><h3>Fotos del equipo</h3><p>Tú y el equipo con la camisa Quick Comp, profesionales.</p></div>
     </div>
   </div>
@@ -4366,7 +4366,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <h1>Lista para <em>grabar ya.</em></h1>
     <ul class="pts">
       <li><b>🎯</b> "¿Cuántos vendedores pierdes porque no saben lo que vale su casa?" — hook de dolor, a cámara</li>
-      <li><b>🏡</b> "Mira cómo valúo una casa en 60 segundos con ventas reales" — grabación de pantalla</li>
+      <li><b>🏡</b> "Mira cómo valúo una casa en 10 segundos con ventas reales" — grabación de pantalla</li>
       <li><b>💬</b> "Tus clientes te llegan directo al WhatsApp" — muestra el lead llegando</li>
       <li><b>🌐</b> "Tu página web vende sola, 24/7" — muestra la página de ejemplo</li>
       <li><b>🤖</b> "Una secretaria con IA que nunca duerme" — muestra el chat contestando</li>
@@ -4982,7 +4982,7 @@ app.get("/demo", (req, res) => {
     t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin",
     k1: "QUICK COMP · MARKETING & TECHNOLOGY FOR REALTORS", h1a: "More sellers,", h1b: "without chasing them.",
     b1: "Thanks for booking. In the next 10 minutes you'll see a home valued from real comparable sales — and how your website can bring you sellers 24 hours a day.",
-    g1: "60 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
+    g1: "10 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
     k2: "02 · WHO WE ARE", h2a: "Built by a Texas builder,", h2b: "for realtors.",
     b2: "Rolando, our founder, owns residential construction and technology companies in Texas. Buying and valuing his own properties, he lived how hard it was to get an accurate number fast — so he built this tool for himself. It worked so well he opened it to the public, and today he uses this same system to get leads for his own company.",
     p2a: "Builder-founder: he buys and sells real property, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
@@ -5023,7 +5023,7 @@ app.get("/demo", (req, res) => {
     t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos",
     k1: "QUICK COMP · MARKETING Y TECNOLOGÍA PARA AGENTES", h1a: "Más vendedores,", h1b: "sin perseguirlos.",
     b1: "Gracias por agendar. En los próximos 10 minutos vas a ver una casa valuada con ventas comparables reales — y cómo tu página puede traerte vendedores las 24 horas.",
-    g1: "60 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
+    g1: "10 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
     k2: "02 · QUIÉNES SOMOS", h2a: "Construido por un constructor de Texas,", h2b: "para agentes.",
     b2: "Rolando, nuestro fundador, tiene compañías de construcción residencial y de tecnología en Texas. Comprando y valuando sus propias propiedades vivió lo difícil que era sacar un número correcto rápido — así que construyó esta herramienta para él mismo. Funcionó tan bien que la abrió al público, y hoy usa este mismo sistema para conseguir leads para su propia compañía.",
     p2a: "Fundador constructor: compra y vende propiedades, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",

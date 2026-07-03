@@ -2195,6 +2195,11 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const bizPhone = String(prof.phone || c.phone || "").replace(/\D/g, "");
   const logo = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(prof.logo || "")) ? prof.logo : null;
   const es = (req.query.lang || prof.lang || "es") !== "en";
+  // ?showcase=1 (used on the sample website): opens straight on a populated
+  // example result instead of the blank address bar, so a prospect sees the
+  // full lead-capture experience at a glance. A ghost link lets them reset
+  // to the real, blank flow if they want to try their own address.
+  const showcase = req.query.showcase != null;
   const L = es ? {
     title: `¿Cuánto vale tu casa hoy?`,
     sub: "Un estimado real basado en ventas cercanas — en 60 segundos.",
@@ -2230,6 +2235,23 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     callBtn: "📞 CALL", textBtn: "💬 TEXT", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
     err: "Something went wrong — try again or call us.",
   };
+  // Synthetic example result for showcase mode — same numbers used elsewhere
+  // in the demo materials, so the story is consistent across touchpoints.
+  const fmtN = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const scLow = 299000, scHigh = 337000, scLat = 26.3827418, scLng = -98.8196915;
+  const scMid = fmtN(Math.round((scLow + scHigh) / 2 / 1000) * 1000);
+  const scManual = c.slug === "alto-demo" ? (es
+    ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."
+    : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null;
+  const showcaseHtml = showcase ? `
+    <img class="photo" src="/api/streetview?lat=${scLat}&lng=${scLng}" alt="" onerror="this.style.display='none'">
+    <div class="range"><div class="lbl">${L.range}</div><div class="val">${fmtN(scLow)} – ${fmtN(scHigh)}</div><div class="mid">~${scMid}</div></div>
+    <p class="based">${L.basedOn(6)}</p>
+    <p class="note">${L.rangeSub}</p>
+    <div class="ok">${L.sent(prof.biz || c.name)}</div>
+    ${bizPhone ? `<div class="cta"><div class="h">${L.exact}</div><div class="x">${L.exactSub(prof.biz || c.name)}</div><div class="row"><a class="call" href="tel:+1${bizPhone}">${L.callBtn}</a><a class="text" href="sms:+1${bizPhone}">${L.textBtn}</a></div></div>` : ""}
+    ${scManual ? `<div class="manual">${scManual}</div>` : ""}
+    <button class="ghost" onclick="tryOwn()" style="margin-top:6px">${es ? "🔍 Prueba tu propia dirección" : "🔍 Try your own address"}</button>` : "";
   const wBase = `${req.protocol}://${req.get("host")}`;
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz}</title>
@@ -2295,7 +2317,7 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 </style></head><body><div class="wrap">
 <div class="brand">${logo ? `<img src="${logo}" alt="${biz}">` : `<span class="nm">${biz}</span>`}</div>
 <div class="card" id="card">
-  <div id="s1">
+  <div id="s1" style="${showcase ? "display:none" : ""}">
     <div class="chips">${L.chips.map((x) => `<span class="chip">${x}</span>`).join("")}</div>
     <h1>${L.title}</h1><p class="sub">${L.sub}</p>
     <div class="field">
@@ -2326,7 +2348,7 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
     <div class="lstep" id="ls1"><span class="dot">2</span><span>${L.m2}</span></div>
     <div class="lstep" id="ls2"><span class="dot">3</span><span>${L.m3}</span></div>
   </div>
-  <div id="s4" style="display:none"></div>
+  <div id="s4" style="${showcase ? "" : "display:none"}" class="${showcase ? "reveal" : ""}">${showcaseHtml}</div>
 </div>
 <div class="ft">⚡ Powered by Quick Comp</div>
 </div>
@@ -2357,6 +2379,7 @@ function toStep2(){if(addr.value.trim().length<6){document.getElementById('e1').
   document.getElementById('e1').style.display='none';sug.style.display='none';
   document.getElementById('addrEcho').innerHTML='📍 '+addr.value.trim().replace(/</g,'&lt;');show('s2');document.getElementById('nm').focus()}
 function back1(){show('s1')}
+function tryOwn(){show('s1');addr.focus()}
 function fmt(n){return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0})}
 function submit(){
   var ph=document.getElementById('ph').value.replace(/\\D/g,'');
@@ -2557,7 +2580,7 @@ section{padding:64px 0}
 .sec-sub{color:#5A6478;text-align:center;font-weight:600;margin:12px auto 34px;max-width:600px;font-size:15px;line-height:1.6}
 .dark .sec-sub{color:#9DA8C4}
 .demo-frame{background:#fff;border:1px solid #E6EBF3;border-radius:26px;padding:10px;max-width:460px;margin:0 auto;box-shadow:0 26px 70px rgba(16,27,48,.13)}
-.demo-frame iframe{width:100%;height:540px;border:0;border-radius:18px;display:block}
+.demo-frame iframe{width:100%;height:770px;border:0;border-radius:18px;display:block}
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
 .step{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;box-shadow:0 10px 30px rgba(16,27,48,.05)}
 .step .n{font-family:'Barlow Condensed',sans-serif;color:#C9973A;font-size:44px;font-weight:800}
@@ -2666,7 +2689,7 @@ footer a{color:#8A94A8}
 <div class="band"><div class="wrap"><section id="demo" style="padding-bottom:70px">
   <h2 class="sec-t">${L.tryT}</h2>
   <p class="sec-sub">${L.trySub}</p>
-  <div class="demo-frame"><iframe src="/w/alto-demo${en ? "?lang=en" : ""}" loading="lazy" title="Demo"></iframe></div>
+  <div class="demo-frame"><iframe src="/w/alto-demo?showcase=1${en ? "&lang=en" : ""}" loading="lazy" title="Demo"></iframe></div>
   <div style="text-align:center;margin-top:38px">
     <p style="font-weight:800;font-size:17px;margin-bottom:4px">${L.fullQ}</p>
     <p class="sec-sub" style="margin-bottom:18px">${L.fullSub}</p>
@@ -2931,7 +2954,7 @@ section{padding:84px 0}
 .qcopy li{padding:9px 0;font-weight:600;font-size:15px;display:flex;gap:10px;align-items:baseline}
 .qcopy li::before{content:"—";color:var(--red);font-weight:800}
 .qframe{background:#fff;border:1px solid var(--line);border-radius:26px;padding:10px;box-shadow:0 34px 90px rgba(15,18,22,.14)}
-.qframe iframe{width:100%;height:530px;border:0;border-radius:18px;display:block}
+.qframe iframe{width:100%;height:770px;border:0;border-radius:18px;display:block}
 .svc{display:grid;grid-template-columns:54px 1fr auto;gap:18px;align-items:baseline;padding:30px 6px;border-bottom:1px solid var(--line)}
 .svc:first-of-type{border-top:1px solid var(--line)}
 .svc .no{font-family:'Fraunces',Georgia,serif;color:#C9CDD6;font-size:20px;font-weight:700}
@@ -3006,7 +3029,7 @@ ${embed ? "" : `<div class="ribbon">${T.ribbon}</div>`}
         <p>${T.qDesc}</p>
         <ul>${T.qLi.map((x) => `<li>${x}</li>`).join("")}</ul>
       </div>
-      <div class="qframe"><iframe src="/w/alto-demo${en ? "?lang=en" : ""}" loading="lazy" title="${en ? "Valuator" : "Valuador"}"></iframe></div>
+      <div class="qframe"><iframe src="/w/alto-demo?showcase=1${en ? "&lang=en" : ""}" loading="lazy" title="${en ? "Valuator" : "Valuador"}"></iframe></div>
     </div>
   </div>
 </section></div>

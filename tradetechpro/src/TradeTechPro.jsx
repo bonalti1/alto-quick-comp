@@ -1979,25 +1979,22 @@ export default function TradeTechPro() {
         : `Hi${first ? " " + first : ""}! This is ${who || "your agent"} — I saw you checked your home's value${l.address ? ` at ${l.address}` : ""}. I'll put together the full analysis for you, free. When's a good time to call?`;
     };
     return (
-      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+      <div className="flex-1 overflow-y-auto pb-10" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
-            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Leads de vendedores" : "Seller leads"}</p>
-            <p className="text-white font-extrabold" style={{ fontSize: 26, margin: "4px 0 6px" }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</p>
-            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Cada dueño que llena tu formulario aparece aquí al instante — con su teléfono y el valor que vio." : "Every homeowner who fills out your form lands here instantly — with their phone and the value they saw."}</p>
-          </div>
-
-          {/* Share the lead form — the engine that fills this inbox */}
-          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
-            <p className="mb-2.5" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Mándale tu formulario a un cliente — pone su dirección, ve el valor de su casa, y su información te llega aquí." : "Send your lead form to a client — they type their address, see their home's value, and their info lands right here."}</p>
-            <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-2"
-              style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: 13, fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>💬 {lang === "es" ? "Mandar mi formulario" : "Send my lead form"}</button>
+          {/* Compact share card — the months below get the screen space */}
+          <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <div className="flex items-center justify-between mb-1">
+              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
+              <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
+            </div>
+            <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600, lineHeight: 1.45 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí sola." : "Send your lead form to a client — their info lands here on its own."}</p>
+            <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-1.5"
+              style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 11, padding: 11, fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>💬 {lang === "es" ? "Mandar mi formulario" : "Send my lead form"}</button>
             <div className="flex gap-2">
               <button onClick={() => copyText(leadFormUrl)} className="flex-1 active:translate-y-px transition-transform"
-                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
               <a href={leadFormUrl} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center"
-                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
             </div>
           </div>
 

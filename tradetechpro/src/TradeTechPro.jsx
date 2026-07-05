@@ -74,7 +74,7 @@ const Slider = ({ label, value, display, min, max, step, onChange }) => {
 const DOC = { serif: "Georgia, 'Times New Roman', serif", hair: "#DCE1EA", ink: "#0F1B33", mut: "#5A6478", body: "#2A3550" };
 const DocSect = ({ n, title, children }) => (
   <div className="mt-4">
-    <div className="flex items-baseline gap-2 pb-1.5 mb-2.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+    <div className="doc-h flex items-baseline gap-2 pb-1.5 mb-2.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
       <span style={{ color: QC.gold, fontSize: 11, fontWeight: 700, fontFamily: DOC.serif }}>{n}</span>
       <span style={{ color: DOC.ink, fontSize: 10, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase" }}>{title}</span>
     </div>
@@ -104,7 +104,7 @@ const DocCover = ({ ll, kicker, title }) => (
         className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} />
     )}
     <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(11,23,51,0.10) 25%, rgba(11,23,51,0.60) 60%, rgba(9,18,40,0.92) 100%)" }} />
-    <div className="relative px-5 pb-4" style={{ paddingTop: 78 }}>
+    <div className="doc-cover relative px-5 pb-4" style={{ paddingTop: 78 }}>
       <p style={{ color: QC.goldHi, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.24em", textTransform: "uppercase" }}>{kicker}</p>
       <h1 style={{ fontFamily: DOC.serif, color: "#fff", fontSize: 23, lineHeight: 1.25, marginTop: 4, fontWeight: 400 }}>{title}</h1>
     </div>
@@ -2302,7 +2302,7 @@ export default function TradeTechPro() {
       } catch { try { await navigator.clipboard.writeText(url); copied(); } catch { /* ignore */ } }
     };
     return (
-      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+      <div className="print-flow flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
           {/* The report document — consulting-grade: serif display, hairline
               rules, numbered sections, a stat band, and a real comps table */}
@@ -2332,7 +2332,7 @@ export default function TradeTechPro() {
             {/* Body */}
             <div className="px-5 py-5">
               {/* Stat band */}
-              <div className="flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
+              <div className="doc-band flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
                 <DocStat first big label={t.cmpValue} value={fmt(R.value)} />
                 {hasRange && <DocStat label={lang === "es" ? "Rango sugerido" : "Suggested range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
                 {R.avgPpsf ? <DocStat label={lang === "es" ? "$/pie²" : "$/sq ft"} value={fmt(R.avgPpsf)} /> : null}
@@ -2365,7 +2365,7 @@ export default function TradeTechPro() {
                       const dt = c.soldDate ? new Date(c.soldDate) : null;
                       const when = dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : "";
                       return (
-                        <div key={i} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                        <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
                           <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
                           <span className="flex-1 min-w-0">
                             <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
@@ -2685,7 +2685,7 @@ export default function TradeTechPro() {
     const hasDrift = Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1;
     const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
     return (
-      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+      <div className="print-flow flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
           {/* Controls — never printed */}
           <div className="no-print rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -2740,7 +2740,7 @@ export default function TradeTechPro() {
             </div>
             <div className="px-5 py-5">
               {/* Stat band */}
-              <div className="flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
+              <div className="doc-band flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
                 {contractN > 0 && <DocStat first big label={es ? "Precio de contrato" : "Contract price"} value={fmt(contractN)} />}
                 <DocStat first={!contractN} big={!contractN} label={es ? "Valor indicado" : "Indicated value"} value={fmt(R.value)} />
                 {hasRange && <DocStat label={es ? "Rango" : "Range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
@@ -2774,7 +2774,7 @@ export default function TradeTechPro() {
                 {comps.map((c, i) => {
                   const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
                   return (
-                    <div key={i} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                    <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
                       <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
                       <span className="flex-1 min-w-0">
                         <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
@@ -2826,22 +2826,33 @@ export default function TradeTechPro() {
   const withNav = tabScreens;
 
   return (
-    <div className="min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
+    <div className="app-outer min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
         * { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         input::placeholder { color: #A7AEBE; }
         @keyframes ttpPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: .65; } }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+        @page { margin: 0.45in; }
         @media print {
           body { background: #fff !important; }
           .no-print { display: none !important; }
+          /* The phone-shaped shell must become a plain, full-width page flow:
+             without this the document prints as a 448px strip clipped to one
+             screen — the "PDF looks terrible" bug. */
+          .app-outer { background: #fff !important; display: block !important; }
+          .app-shell { height: auto !important; overflow: visible !important; max-width: none !important; }
+          .print-flow { overflow: visible !important; height: auto !important; background: #fff !important; }
+          .print-flow > div { padding: 0 !important; }
           /* Force backgrounds to print: without this Chrome/Safari drop the navy
              header band and gold labels, so "Presented by / agent / brokerage /
              license" prints as white-on-white — the report comes out anonymous. */
           #qc-report, #qc-report * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          #qc-report { box-shadow: none !important; border: 1px solid #d9e1ef !important; }
-          /* the fixed-height app shell would otherwise clip a long report */
-          .app-shell { height: auto !important; overflow: visible !important; }
+          #qc-report { box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+          /* Paper typography: paginate cleanly — never split a comp row or a
+             stat band, never leave a section header orphaned at a page break. */
+          #qc-report .doc-band, #qc-report .doc-row { break-inside: avoid; }
+          #qc-report .doc-h { break-after: avoid; }
+          #qc-report .doc-cover { padding-top: 170px !important; }
         }`}</style>
       <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
@@ -2869,7 +2880,7 @@ export default function TradeTechPro() {
         {/* Pinned bottom tabs */}
         {withNav.includes(screen) && <div className="shrink-0"><BottomNav /></div>}
         {toast && (
-          <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
+          <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
           </div>
         )}

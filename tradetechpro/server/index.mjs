@@ -2310,6 +2310,10 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 @keyframes pls{50%{transform:scale(1.12)}}
 .reveal{animation:rv .6s cubic-bezier(.2,.7,.2,1)}
 @keyframes rv{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.reveal-big{animation:rvb .75s cubic-bezier(.16,.8,.3,1.12)}
+@keyframes rvb{from{opacity:0;transform:translateY(30px) scale(.95)}to{opacity:1;transform:none}}
+.range.glow{animation:rgw 1.5s ease .4s 2}
+@keyframes rgw{0%,100%{box-shadow:0 16px 40px rgba(12,22,49,.28)}50%{box-shadow:0 16px 40px rgba(12,22,49,.28),0 0 0 8px rgba(230,191,106,.30)}}
 .photo{width:100%;height:190px;object-fit:cover;border-radius:14px;display:block;margin-bottom:12px;background:#EEF0F5}
 .addrline{font-weight:800;font-size:14.5px;color:#101B30;text-align:center;margin:0 0 12px}
 .specs{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px}
@@ -2338,7 +2342,7 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 </style></head><body><div class="wrap">
 <div class="brand">${logo ? `<img src="${logo}" alt="${biz}">` : `<span class="nm">${biz}</span>`}</div>
 <div class="card" id="card">
-  <div id="s1" style="${showcase ? "display:none" : ""}">
+  <div id="s1">
     <div class="chips">${L.chips.map((x) => `<span class="chip">${x}</span>`).join("")}</div>
     <h1>${L.title}</h1><p class="sub">${L.sub}</p>
     <div class="field">
@@ -2369,7 +2373,7 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
     <div class="lstep" id="ls1"><span class="dot">2</span><span>${L.m2}</span></div>
     <div class="lstep" id="ls2"><span class="dot">3</span><span>${L.m3}</span></div>
   </div>
-  <div id="s4" style="${showcase ? "" : "display:none"}" class="${showcase ? "reveal" : ""}">${showcaseHtml}</div>
+  <div id="s4" style="display:none">${showcaseHtml}</div>
 </div>
 <div class="ft">⚡ Powered by Quick Comp</div>
 </div>
@@ -2401,7 +2405,7 @@ function toStep2(){if(addr.value.trim().length<6){document.getElementById('e1').
   document.getElementById('e1').style.display='none';sug.style.display='none';
   document.getElementById('addrEcho').innerHTML='📍 '+addr.value.trim().replace(/</g,'&lt;');show('s2');document.getElementById('nm').focus()}
 function back1(){show('s1')}
-function tryOwn(){show('s1');addr.focus()}
+function tryOwn(){addr.value='';sug.style.display='none';show('s1');addr.focus()}
 function fmt(n){return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0})}
 function submit(){
   var ph=document.getElementById('ph').value.replace(/\\D/g,'');
@@ -2446,6 +2450,76 @@ function render(j){track('w_result');if(window.parent!==window){try{window.paren
     +'<a class="text" href="sms:+1'+BPH+'">'+L.textBtn+'</a></div></div>';}
   if(L.manual)h+='<div class="manual">'+L.manual+'</div>';
   s4.innerHTML=h;s4.className='reveal';show('s4')}
+${showcase ? `
+/* SHOWCASE: auto-play the whole flow (address types itself → lead gate fills →
+ * analyzing steps → result reveals with a count-up) the moment the widget
+ * scrolls into view, so the demo sells the experience by itself. Tapping
+ * anywhere skips straight to the finished result; reduced-motion visitors
+ * get the finished result immediately. */
+(function(){
+  var SC_ADDR=${JSON.stringify(scAddress)},SC_LOW=${scLow},SC_HIGH=${scHigh};
+  var timers=[],playing=false,done=false;
+  var noMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function later(fn,ms){timers.push(setTimeout(fn,ms))}
+  function typeInto(el,txt,speed,then){
+    var i=0,iv=setInterval(function(){
+      i++;el.value=txt.slice(0,i)+(i<txt.length?'|':'');
+      if(i>=txt.length){clearInterval(iv);later(then,340)}
+    },speed);timers.push(iv);
+  }
+  function countUp(){
+    var el=document.querySelector('#s4 .range .val'),mid=document.querySelector('#s4 .range .mid');
+    if(!el)return;
+    if(mid)mid.style.opacity='0';
+    var t0=null;
+    function fr(ts){
+      if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/900);p=1-Math.pow(1-p,3);
+      el.textContent=fmt(Math.round(SC_LOW*p/1000)*1000)+' – '+fmt(Math.round(SC_HIGH*p/1000)*1000);
+      if(p<1)requestAnimationFrame(fr);
+      else if(mid){mid.style.transition='opacity .4s';mid.style.opacity='1'}
+    }
+    requestAnimationFrame(fr);
+  }
+  function finish(instant){
+    if(done)return;done=true;
+    timers.forEach(function(t){clearTimeout(t);clearInterval(t)});
+    ['addr','nm','ph'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
+    ['e1','e2'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none'});
+    show('s4');
+    if(!instant){
+      var s4=document.getElementById('s4');s4.className='reveal-big';
+      var r=s4.querySelector('.range');if(r)r.classList.add('glow');
+      countUp();
+    }
+  }
+  function playLoading(){
+    show('s3');
+    var fill=document.getElementById('pfill');
+    function mark(i){['ls0','ls1','ls2'].forEach(function(id,k){var el=document.getElementById(id);el.className='lstep'+(k<i?' on':k===i?' doing':'');if(k<i)el.querySelector('.dot').textContent='✓'})}
+    mark(0);fill.style.width='34%';
+    later(function(){mark(1);fill.style.width='68%'},1100);
+    later(function(){mark(2);fill.style.width='92%'},2200);
+    later(function(){mark(3);fill.style.width='100%';finish()},3100);
+  }
+  function playGate(){
+    document.getElementById('addrEcho').innerHTML='📍 '+SC_ADDR;
+    show('s2');
+    typeInto(document.getElementById('nm'),${JSON.stringify(es ? "María González" : "Sarah Mitchell")},36,function(){
+      typeInto(document.getElementById('ph'),'(956) 555-0143',36,function(){later(playLoading,550)});
+    });
+  }
+  function play(){
+    if(playing||done)return;playing=true;
+    typeInto(addr,SC_ADDR,40,function(){later(playGate,420)});
+  }
+  document.getElementById('card').addEventListener('pointerdown',function(){if(playing&&!done)finish()});
+  if(noMotion){finish(true);return}
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.disconnect();later(play,350)}})},{threshold:.35});
+    io.observe(document.getElementById('card'));
+  }else later(play,600);
+})();
+` : ""}
 </script></body></html>`);
 });
 

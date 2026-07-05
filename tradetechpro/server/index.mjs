@@ -2620,6 +2620,7 @@ function landingPage(req) {
     leadsT: "SELLERS LAND<br><em>ON YOUR PHONE</em>",
     leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 10 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
     pNew: "1 NEW", pNew2: "NEW",
+    duoH: "What's my home worth?", duoBrand: "CASA BELLA REALTY", duoName: "Your name", duoPhone: "Your phone", duoBtn: "SEE MY HOME'S VALUE", duoNotif: "<b>New seller lead</b> · just now", duoEmpty: "Your seller leads land here…",
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     appTryT: "TRY THE APP <em>YOURSELF</em>",
@@ -2670,6 +2671,7 @@ function landingPage(req) {
     leadsT: "LOS VENDEDORES LLEGAN<br><em>A TU TELÉFONO</em>",
     leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 10 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
     pNew: "1 NUEVO", pNew2: "NUEVO",
+    duoH: "¿Cuánto vale mi casa?", duoBrand: "CASA BELLA REALTY", duoName: "Tu nombre", duoPhone: "Tu teléfono", duoBtn: "VER EL VALOR DE MI CASA", duoNotif: "<b>¡Nuevo lead de venta!</b> · ahora mismo", duoEmpty: "Tus leads de venta llegan aquí…",
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     appTryT: "PRUEBA LA APP <em>TÚ MISMO</em>",
@@ -2753,6 +2755,34 @@ section{padding:64px 0}
 .pnew{background:#C9973A;color:#fff;border-radius:99px;font-size:10px;font-weight:800;padding:2px 8px}
 .gold{color:#B07A00;font-weight:800}
 .pwa{background:#25D366;color:#fff;border-radius:10px;text-align:center;font-weight:800;font-size:13px;padding:9px;margin-top:10px}
+/* Website → phone lead animation */
+.lead-duo{display:flex;align-items:center;justify-content:center;gap:22px;position:relative;flex-wrap:wrap}
+.duo-phone{width:252px}
+.mini-site{width:248px;background:#fff;border-radius:14px;box-shadow:0 26px 70px rgba(0,0,0,.45);overflow:hidden;flex-shrink:0}
+.ms-bar{background:#E8ECF3;display:flex;align-items:center;gap:5px;padding:8px 10px}
+.ms-dot{width:9px;height:9px;border-radius:5px;background:#C6CEDC}
+.ms-url{background:#fff;border-radius:7px;font-size:10px;font-weight:700;color:#5A6478;padding:3px 10px;margin-left:6px;flex:1;text-align:center}
+.ms-body{padding:14px 14px 16px;color:#101B30}
+.ms-brand{font-size:9px;font-weight:800;letter-spacing:.18em;color:#B07A00}
+.ms-h{font-weight:800;font-size:16px;margin:3px 0 9px}
+.ms-addr{background:#F4F6FA;border:1px solid #E2E7F0;border-radius:8px;font-size:11.5px;font-weight:700;padding:7px 9px;margin-bottom:9px}
+.ms-lab{font-size:9px;font-weight:800;letter-spacing:.1em;color:#5A6478;text-transform:uppercase;margin-bottom:3px}
+.ms-in{background:#F4F6FA;border:1.5px solid #E2E7F0;border-radius:8px;min-height:31px;font-size:12.5px;font-weight:700;padding:6px 9px;margin-bottom:8px;display:flex;align-items:center}
+.ms-caret{display:inline-block;width:1.5px;height:14px;background:#101B30;margin-left:1px;opacity:0}
+.ms-in.typing{border-color:#C9973A}
+.ms-in.typing .ms-caret{opacity:1;animation:msblink .8s steps(1) infinite}
+@keyframes msblink{50%{opacity:0}}
+.ms-btn{background:linear-gradient(135deg,#C9973A,#A87A24);color:#fff;border-radius:9px;text-align:center;font-weight:800;font-size:11.5px;letter-spacing:.04em;padding:11px;transition:transform .15s,background .2s}
+.ms-btn.press{transform:scale(.93)}
+.ms-btn.sent{background:#1C8C4E}
+.duo-fly{position:absolute;left:0;top:0;font-size:26px;opacity:0;pointer-events:none;z-index:3}
+.pnotif{background:#101B30;color:#fff;border-radius:11px;font-size:11px;font-weight:600;padding:8px 11px;margin-bottom:9px;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+.pnotif b{color:#EFC36A}
+.pempty{display:none;color:#8A93A8;font-size:12px;font-weight:600;text-align:center;padding:30px 8px;border:1.5px dashed #C6CEDC;border-radius:14px}
+@keyframes duobuzz{0%,100%{transform:none}20%{transform:translateX(-3px) rotate(-.5deg)}40%{transform:translateX(3px) rotate(.5deg)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+.duo-phone.buzz{animation:duobuzz .5s}
+@keyframes leadin{from{opacity:0;transform:translateY(-10px) scale(.97)}to{opacity:1;transform:none}}
+.plead.in{animation:leadin .45s ease}
 .ben{max-width:430px}
 .ben li{list-style:none;padding:11px 0;font-weight:600;font-size:16px;color:#E7ECF6;border-bottom:1px solid rgba(255,255,255,.09)}
 .ben li b{color:#C9973A}
@@ -2864,11 +2894,33 @@ footer a{color:#8A94A8}
 
 <div class="dark"><div class="wrap"><section>
   <div class="phone-sec">
-    <div class="phone"><div class="notch"></div>
-      <div class="papp">
-        <div class="phead">📥 Leads <span class="pbadge">${L.pNew}</span></div>
-        <div class="plead"><b>Carlos Pérez</b> <span class="pnew">${L.pNew2}</span><br>📍 502 Britton Ave<br>(956) 555-0188 · <span class="gold">$385,000–$412,000</span>
-          <div class="pwa">💬 WhatsApp</div>
+    <!-- Cause and effect, animated on a loop: the homeowner fills the form on
+         the realtor's WEBSITE (left) and the lead lands on the PHONE (right).
+         Server-rendered in the finished state so no-JS / reduced-motion still
+         shows a complete story. -->
+    <div class="lead-duo" id="lduo">
+      <div class="mini-site">
+        <div class="ms-bar"><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-url">maria-realty.com</span></div>
+        <div class="ms-body">
+          <div class="ms-brand">${L.duoBrand}</div>
+          <div class="ms-h">${L.duoH}</div>
+          <div class="ms-addr">📍 502 Britton Ave</div>
+          <div class="ms-lab">${L.duoName}</div>
+          <div class="ms-in"><span id="msName">Carlos Pérez</span><span class="ms-caret"></span></div>
+          <div class="ms-lab">${L.duoPhone}</div>
+          <div class="ms-in"><span id="msPhone">(956) 555-0188</span><span class="ms-caret"></span></div>
+          <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
+        </div>
+      </div>
+      <div class="duo-fly" id="duoFly">📥</div>
+      <div class="phone duo-phone" id="duoPhone"><div class="notch"></div>
+        <div class="papp">
+          <div class="pnotif" id="pnotif">📥 ${L.duoNotif}</div>
+          <div class="phead">📥 Leads <span class="pbadge" id="pbadge">${L.pNew}</span></div>
+          <div class="pempty" id="pempty">${L.duoEmpty}</div>
+          <div class="plead" id="plead"><b>Carlos Pérez</b> <span class="pnew">${L.pNew2}</span><br>📍 502 Britton Ave<br>(956) 555-0188 · <span class="gold">$385,000–$412,000</span>
+            <div class="pwa">💬 WhatsApp</div>
+          </div>
         </div>
       </div>
     </div>
@@ -2972,6 +3024,68 @@ function qBack(){qShow(qCur-1)}
       }else v.pause();
     })},{threshold:.3}).observe(v);
   }
+})();
+// Lead duo: the homeowner "types" into the website form on the left, presses
+// the button, and the lead flies into the phone on the right — notification,
+// buzz, badge, card. Loops while in view. The page is server-rendered in the
+// finished state, so no-JS and reduced-motion visitors still see the story.
+(function(){
+  var duo=document.getElementById('lduo');if(!duo)return;
+  if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  var nameEl=document.getElementById('msName'),phEl=document.getElementById('msPhone');
+  var in1=nameEl.parentNode,in2=phEl.parentNode;
+  var btn=document.getElementById('msBtn'),fly=document.getElementById('duoFly');
+  var phone=document.getElementById('duoPhone'),notif=document.getElementById('pnotif');
+  var badge=document.getElementById('pbadge'),empty=document.getElementById('pempty'),lead=document.getElementById('plead');
+  var BTN=btn.textContent,NAME='Carlos Pérez',PH='(956) 555-0188';
+  var playing=false;
+  function type(el,box,txt,done){
+    box.classList.add('typing');var i=0;
+    (function tick(){
+      if(i<=txt.length){el.textContent=txt.slice(0,i);i++;setTimeout(tick,50)}
+      else{box.classList.remove('typing');done&&done()}
+    })();
+  }
+  function reset(){
+    nameEl.textContent='';phEl.textContent='';
+    btn.classList.remove('press','sent');btn.textContent=BTN;
+    notif.style.visibility='hidden';badge.style.visibility='hidden';
+    lead.style.display='none';lead.classList.remove('in');empty.style.display='block';
+    phone.classList.remove('buzz');fly.style.opacity='0';fly.style.transition='none';fly.style.transform='none';
+  }
+  function land(){
+    phone.classList.add('buzz');
+    notif.style.visibility='visible';empty.style.display='none';
+    badge.style.visibility='visible';lead.style.display='block';lead.classList.add('in');
+    setTimeout(function(){playing=false;play()},4600);
+  }
+  function send(){
+    setTimeout(function(){btn.classList.add('press')},250);
+    setTimeout(function(){btn.classList.remove('press');btn.classList.add('sent');btn.textContent='✓'},450);
+    setTimeout(function(){
+      var a=btn.getBoundingClientRect(),b=phone.getBoundingClientRect(),d=duo.getBoundingClientRect();
+      fly.style.left=(a.left-d.left+a.width/2-13)+'px';
+      fly.style.top=(a.top-d.top+a.height/2-13)+'px';
+      fly.style.opacity='1';
+      requestAnimationFrame(function(){requestAnimationFrame(function(){
+        fly.style.transition='transform .7s cubic-bezier(.5,-.15,.6,1),opacity .7s';
+        fly.style.transform='translate('+(b.left+b.width/2-a.left-a.width/2)+'px,'+(b.top+b.height/2-a.top-a.height/2)+'px) scale(.4)';
+        fly.style.opacity='0';
+      })});
+    },650);
+    setTimeout(land,1350);
+  }
+  function play(){
+    if(playing)return;playing=true;reset();
+    setTimeout(function(){
+      type(nameEl,in1,NAME,function(){
+        setTimeout(function(){type(phEl,in2,PH,send)},320);
+      });
+    },500);
+  }
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)play()})},{threshold:.35}).observe(duo);
+  }else play();
 })();
 // "Try it on your phone" — captures the prospect as a sales lead, then reveals
 // the trial link so they can open the app on their phone right away.

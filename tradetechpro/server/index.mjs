@@ -2621,6 +2621,7 @@ function landingPage(req) {
     leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 10 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
     pNew: "1 NEW", pNew2: "NEW",
     duoH: "What's my home worth?", duoBrand: "CASA BELLA REALTY", duoName: "Your name", duoPhone: "Your phone", duoBtn: "SEE MY HOME'S VALUE", duoNotif: "<b>New seller lead</b> · just now", duoEmpty: "Your seller leads land here…",
+    duoKick: "FREE HOME VALUATION", duoSub: "See what your home is worth from real recent sales — in seconds.", duoNav: ["Home", "Listings", "Sell", "Contact"],
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     appTryT: "TRY THE APP <em>YOURSELF</em>",
@@ -2672,6 +2673,7 @@ function landingPage(req) {
     leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 10 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
     pNew: "1 NUEVO", pNew2: "NUEVO",
     duoH: "¿Cuánto vale mi casa?", duoBrand: "CASA BELLA REALTY", duoName: "Tu nombre", duoPhone: "Tu teléfono", duoBtn: "VER EL VALOR DE MI CASA", duoNotif: "<b>¡Nuevo lead de venta!</b> · ahora mismo", duoEmpty: "Tus leads de venta llegan aquí…",
+    duoKick: "VALUACIÓN GRATIS DE TU CASA", duoSub: "Mira cuánto vale tu casa con ventas recientes reales — en segundos.", duoNav: ["Inicio", "Propiedades", "Vender", "Contacto"],
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     appTryT: "PRUEBA LA APP <em>TÚ MISMO</em>",
@@ -2755,17 +2757,29 @@ section{padding:64px 0}
 .pnew{background:#C9973A;color:#fff;border-radius:99px;font-size:10px;font-weight:800;padding:2px 8px}
 .gold{color:#B07A00;font-weight:800}
 .pwa{background:#25D366;color:#fff;border-radius:10px;text-align:center;font-weight:800;font-size:13px;padding:9px;margin-top:10px}
-/* Website → phone lead animation */
-.lead-duo{display:flex;align-items:center;justify-content:center;gap:22px;position:relative;flex-wrap:wrap}
+/* Website (laptop) → phone lead animation */
+.lead-duo{display:flex;align-items:center;justify-content:center;gap:34px;position:relative;flex-wrap:wrap}
 .duo-phone{width:252px}
-.mini-site{width:248px;background:#fff;border-radius:14px;box-shadow:0 26px 70px rgba(0,0,0,.45);overflow:hidden;flex-shrink:0}
+.laptop{width:min(520px,92vw);flex-shrink:0}
+.lap-screen{background:#fff;border:11px solid #1E2A45;border-bottom:none;border-radius:16px 16px 0 0;overflow:hidden;box-shadow:0 36px 90px rgba(0,0,0,.5)}
+.lap-base{height:15px;background:linear-gradient(#33415F,#1E2A45);border-radius:2px 2px 14px 14px;box-shadow:0 28px 60px rgba(0,0,0,.45);display:flex;justify-content:center}
+.lap-grip{width:88px;height:5px;background:#0E1730;border-radius:0 0 8px 8px;opacity:.85}
+.site-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:#fff;border-bottom:1px solid #ECEFF5}
+.sn-logo{font-size:11px;font-weight:800;letter-spacing:.14em;color:#101B30;white-space:nowrap}
+.sn-logo b{color:#B07A00}
+.sn-links{display:flex;gap:13px}
+.sn-links i{font-style:normal;font-size:10px;font-weight:700;color:#7A8398;white-space:nowrap}
+.site-hero{background:linear-gradient(135deg,#101B30 0%,#1B2A5C 58%,#2A3E7C 100%);padding:20px 20px 22px;color:#fff}
+.sh-kick{font-size:9px;font-weight:800;letter-spacing:.24em;color:#EFC36A}
+.sh-h{font-size:22px;font-weight:800;margin:5px 0 4px}
+.sh-sub{font-size:11.5px;font-weight:600;color:rgba(255,255,255,.72);margin-bottom:13px}
+.widget-card{background:#fff;border-radius:13px;padding:13px;color:#101B30;box-shadow:0 16px 38px rgba(0,0,0,.38)}
+.wc-row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
 .ms-bar{background:#E8ECF3;display:flex;align-items:center;gap:5px;padding:8px 10px}
 .ms-dot{width:9px;height:9px;border-radius:5px;background:#C6CEDC}
 .ms-url{background:#fff;border-radius:7px;font-size:10px;font-weight:700;color:#5A6478;padding:3px 10px;margin-left:6px;flex:1;text-align:center}
-.ms-body{padding:14px 14px 16px;color:#101B30}
-.ms-brand{font-size:9px;font-weight:800;letter-spacing:.18em;color:#B07A00}
-.ms-h{font-weight:800;font-size:16px;margin:3px 0 9px}
 .ms-addr{background:#F4F6FA;border:1px solid #E2E7F0;border-radius:8px;font-size:11.5px;font-weight:700;padding:7px 9px;margin-bottom:9px}
+.papp-top{background:#101B30;color:#EFC36A;font-size:9px;font-weight:800;letter-spacing:.2em;text-align:center;padding:7px;margin:-12px -12px 10px;border-radius:16px 16px 0 0}
 .ms-lab{font-size:9px;font-weight:800;letter-spacing:.1em;color:#5A6478;text-transform:uppercase;margin-bottom:3px}
 .ms-in{background:#F4F6FA;border:1.5px solid #E2E7F0;border-radius:8px;min-height:31px;font-size:12.5px;font-weight:700;padding:6px 9px;margin-bottom:8px;display:flex;align-items:center}
 .ms-caret{display:inline-block;width:1.5px;height:14px;background:#101B30;margin-left:1px;opacity:0}
@@ -2899,22 +2913,30 @@ footer a{color:#8A94A8}
          Server-rendered in the finished state so no-JS / reduced-motion still
          shows a complete story. -->
     <div class="lead-duo" id="lduo">
-      <div class="mini-site">
-        <div class="ms-bar"><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-url">maria-realty.com</span></div>
-        <div class="ms-body">
-          <div class="ms-brand">${L.duoBrand}</div>
-          <div class="ms-h">${L.duoH}</div>
-          <div class="ms-addr">📍 502 Britton Ave</div>
-          <div class="ms-lab">${L.duoName}</div>
-          <div class="ms-in"><span id="msName">Carlos Pérez</span><span class="ms-caret"></span></div>
-          <div class="ms-lab">${L.duoPhone}</div>
-          <div class="ms-in"><span id="msPhone">(956) 555-0188</span><span class="ms-caret"></span></div>
-          <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
+      <div class="laptop">
+        <div class="lap-screen">
+          <div class="ms-bar"><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-url">maria-realty.com</span></div>
+          <div class="site-nav"><span class="sn-logo">CASA BELLA <b>REALTY</b></span><span class="sn-links">${L.duoNav.map((x) => `<i>${x}</i>`).join("")}</span></div>
+          <div class="site-hero">
+            <div class="sh-kick">${L.duoKick}</div>
+            <div class="sh-h">${L.duoH}</div>
+            <div class="sh-sub">${L.duoSub}</div>
+            <div class="widget-card">
+              <div class="ms-addr">📍 502 Britton Ave</div>
+              <div class="wc-row">
+                <div><div class="ms-lab">${L.duoName}</div><div class="ms-in"><span id="msName">Carlos Pérez</span><span class="ms-caret"></span></div></div>
+                <div><div class="ms-lab">${L.duoPhone}</div><div class="ms-in"><span id="msPhone">(956) 555-0188</span><span class="ms-caret"></span></div></div>
+              </div>
+              <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
+            </div>
+          </div>
         </div>
+        <div class="lap-base"><span class="lap-grip"></span></div>
       </div>
       <div class="duo-fly" id="duoFly">📥</div>
       <div class="phone duo-phone" id="duoPhone"><div class="notch"></div>
         <div class="papp">
+          <div class="papp-top">⚡ QUICK COMP</div>
           <div class="pnotif" id="pnotif">📥 ${L.duoNotif}</div>
           <div class="phead">📥 Leads <span class="pbadge" id="pbadge">${L.pNew}</span></div>
           <div class="pempty" id="pempty">${L.duoEmpty}</div>

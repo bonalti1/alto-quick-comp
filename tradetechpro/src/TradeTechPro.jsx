@@ -72,10 +72,20 @@ const Slider = ({ label, value, display, min, max, step, onChange }) => {
  * Serif display, hairline rules, numbered small-caps sections — the visual
  * language of a top-tier advisory deliverable, not a phone screenshot. */
 const DOC = { serif: "Georgia, 'Times New Roman', serif", hair: "#DCE1EA", ink: "#0F1B33", mut: "#5A6478", body: "#2A3550" };
-const DocSect = ({ n, title, children }) => (
+/* Blend a hex color toward black (f<0) or white (f>0) — derives the darker
+ * band and the light tint from the realtor's single brand color. */
+const shadeHex = (hex, f) => {
+  const n = parseInt(hex.slice(1), 16);
+  const t = f < 0 ? 0 : 255, p = Math.abs(f);
+  const r = Math.round(((n >> 16) & 255) + (t - ((n >> 16) & 255)) * p);
+  const g = Math.round(((n >> 8) & 255) + (t - ((n >> 8) & 255)) * p);
+  const b = Math.round((n & 255) + (t - (n & 255)) * p);
+  return "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+};
+const DocSect = ({ n, title, children, accent }) => (
   <div className="mt-4">
     <div className="doc-h flex items-baseline gap-2 pb-1.5 mb-2.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
-      <span style={{ color: QC.gold, fontSize: 11, fontWeight: 700, fontFamily: DOC.serif }}>{n}</span>
+      <span style={{ color: accent || QC.gold, fontSize: 11, fontWeight: 700, fontFamily: DOC.serif }}>{n}</span>
       <span style={{ color: DOC.ink, fontSize: 10, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase" }}>{title}</span>
     </div>
     {children}
@@ -96,8 +106,8 @@ const DocFoot = ({ left, right }) => (
 );
 /* Cover page: the street photo with the address set over it. If the photo
  * can't load it degrades to a clean navy cover — never a broken layout. */
-const DocCover = ({ ll, kicker, title }) => (
-  <div className="relative overflow-hidden" style={{ background: QC.headGrad }}>
+const DocCover = ({ ll, kicker, title, grad, tint }) => (
+  <div className="relative overflow-hidden" style={{ background: grad || QC.headGrad }}>
     {ll && (
       <img src={`/api/streetview?lat=${ll.lat}&lng=${ll.lng}`} alt=""
         onError={(e) => { e.currentTarget.style.display = "none"; }}
@@ -105,7 +115,7 @@ const DocCover = ({ ll, kicker, title }) => (
     )}
     <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(11,23,51,0.10) 25%, rgba(11,23,51,0.60) 60%, rgba(9,18,40,0.92) 100%)" }} />
     <div className="doc-cover relative px-5 pb-4" style={{ paddingTop: 78 }}>
-      <p style={{ color: QC.goldHi, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.24em", textTransform: "uppercase" }}>{kicker}</p>
+      <p style={{ color: tint || QC.goldHi, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.24em", textTransform: "uppercase" }}>{kicker}</p>
       <h1 style={{ fontFamily: DOC.serif, color: "#fff", fontSize: 23, lineHeight: 1.25, marginTop: 4, fontWeight: 400 }}>{title}</h1>
     </div>
   </div>
@@ -530,6 +540,9 @@ export default function TradeTechPro() {
   const [bizEmail, setBizEmail] = useState(savedProfile.email || "");
   const [license, setLicense] = useState(savedProfile.license || "");
   const [market, setMarket] = useState(savedProfile.market || ""); // the realtor's city/area, from onboarding
+  // The realtor's brand color — drives every client-facing document, so the
+  // app's own navy/gold never appears on a client deliverable.
+  const [brandColor, setBrandColor] = useState(savedProfile.brandColor || "");
   const [zelle, setZelle] = useState(savedProfile.zelle || "");
   const [myPrices, setMyPrices] = useState(savedProfile.prices || {});
   const logoIdRef = useRef(null); // server id for the currently uploaded logo
@@ -646,6 +659,7 @@ export default function TradeTechPro() {
         if (p.email) setBizEmail(p.email);
         if (p.license) setLicense(p.license);
         if (p.market) setMarket(p.market);
+        if (p.brandColor) setBrandColor(p.brandColor);
         if (p.zelle) setZelle(p.zelle);
         if (p.prices) setMyPrices(p.prices);
         // Real accounts start clean — no demo data
@@ -673,7 +687,7 @@ export default function TradeTechPro() {
     if (!session || !cloudReady) return;
     const payload = JSON.stringify({
       state: { customers, jobs, reports: sentReports.slice(0, 30) },
-      profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, prices: myPrices } },
+      profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, brandColor, prices: myPrices } },
     });
     savePayloadRef.current = payload;
     saveDirtyRef.current = true;
@@ -692,7 +706,7 @@ export default function TradeTechPro() {
     }, 1500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, myPrices]);
+  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, brandColor, myPrices]);
 
   // Flush an unsaved change when the app is backgrounded or closed — the normal
   // mobile gesture (swipe away within the 1.5s debounce) otherwise loses the edit.
@@ -742,6 +756,10 @@ export default function TradeTechPro() {
   const [photoView, setPhotoView] = useState(null); // null | { src, label }
   // Workspace: the Realtor-profile card collapses so it doesn't dominate the tab
   const [profileOpen, setProfileOpen] = useState(false);
+  // Derived brand palette for the client-facing documents
+  const brand = /^#[0-9a-fA-F]{6}$/.test(brandColor) ? brandColor : "#1B2A5C";
+  const brandGrad = `linear-gradient(135deg, ${brand} 0%, ${shadeHex(brand, -0.38)} 100%)`;
+  const brandTint = shadeHex(brand, 0.72);
   // Workspace: past searches — one collapsed row that expands into month groups
   const [searchesOpen, setSearchesOpen] = useState(false);
   const [searchMonths, setSearchMonths] = useState(null); // per-month overrides; latest open by default
@@ -2120,6 +2138,15 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={market} onChange={(e) => { setMarket(e.target.value); saveProfile({ market: e.target.value }); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
               className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Color de tu marca — tus informes lo usan" : "Your brand color — your reports use it"}</p>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <input type="color" value={brand} onChange={(e) => { setBrandColor(e.target.value); saveProfile({ brandColor: e.target.value }); }}
+                style={{ width: 46, height: 36, border: `1.5px solid ${QC.line}`, borderRadius: 10, background: "#fff", padding: 3, cursor: "pointer" }} />
+              {["#1B2A5C", "#7A1F2B", "#14532D", "#3B2E7E", "#0F766E", "#111111"].map((c) => (
+                <button key={c} onClick={() => { setBrandColor(c); saveProfile({ brandColor: c }); }} title={c}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: c, border: brand === c ? `2.5px solid ${QC.goldLine}` : "2px solid #fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", cursor: "pointer" }} />
+              ))}
+            </div>
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional)" : "Logo or headshot (optional)"}</p>
             {logo
               ? (<div className="flex items-center gap-3">
@@ -2288,7 +2315,7 @@ export default function TradeTechPro() {
         ...(Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 ? { dr: R.marketDriftMo } : {}),
         s: { bd: subj.beds, ba: subj.baths, sf: subj.sqft, yr: subj.yearBuilt },
         c: comps.map((c) => [c.address, c.soldPrice]),
-        g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, ...(lg ? { lg } : {}) },
+        g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, bc: brand, ...(lg ? { lg } : {}) },
         ...(netInclude ? { ns: { cm: netCommPct, cl: netClosePct, po: payoffN, net: Math.round(netAmt) } } : {}),
         ...(payInclude ? { pay: { mo: payEst.monthly, dp: lendDownPct, rt: lendRate, yr: lendTerm, tp: payEst.typeLabel } } : {}),
       };
@@ -2308,16 +2335,16 @@ export default function TradeTechPro() {
               rules, numbered sections, a stat band, and a real comps table */}
           <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
             {/* Cover — the house itself, address set over the photo */}
-            <DocCover
+            <DocCover grad={brandGrad} tint={brandTint}
               ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
               kicker={lang === "es" ? "Análisis comparativo de mercado" : "Comparative Market Analysis"}
               title={subj.address || R.addr} />
             {/* Masthead */}
-            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: QC.headGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${QC.gold}` }}>
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: brandGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${brandTint}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
-                  <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
+                  <p style={{ color: brandTint, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
                   <p className="text-white font-extrabold truncate" style={{ fontSize: 14 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}</p>
                   {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizName}</p>}
                   {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10.5 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
@@ -2325,7 +2352,7 @@ export default function TradeTechPro() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
                 <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{lang === "es" ? "Privado y confidencial" : "Private & confidential"}</p>
               </div>
             </div>
@@ -2339,11 +2366,11 @@ export default function TradeTechPro() {
                 <DocStat label={lang === "es" ? "Ventas" : "Comp sales"} value={String(n)} />
               </div>
               {/* 01 · Executive summary */}
-              <DocSect n="01" title={lang === "es" ? "Resumen ejecutivo" : "Executive summary"}>
+              <DocSect accent={brand} n="01" title={lang === "es" ? "Resumen ejecutivo" : "Executive summary"}>
                 <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
               </DocSect>
               {/* 02 · Subject property */}
-              <DocSect n="02" title={lang === "es" ? "La propiedad" : "Subject property"}>
+              <DocSect accent={brand} n="02" title={lang === "es" ? "La propiedad" : "Subject property"}>
                 <div className="flex">
                   <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
                   <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
@@ -2352,7 +2379,7 @@ export default function TradeTechPro() {
                 </div>
               </DocSect>
               {/* 03 · Market evidence */}
-              <DocSect n="03" title={lang === "es" ? "Evidencia de mercado — ventas cerradas" : "Market evidence — closed sales"}>
+              <DocSect accent={brand} n="03" title={lang === "es" ? "Evidencia de mercado — ventas cerradas" : "Market evidence — closed sales"}>
                 {comps.length === 0 && <p style={{ color: DOC.mut, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Sin comparables disponibles." : "No comparables available."}</p>}
                 {comps.length > 0 && (
                   <div>
@@ -2366,7 +2393,7 @@ export default function TradeTechPro() {
                       const when = dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : "";
                       return (
                         <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
-                          <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                          <span style={{ width: 16, color: brand, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
                           <span className="flex-1 min-w-0">
                             <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
                             <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[when, c.sqft ? `${Number(c.sqft).toLocaleString("en-US")} ${t.cmpSqft}` : null, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null].filter(Boolean).join(" · ")}</span>
@@ -2379,7 +2406,7 @@ export default function TradeTechPro() {
                 )}
               </DocSect>
               {payInclude && (
-                <DocSect n="04" title={lang === "es" ? "Pago mensual estimado" : "Financing snapshot"}>
+                <DocSect accent={brand} n="04" title={lang === "es" ? "Pago mensual estimado" : "Financing snapshot"}>
                   <div className="flex justify-between items-baseline">
                     <span style={{ color: DOC.body, fontSize: 12, fontWeight: 600 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"}</span>
                     <span style={{ color: DOC.ink, fontSize: 16, fontFamily: DOC.serif }}>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
@@ -2388,7 +2415,7 @@ export default function TradeTechPro() {
                 </DocSect>
               )}
               {netInclude && (
-                <DocSect n={payInclude ? "05" : "04"} title={lang === "es" ? "Neto estimado del vendedor" : "Estimated seller proceeds"}>
+                <DocSect accent={brand} n={payInclude ? "05" : "04"} title={lang === "es" ? "Neto estimado del vendedor" : "Estimated seller proceeds"}>
                   {[[lang === "es" ? "Precio de venta" : "Sale price", fmt(R.value)],
                     [`${lang === "es" ? "Comisión" : "Commission"} (${netCommPct}%)`, `−${fmt(commAmt)}`],
                     [`${lang === "es" ? "Gastos de cierre" : "Closing costs"} (${netClosePct}%)`, `−${fmt(closeAmt)}`],
@@ -2718,15 +2745,15 @@ export default function TradeTechPro() {
               language as the CMA report: serif display, hairlines, sections */}
           <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
             {/* Cover — the subject property, address set over the photo */}
-            <DocCover
+            <DocCover grad={brandGrad} tint={brandTint}
               ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
               kicker={es ? "Apoyo de ventas comparables" : "Comparable Sales Support"}
               title={addr} />
-            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: QC.headGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${QC.gold}` }}>
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: brandGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${brandTint}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
-                  <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Preparado por" : "Prepared by"}</p>
+                  <p style={{ color: brandTint, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Preparado por" : "Prepared by"}</p>
                   <p className="text-white font-extrabold truncate" style={{ fontSize: 14 }}>{userName || (es ? "Tu nombre" : "Your name")}</p>
                   {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizName}</p>}
                   {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10.5 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
@@ -2734,7 +2761,7 @@ export default function TradeTechPro() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
                 <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{es ? "Para el valuador asignado" : "For the assigned appraiser"}</p>
               </div>
             </div>
@@ -2747,7 +2774,7 @@ export default function TradeTechPro() {
                 <DocStat label={es ? "Ventas" : "Closed sales"} value={String(n)} />
               </div>
               {/* 01 · Purpose & summary */}
-              <DocSect n="01" title={es ? "Propósito y resumen" : "Purpose & summary"}>
+              <DocSect accent={brand} n="01" title={es ? "Propósito y resumen" : "Purpose & summary"}>
                 <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
                 {hasDrift && (
                   <p className="mt-2" style={{ color: DOC.mut, fontSize: 10.5, fontWeight: 600, lineHeight: 1.6 }}>
@@ -2756,7 +2783,7 @@ export default function TradeTechPro() {
                 )}
               </DocSect>
               {/* 02 · Subject property */}
-              <DocSect n="02" title={es ? "La propiedad" : "Subject property"}>
+              <DocSect accent={brand} n="02" title={es ? "La propiedad" : "Subject property"}>
                 <div className="flex">
                   <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
                   <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
@@ -2765,7 +2792,7 @@ export default function TradeTechPro() {
                 </div>
               </DocSect>
               {/* 03 · Closed comparable sales */}
-              <DocSect n="03" title={es ? "Ventas cerradas comparables" : "Closed comparable sales"}>
+              <DocSect accent={brand} n="03" title={es ? "Ventas cerradas comparables" : "Closed comparable sales"}>
                 <div className="flex gap-2 pb-1.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
                   <span style={{ width: 16, color: DOC.mut, fontSize: 8, fontWeight: 800 }}>#</span>
                   <span className="flex-1" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{es ? "Dirección · detalles" : "Address · details"}</span>
@@ -2775,7 +2802,7 @@ export default function TradeTechPro() {
                   const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
                   return (
                     <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
-                      <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                      <span style={{ width: 16, color: brand, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
                       <span className="flex-1 min-w-0">
                         <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
                         <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[`${t.cmpSold} ${soldDate(c.soldDate)}`, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null, c.sqft ? `${num(c.sqft)} ${t.cmpSqft}` : null, ppsf ? `${fmt(ppsf)}${t.cmpPerSqft}` : null].filter(Boolean).join(" · ")}</span>
@@ -2790,7 +2817,7 @@ export default function TradeTechPro() {
               </DocSect>
               {/* 04 · Agent notes */}
               {apprNote.trim() && (
-                <DocSect n="04" title={es ? "Notas del agente" : "Agent notes"}>
+                <DocSect accent={brand} n="04" title={es ? "Notas del agente" : "Agent notes"}>
                   <p style={{ color: DOC.body, fontSize: 12, lineHeight: 1.7, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
                 </DocSect>
               )}

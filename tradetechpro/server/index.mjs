@@ -5633,9 +5633,21 @@ app.get("/r", (req, res) => {
     ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(v)}${hasRange ? `, dentro de un rango de ${fmt(lo)}–${fmt(hi)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${ppsf ? `, con un promedio de ${fmt(ppsf)} por pie²` : ""}.${d.cu ? " Comparables seleccionadas personalmente por su agente." : ""}`
     : `The comparable set supports an indicated market value near ${fmt(v)}${hasRange ? `, within a ${fmt(lo)}–${fmt(hi)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${ppsf ? `, averaging ${fmt(ppsf)} per square foot` : ""}.${d.cu ? " Comparables hand-selected by your agent." : ""}`;
   const ns = d.ns && N(d.ns.net) != null ? d.ns : null;
+  // The realtor's brand color drives the whole page — the platform's palette
+  // never appears on a client-facing report.
+  const B = /^#[0-9a-fA-F]{6}$/.test(String(g.bc || "")) ? g.bc : "#1B2A5C";
+  const shade = (hex, f) => {
+    const nn = parseInt(hex.slice(1), 16);
+    const t = f < 0 ? 0 : 255, p = Math.abs(f);
+    const r = Math.round(((nn >> 16) & 255) + (t - ((nn >> 16) & 255)) * p);
+    const gg = Math.round(((nn >> 8) & 255) + (t - ((nn >> 8) & 255)) * p);
+    const b = Math.round((nn & 255) + (t - (nn & 255)) * p);
+    return "#" + ((r << 16) | (gg << 8) | b).toString(16).padStart(6, "0");
+  };
+  const Bd = shade(B, -0.38), Bt = shade(B, 0.72);
   const L = es
-    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", trend: "Tendencia del mercado", yr: "año", payT: "PAGO MENSUAL ESTIMADO", payNote: "incluye impuestos, seguro y seguro hipotecario (est.)", down: "de enganche", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: "Hecho con ⚡ Quick Comp", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
-    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", trend: "Market trend", yr: "yr", payT: "ESTIMATED MONTHLY PAYMENT", payNote: "includes taxes, insurance & mortgage insurance (est.)", down: "down", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: "Made with ⚡ Quick Comp", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
+    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", trend: "Tendencia del mercado", yr: "año", payT: "PAGO MENSUAL ESTIMADO", payNote: "incluye impuestos, seguro y seguro hipotecario (est.)", down: "de enganche", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: [g.n, g.b].filter(Boolean).map(esc).join(" · ") || "", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
+    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", trend: "Market trend", yr: "yr", payT: "ESTIMATED MONTHLY PAYMENT", payNote: "includes taxes, insurance & mortgage insurance (est.)", down: "down", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: [g.n, g.b].filter(Boolean).map(esc).join(" · ") || "", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
   const base = canonBase(req);
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -5649,10 +5661,10 @@ app.get("/r", (req, res) => {
 *{box-sizing:border-box;font-family:Inter,-apple-system,Arial,sans-serif;margin:0}
 body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .doc{max-width:560px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 18px 44px rgba(17,27,66,.14)}
-.head{background:linear-gradient(135deg,#1B2A5C,#101B3C);color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.head{background:linear-gradient(135deg,${B},${Bd});color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .head img{height:40px;max-width:110px;object-fit:contain;background:#fff;border-radius:8px;padding:3px}
 .head .who{min-width:0;flex:1}
-.head .k{color:#E5C066;font-size:8px;font-weight:700;letter-spacing:2px}
+.head .k{color:${Bt};font-size:8px;font-weight:700;letter-spacing:2px}
 .head .nm{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .sub{color:rgba(255,255,255,.72);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .cma{font-weight:800;font-size:12px;flex-shrink:0}
@@ -5662,7 +5674,7 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .paytot{display:flex;justify-content:space-between;font-size:14px;font-weight:900;padding-top:4px}
 .paysub{color:#66759D;font-size:10.5px;font-weight:600;margin-top:5px;line-height:1.4}
 .body{padding:18px}
-.klabel{color:#C9973A;font-size:10px;font-weight:900;letter-spacing:2px}
+.klabel{color:${B};font-size:10px;font-weight:900;letter-spacing:2px}
 .val{font-size:38px;font-weight:900;margin:6px 0 2px}
 .rng{color:#66759D;font-size:13px;font-weight:600}
 .addr{font-weight:700;font-size:14px;margin-top:6px}
@@ -5675,16 +5687,16 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #E9EDF5;font-size:12.5px;font-weight:600}
 .row:first-of-type{border-top:none}
 .row b{font-weight:800;white-space:nowrap}
-.ai{background:linear-gradient(135deg,#1B2A5C,#111C3E);color:#fff;border:none}
-.ai h3{color:#E5C066;letter-spacing:2px;font-size:9px}
+.ai{background:linear-gradient(135deg,${B},${Bd});color:#fff;border:none}
+.ai h3{color:${Bt};letter-spacing:2px;font-size:9px}
 .ai p{font-size:12.5px;line-height:1.6;font-weight:500}
-.net{border:2px solid #C9973A;background:#FDF9EF}
-.net .tot{display:flex;justify-content:space-between;border-top:2px solid #C9973A;margin-top:6px;padding-top:9px;font-size:14px;font-weight:900}
+.net{border:2px solid ${B};background:#F8F9FC}
+.net .tot{display:flex;justify-content:space-between;border-top:2px solid ${B};margin-top:6px;padding-top:9px;font-size:14px;font-weight:900}
 .disc{color:#8A94AC;font-size:10px;font-weight:600;margin-top:12px;line-height:1.5}
 .ctas{display:flex;gap:8px;margin-top:16px}
-.ctas a{flex:1;text-align:center;text-decoration:none;font-weight:800;font-size:13px;padding:12px 6px;border-radius:12px;background:#1B2A5C;color:#fff}
+.ctas a{flex:1;text-align:center;text-decoration:none;font-weight:800;font-size:13px;padding:12px 6px;border-radius:12px;background:${B};color:#fff}
 .ctas a.wa{background:#25D366}
-.printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:#1B2A5C;border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
+.printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:${B};border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
 .made{text-align:center;color:#9AA3B8;font-size:11px;font-weight:700;margin-top:16px}
 .made a{color:#9AA3B8}
 @media print{body{background:#fff;padding:0}.doc,.doc *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}.doc{box-shadow:none;border-radius:0}.ctas,.printbtn,.made{display:none}}
@@ -5729,7 +5741,7 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
     <button class="printbtn" onclick="window.print()">${L.print}</button>
   </div>
 </div>
-<p class="made">${L.made}</p>
+${L.made ? `<p class="made">${L.made}</p>` : ""}
 ${rid ? `<img src="/api/r/open?rid=${rid}" alt="" width="1" height="1" style="position:absolute;opacity:0" aria-hidden="true">` : ""}
 </body></html>`);
 });
@@ -5894,7 +5906,7 @@ ${d.k === "est" && !d.paid ? `<div class="sec" style="font-size:12px;color:#6771
   <div style="flex:1;border-top:1.5px solid #101B30;padding-top:5px">${L.sigDate}</div>
 </div></div>` : ""}
 <button class="btn" onclick="window.print()">${L.print}</button>
-<div class="ft">⚡ ${L.made}</div>
+<div class="ft">${esc(d.biz)}</div>
 </div></body></html>`);
 });
 

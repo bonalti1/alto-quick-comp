@@ -1368,7 +1368,17 @@ export default function TradeTechPro() {
     }
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
-        <div className="px-5 pt-4">
+        {/* Pinned top bar: the searched address + instant New search — stays put
+            while you scroll the comps, so starting over never means scrolling to
+            the bottom of the page */}
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-5 py-2.5" style={{ background: QC.bg, borderBottom: `1px solid ${QC.line}` }}>
+          <p className="flex-1 min-w-0 truncate" style={{ color: QC.muted2, fontSize: 12, fontWeight: 700 }}>📍 {subj.address || addrQ}</p>
+          <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setLookup(null); setScreen("comps"); }} className="shrink-0 active:translate-y-px transition-transform"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 99, padding: "8px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 8px rgba(27,42,92,0.25)" }}>
+            🔍 {t.cmpNew}
+          </button>
+        </div>
+        <div className="px-5 pt-3">
           {/* Hero value card */}
           <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
             <div className="flex items-start justify-between gap-2">

@@ -514,10 +514,9 @@ export default function TradeTechPro() {
   // "new views" dot on the Workspace tab: total opens the agent has already seen
   const [seenViews, setSeenViews] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenviews") || "0", 10) || 0; } catch { return 0; } });
   const opensFetched = useRef(false);
-  // Seller-lead inbox (the Leads tab) + its own "new leads" gold dot
+  // Seller-lead inbox — surfaced by the navy "Leads" launcher on the front page,
+  // whose badge shows how many are still pending (not yet contacted)
   const [leads, setLeads] = useState([]);
-  const [seenLeads, setSeenLeads] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenleads") || "0", 10) || 0; } catch { return 0; } });
-  const leadsFetched = useRef(false);
   const [hideInstall, setHideInstall] = useState(() => {
     try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
   });
@@ -844,23 +843,17 @@ export default function TradeTechPro() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, reportOpens]);
   useEffect(() => {
-    // Leads inbox: demo data without an account; real accounts fetch at launch
-    // (so the tab dot can light up) and refresh on every Leads tab visit.
+    // Leads inbox: demo data without an account. Real accounts pull at launch,
+    // on every screen change, and every 60s in between — so when a client fills
+    // the form, the pending badge on the front page lights up by itself.
     if (!session) { setLeads(DEMO_LEADS); return; }
-    if (screen !== "leads" && leadsFetched.current) return;
-    leadsFetched.current = true;
-    api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
+    const pull = () => api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
+    pull();
+    const iv = setInterval(pull, 60000);
+    return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, session]);
-  useEffect(() => {
-    // Visiting the Leads tab marks them seen — the gold dot clears.
-    if (screen !== "leads") return;
-    if (leads.length > seenLeads) {
-      setSeenLeads(leads.length);
-      try { localStorage.setItem("qc_seenleads", String(leads.length)); } catch { /* private mode */ }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen, leads]);
+  const pendingLeads = leads.filter((l) => (l.status || "new") === "new").length;
   const markLead = (id, status) => {
     // Optimistic — the tap must feel instant; the server catches up behind it.
     setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, status } : l)));
@@ -1039,23 +1032,22 @@ export default function TradeTechPro() {
       ["comps", lang === "es" ? "Comps" : "Comps"],
       ["lending", lang === "es" ? "Crédito" : "Lending"],
       ["tax", lang === "es" ? "Impuestos" : "Tax"],
-      ["leads", "Leads"],
       ["workspace", lang === "es" ? "Trabajo" : "Workspace"],
     ];
-    // Unseen report opens light a gold dot on Workspace; unseen leads on Leads
+    // Unseen report opens light a small gold dot on the Workspace tab
     const totalViews = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
     return (
-      <div className="flex justify-around items-center gap-1 px-1.5 py-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}` }}>
+      <div className="flex justify-around items-center gap-1.5 px-2 py-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}` }}>
         {items.map(([s, label], i) => {
           const on = screen === s;
           return (
             <button key={s} onClick={() => setScreen(s)}
-              className="relative flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl min-w-0"
+              className="relative flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl"
               style={{ background: on ? C.navy : "transparent", border: "none" }}>
               <span className="text-xs font-extrabold" style={{ color: on ? C.orange : C.slate, letterSpacing: 0.5 }}>{`0${i + 1}`}</span>
-              <span className="text-[10px] font-bold uppercase truncate max-w-full" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.4 }}>{label}</span>
-              {((s === "workspace" && totalViews > seenViews) || (s === "leads" && leads.length > seenLeads)) && (
-                <span className="absolute" style={{ top: 5, right: "20%", width: 9, height: 9, borderRadius: 5, background: "#E3B54E", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
+              <span className="text-[11px] font-bold uppercase truncate" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.5 }}>{label}</span>
+              {s === "workspace" && totalViews > seenViews && (
+                <span className="absolute" style={{ top: 5, right: "24%", width: 9, height: 9, borderRadius: 5, background: "#E3B54E", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
               )}
             </button>
           );
@@ -1137,6 +1129,19 @@ export default function TradeTechPro() {
             {lang === "es" ? "Ver valor de mercado" : "Get Market Value"}
           </button>
           <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Ventas comparables cercanas · 100% gratis" : "Nearby comparable sales · 100% free"}{session ? "" : " · DEMO"}</p>
+          {/* Leads — a navy launcher right up top (Get Market Value style), with a
+              pending badge that lights up on its own when a client fills the form */}
+          <button onClick={() => setScreen("leads")} className="w-full flex items-center gap-3 mt-3 text-left active:translate-y-px transition-transform"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: "12px 16px", boxShadow: "0 4px 14px rgba(27,42,92,0.3)", cursor: "pointer" }}>
+            <span style={{ fontSize: 20 }}>📥</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ fontSize: 15, letterSpacing: "0.01em" }}>Leads</span>
+              <span className="block" style={{ color: "rgba(255,255,255,0.75)", fontSize: 10.5, fontWeight: 600 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí" : "Send your lead form to a client — their info lands here"}</span>
+            </span>
+            {pendingLeads > 0
+              ? <span className="shrink-0 rounded-full px-2.5 py-1 font-extrabold" style={{ background: QC.gold, color: QC.navyDeep, fontSize: 12 }}>{pendingLeads} {lang === "es" ? (pendingLeads === 1 ? "NUEVO" : "NUEVOS") : "NEW"}</span>
+              : <span className="shrink-0" style={{ color: QC.goldHi, fontSize: 18 }}>›</span>}
+          </button>
           {/* Last searches — one tap re-opens the full result instantly */}
           {savedWork.length > 0 && (
             <div className="rounded-2xl px-4 py-3 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -1164,16 +1169,6 @@ export default function TradeTechPro() {
               })}
             </div>
           )}
-          {/* One-tap: send your lead form to a client — their info lands in the Leads tab */}
-          <button onClick={shareLeadForm} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mt-3 text-left active:scale-[0.99] transition-transform"
-            style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
-            <span style={{ fontSize: 20 }}>📤</span>
-            <span className="flex-1 min-w-0">
-              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 13.5 }}>{lang === "es" ? "Mándale tu formulario a un cliente" : "Send your lead form to a client"}</span>
-              <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{lang === "es" ? "Ve el valor de su casa — y te llega como lead 📥" : "They see their home's value — you get the lead 📥"}</span>
-            </span>
-            <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
-          </button>
         </div>
       </div>
     );
@@ -2526,13 +2521,15 @@ export default function TradeTechPro() {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
     listing: "✨ " + (lang === "es" ? "Redactor de listing" : "Listing writer"),
     appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
+    leads: "📥 Leads",
   };
   const backMap = {
     report: "comps",
     listing: "comps",
     appraisal: "workspace",
+    leads: "comps",
   };
-  const tabScreens = ["comps", "lending", "tax", "leads", "workspace"];
+  const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
 
   return (

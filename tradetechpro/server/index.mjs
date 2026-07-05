@@ -567,6 +567,15 @@ async function rcFetchJson(url, options = {}) {
   return data;
 }
 
+/* Full county property record (owner, multi-year taxes, assessments, last
+ * sale) — the AVM response doesn't carry these, the /properties endpoint does. */
+async function fetchRentcastRecord(address) {
+  const endpoint = new URL("https://api.rentcast.io/v1/properties");
+  endpoint.searchParams.set("address", address);
+  const j = await rcFetchJson(endpoint, { headers: { "X-Api-Key": RENTCAST_KEY } });
+  return Array.isArray(j) ? j[0] || null : (j && typeof j === "object" && (j.id || j.formattedAddress) ? j : null);
+}
+
 async function fetchRentcastValue({ address, radius, compCount, daysOld }) {
   const endpoint = new URL("https://api.rentcast.io/v1/avm/value");
   endpoint.searchParams.set("address", address);
@@ -594,8 +603,17 @@ function latestYearVal(obj, pick) {
 function normalizeSubjectProperty(p, fallbackAddress) {
   if (!p || typeof p !== "object") return { address: fallbackAddress || "" };
   const assess = latestYearVal(p.taxAssessments, (a) => a?.value ?? a?.total ?? null);
+  const assessLand = latestYearVal(p.taxAssessments, (a) => a?.land ?? null);
+  const assessImp = latestYearVal(p.taxAssessments, (a) => a?.improvements ?? null);
   const tax = latestYearVal(p.propertyTaxes, (a) => a?.total ?? a?.amount ?? null);
   const ownerNames = Array.isArray(p.owner?.names) ? p.owner.names.join(", ") : (p.owner?.name || p.ownerName || null);
+  // Multi-year tax history (newest first, up to 4) — the realtor's "what did
+  // they pay" answer at a glance
+  const taxHistory = p.propertyTaxes && typeof p.propertyTaxes === "object"
+    ? Object.keys(p.propertyTaxes).filter((k) => /^\d{4}$/.test(k)).sort().reverse().slice(0, 4)
+        .map((y) => ({ year: Number(y), total: p.propertyTaxes[y]?.total ?? p.propertyTaxes[y]?.amount ?? null }))
+        .filter((r) => r.total != null)
+    : [];
   return {
     address: p.formattedAddress || p.address || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(", ") || fallbackAddress || "",
     propertyType: p.propertyType || p.propertyUse || p.type || null,
@@ -608,10 +626,19 @@ function normalizeSubjectProperty(p, fallbackAddress) {
     longitude: p.longitude || p.location?.longitude || null,
     // ownership + tax (present on RentCast property records; optional)
     owner: ownerNames,
+    ownerOccupied: typeof p.ownerOccupied === "boolean" ? p.ownerOccupied : null,
     assessedValue: assess?.value ?? null,
     assessedYear: assess?.year ?? null,
+    assessedLand: assessLand?.value ?? null,
+    assessedImprovements: assessImp?.value ?? null,
     annualTax: tax?.value ?? null,
     taxYear: tax?.year ?? assess?.year ?? null,
+    taxHistory,
+    county: p.county || null,
+    subdivision: p.subdivision || null,
+    zoning: p.zoning || null,
+    lastSalePrice: p.lastSalePrice ?? null,
+    lastSaleDate: p.lastSaleDate || null,
   };
 }
 
@@ -658,7 +685,12 @@ async function rentcastLookup(address, opts = {}) {
   }
   if (!data) throw lastError || new Error("No comparable sales found");
 
-  const subject = normalizeSubjectProperty(data.subjectProperty || data.property || null, address);
+  // With lookupSubjectAttributes=true, RentCast's AVM returns the subject's
+  // attributes at the TOP LEVEL of the response (not nested) — without this
+  // fallback the app showed "—" for beds/baths on every live search.
+  const subjSrc = data.subjectProperty || data.property
+    || ((data.bedrooms != null || data.squareFootage != null || data.yearBuilt != null || data.propertyType) ? data : null);
+  const subject = normalizeSubjectProperty(subjSrc, address);
   const rawComps = normalizeRentcastComps(data);
   const quick = calculateQuickCompValue({
     subject,
@@ -827,17 +859,29 @@ app.post("/api/lookup", async (req, res) => {
     if (!comp || !comp.value) {
       return res.json({ found: false, source: "live", addr: (geo && geo.formatted) || address, lat: geo?.lat ?? null, lng: geo?.lng ?? null });
     }
+    // Enrich the subject with the full county record (owner, tax history,
+    // last sale) — what a realtor actually needs on the tax screen. Best
+    // effort: a missing record never blocks the valuation.
+    let subject = comp.subject || {};
+    try {
+      const rec = await fetchRentcastRecord(subject.address || lookupAddr);
+      if (rec) {
+        const full = normalizeSubjectProperty(rec, lookupAddr);
+        const avmKnown = Object.fromEntries(Object.entries(subject).filter(([, v]) => v != null && !(Array.isArray(v) && !v.length)));
+        subject = { ...full, ...avmKnown };
+      }
+    } catch (e) { console.error("property record:", e.message); }
     return res.json({
       found: true,
       source: "live",
-      addr: comp.subject?.address || (geo && geo.formatted) || address,
-      lat: geo?.lat ?? comp.subject?.latitude ?? null,
-      lng: geo?.lng ?? comp.subject?.longitude ?? null,
+      addr: subject.address || (geo && geo.formatted) || address,
+      lat: geo?.lat ?? subject.latitude ?? null,
+      lng: geo?.lng ?? subject.longitude ?? null,
       value: comp.value,
       valueRange: { low: comp.low, high: comp.high },
       confidence: comp.confidence,
       method: comp.method,
-      subject: comp.subject,
+      subject,
       comps: comp.comps,
       compsUsed: comp.usedCompCount,
       excludedOutliers: comp.excludedOutliers,

@@ -34,15 +34,64 @@ const QC = {
 /* Range slider — MUST be module-scope: when it was defined inside TradeTechPro
    its function identity changed every render, so React remounted the <input>
    mid-drag and the gesture died after one step. */
-const Slider = ({ label, value, display, min, max, step, onChange }) => (
-  <div className="mb-3.5">
-    <div className="flex justify-between items-baseline mb-1.5">
-      <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
-      <span className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{display}</span>
+const Slider = ({ label, value, display, min, max, step, onChange }) => {
+  // Tap the value to type an exact number — the slider stays for coarse moves
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const commit = () => {
+    setEditing(false);
+    const n = parseFloat(String(draft).replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+  };
+  return (
+    <div className="mb-3.5">
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
+        {editing ? (
+          <input autoFocus inputMode="decimal" value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+            className="text-right font-extrabold outline-none"
+            style={{ color: QC.navy, fontSize: 15, width: 110, background: "#fff", border: `1.5px solid ${QC.goldLine}`, borderRadius: 8, padding: "2px 8px" }} />
+        ) : (
+          <button onClick={() => { setDraft(String(value)); setEditing(true); }} title="Edit"
+            className="font-extrabold active:opacity-70" style={{ color: QC.navy, fontSize: 15, background: "none", border: "none", cursor: "pointer", padding: 0, borderBottom: `1.5px dashed ${QC.goldLine}` }}>
+            {display}
+          </button>
+        )}
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
     </div>
-    <input type="range" min={min} max={max} step={step} value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
+  );
+};
+
+/* ─── Consulting-document primitives (CMA report + appraisal packet) ───
+ * Serif display, hairline rules, numbered small-caps sections — the visual
+ * language of a top-tier advisory deliverable, not a phone screenshot. */
+const DOC = { serif: "Georgia, 'Times New Roman', serif", hair: "#DCE1EA", ink: "#0F1B33", mut: "#5A6478", body: "#2A3550" };
+const DocSect = ({ n, title, children }) => (
+  <div className="mt-4">
+    <div className="flex items-baseline gap-2 pb-1.5 mb-2.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+      <span style={{ color: QC.gold, fontSize: 11, fontWeight: 700, fontFamily: DOC.serif }}>{n}</span>
+      <span style={{ color: DOC.ink, fontSize: 10, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase" }}>{title}</span>
+    </div>
+    {children}
+  </div>
+);
+const DocStat = ({ label, value, sub, big, first }) => (
+  <div className="flex-1 min-w-0" style={{ borderLeft: first ? "none" : `1px solid ${DOC.hair}`, paddingLeft: first ? 0 : 12, paddingRight: 8 }}>
+    <p style={{ color: DOC.mut, fontSize: 7.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase" }}>{label}</p>
+    <p style={{ color: DOC.ink, fontSize: big ? 21 : 13.5, fontWeight: big ? 400 : 700, fontFamily: DOC.serif, marginTop: 3, lineHeight: 1.15 }}>{value}</p>
+    {sub && <p style={{ color: DOC.mut, fontSize: 9, fontWeight: 600, marginTop: 2 }}>{sub}</p>}
+  </div>
+);
+const DocFoot = ({ left, right }) => (
+  <div className="flex items-center justify-between gap-3 px-5 py-2.5" style={{ borderTop: `1px solid ${DOC.hair}` }}>
+    <span className="truncate" style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>{left}</span>
+    <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>{right}</span>
   </div>
 );
 
@@ -330,7 +379,19 @@ const mockLookup = (addr) => new Promise((resolve) => {
       value, low: Math.round(value * 0.94 / 1000) * 1000, high: Math.round(value * 1.06 / 1000) * 1000,
       confidence: "good", method: "weighted_sold_price_per_sqft", avgPpsf: psf,
       compsUsed: comps.length, radius: 2, lookbackLabel: "6 months",
-      subject: { address: addr, beds, baths, sqft: subjSqft, yearBuilt: subjYear, latitude: baseLat, longitude: baseLng },
+      subject: {
+        address: addr, beds, baths, sqft: subjSqft, yearBuilt: subjYear, latitude: baseLat, longitude: baseLng,
+        // county-record extras so the demo shows the full tax report
+        owner: ["M. & L. García", "R. Treviño", "J. & A. Salinas", "The Martínez Family Trust"][h % 4],
+        ownerOccupied: h % 3 !== 0,
+        assessedValue: Math.round(value * 0.86 / 1000) * 1000, assessedYear: 2025,
+        assessedLand: Math.round(value * 0.18 / 1000) * 1000, assessedImprovements: Math.round(value * 0.68 / 1000) * 1000,
+        annualTax: Math.round(value * 0.017 / 10) * 10, taxYear: 2025,
+        taxHistory: [2025, 2024, 2023].map((y, i) => ({ year: y, total: Math.round(value * 0.017 * (1 - i * 0.06) / 10) * 10 })),
+        county: "Starr County", subdivision: ["Las Lomas", "El Sabino", "Vista Real"][h % 3],
+        propertyType: "Single Family", lotSize: 6000 + (h % 5000),
+        lastSalePrice: Math.round(value * 0.72 / 1000) * 1000, lastSaleDate: `${2015 + (h % 8)}-0${1 + (h % 9)}-15`,
+      },
       comps,
     });
   }, 2600);
@@ -409,6 +470,15 @@ function mapCompsLookup(j, addr) {
       latitude: j.subject.latitude ?? null, longitude: j.subject.longitude ?? null,
       owner: j.subject.owner ?? null, assessedValue: j.subject.assessedValue ?? null,
       annualTax: j.subject.annualTax ?? null, taxYear: j.subject.taxYear ?? null,
+      // full county record extras (owner/tax report on the Tax screen)
+      assessedYear: j.subject.assessedYear ?? null,
+      assessedLand: j.subject.assessedLand ?? null,
+      assessedImprovements: j.subject.assessedImprovements ?? null,
+      taxHistory: Array.isArray(j.subject.taxHistory) ? j.subject.taxHistory : [],
+      ownerOccupied: j.subject.ownerOccupied ?? null,
+      county: j.subject.county ?? null, subdivision: j.subject.subdivision ?? null,
+      propertyType: j.subject.propertyType ?? null, lotSize: j.subject.lotSize ?? null,
+      lastSalePrice: j.subject.lastSalePrice ?? null, lastSaleDate: j.subject.lastSaleDate ?? null,
     } : null,
     comps: Array.isArray(j.comps) ? j.comps : [],
     source: j.source || "live",
@@ -652,10 +722,10 @@ export default function TradeTechPro() {
   const [taxLookup, setTaxLookup] = useState(null); // Tax tab has its own independent search
   const [mapSat, setMapSat] = useState(true); // comparables map: satellite vs roadmap
   const [mapFocus, setMapFocus] = useState(null); // {i, t} — focus a comp on the in-app map
-  const focusCompOnMap = (i) => {
-    setMapFocus({ i, t: Date.now() });
-    document.getElementById("qc-compmap")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  // Tapping any property photo expands it full-screen (tap again to close)
+  const [photoView, setPhotoView] = useState(null); // null | { src, label }
+  // Workspace: the Realtor-profile card collapses so it doesn't dominate the tab
+  const [profileOpen, setProfileOpen] = useState(false);
 
   /* Quick Comp tabs: lending calculator inputs + saved-work history */
   const [lendPrice, setLendPrice] = useState(null); // null = follow the comp value
@@ -1398,11 +1468,6 @@ export default function TradeTechPro() {
                 : `Based on ${(R.compsUsed || comps.length)} nearby comparable sales within ${R.radius || 2} mi`}
               {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}{R.curated ? (lang === "es" ? " · tu selección" : " · your selection") : ""}.
             </p>
-            {Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 && (
-              <p className="mt-2 inline-block rounded-full px-3 py-1" style={{ background: R.marketDriftMo > 0 ? "rgba(72,187,120,0.18)" : "rgba(229,115,105,0.18)", border: `1px solid ${R.marketDriftMo > 0 ? "#48BB78" : "#E57369"}55`, color: R.marketDriftMo > 0 ? "#7CE0A3" : "#F1A9A0", fontSize: 11, fontWeight: 800 }}>
-                📈 {lang === "es" ? "Tendencia del mercado" : "Market trend"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{lang === "es" ? "año" : "yr"}
-              </p>
-            )}
           </div>
 
           {/* Comp search radius — Auto expands only as far as needed */}
@@ -1427,7 +1492,8 @@ export default function TradeTechPro() {
                 src={`/api/streetview?lat=${sLat}&lng=${sLng}`}
                 alt={subj.address || R.addr}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
-                style={{ width: "100%", height: 170, objectFit: "cover", display: "block", background: QC.bg }}
+                onClick={() => setPhotoView({ src: `/api/streetview?lat=${sLat}&lng=${sLng}`, label: subj.address || R.addr })}
+                style={{ width: "100%", height: 170, objectFit: "cover", display: "block", background: QC.bg, cursor: "pointer" }}
               />
             )}
             <div className="p-4">
@@ -1461,7 +1527,7 @@ export default function TradeTechPro() {
               <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out || manualOut ? 0.5 : 1 }}>
                 <div className="flex items-start gap-3 mb-2.5">
                   {c.latitude != null && c.longitude != null && (
-                    <button onClick={() => focusCompOnMap(i)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
+                    <button onClick={() => setPhotoView({ src: `/api/streetview?lat=${c.latitude}&lng=${c.longitude}`, label: c.address })} title={lang === "es" ? "Ver foto" : "View photo"}
                       className="relative shrink-0 active:scale-95 transition-transform" style={{ padding: 0, border: "none", background: "none", lineHeight: 0 }}>
                       <img
                         src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
@@ -1469,7 +1535,7 @@ export default function TradeTechPro() {
                         onError={(e) => { e.currentTarget.style.display = "none"; }}
                         style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12, display: "block", background: QC.bg }}
                       />
-                      <span className="absolute flex items-center justify-center" style={{ right: -5, bottom: -5, width: 20, height: 20, borderRadius: 10, background: QC.navy, color: "#fff", fontSize: 10, border: "2px solid #fff" }}>📍</span>
+                      <span className="absolute flex items-center justify-center" style={{ right: -5, bottom: -5, width: 20, height: 20, borderRadius: 10, background: QC.navy, color: "#fff", fontSize: 10, border: "2px solid #fff" }}>⤢</span>
                     </button>
                   )}
                   <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
@@ -1767,7 +1833,7 @@ export default function TradeTechPro() {
       );
     }
 
-    // We have a tax record
+    // We have a tax record — the realtor's complete county-record report
     const R = taxLookup;
     const subj = R.subject || {};
     const hasRealAssess = subj.assessedValue != null;
@@ -1776,30 +1842,74 @@ export default function TradeTechPro() {
     const stateRate = TAX_RATE_BY_STATE[stateFromAddress(subj.address || R.addr)] || 0.011;
     const annualTax = hasRealTax ? subj.annualTax : (R.value ? Math.round(R.value * stateRate) : assessed ? Math.round(assessed * 0.011) : null);
     const taxYear = subj.taxYear || new Date().getFullYear();
-    const estimated = !hasRealAssess || !hasRealTax;
+    const effRate = annualTax && assessed ? ((annualTax / assessed) * 100).toFixed(2) + "%" : null;
+    const saleDate = subj.lastSaleDate ? new Date(subj.lastSaleDate) : null;
+    const saleDateTxt = saleDate && !Number.isNaN(saleDate.getTime()) ? saleDate.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : null;
+    const taxHist = Array.isArray(subj.taxHistory) ? subj.taxHistory.filter((r) => r.total != null) : [];
     const facts = [["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]];
-    const rows = [
-      [lang === "es" ? "Dueño registrado" : "Owner of record", subj.owner || (lang === "es" ? "Según registro público" : "Per public record")],
-      [lang === "es" ? "Valor catastral" : "Assessed value", assessed ? "$" + num(assessed) + (hasRealAssess ? "" : (lang === "es" ? " (est.)" : " (est.)")) : "—"],
-      [lang === "es" ? (hasRealTax ? "Impuesto anual" : "Impuesto anual estimado") : (hasRealTax ? "Annual tax" : "Est. annual tax"), annualTax ? "$" + num(annualTax) : "—"],
-      [lang === "es" ? "Año fiscal" : "Tax year", String(taxYear)],
-    ];
+    const Sect = ({ label, children }) => (
+      <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+        <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{label}</p>
+        {children}
+      </div>
+    );
+    const KV = ({ rows }) => rows.filter(([, v]) => v != null && v !== "—").map(([k, v], i) => (
+      <div key={k} className="flex justify-between gap-3 py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
+        <span style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{k}</span>
+        <span className="font-extrabold text-right" style={{ color: QC.navy, fontSize: 13 }}>{v}</span>
+      </div>
+    ));
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{lang === "es" ? "Resumen de impuestos" : "Tax snapshot"}</p>
-            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
-            {rows.map(([k, v], i) => (
-              <div key={k} className="flex justify-between py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                <span style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{k}</span>
-                <span className="font-extrabold" style={{ color: QC.navy, fontSize: 13 }}>{v}</span>
+          {/* Ownership — who the realtor is actually talking to */}
+          <Sect label={lang === "es" ? "Dueño y registro" : "Ownership & record"}>
+            <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
+            <KV rows={[
+              [lang === "es" ? "Dueño registrado" : "Owner of record", subj.owner || (lang === "es" ? "Según registro público" : "Per public record")],
+              [lang === "es" ? "¿Vive el dueño ahí?" : "Owner-occupied", subj.ownerOccupied == null ? null : (subj.ownerOccupied ? (lang === "es" ? "Sí" : "Yes") : "No")],
+              [lang === "es" ? "Condado" : "County", subj.county],
+              [lang === "es" ? "Colonia / subdivisión" : "Subdivision", subj.subdivision],
+            ]} />
+          </Sect>
+
+          {/* Taxes — what they pay, and the trail of what they've paid */}
+          <Sect label={lang === "es" ? "Impuestos" : "Property taxes"}>
+            <KV rows={[
+              [lang === "es" ? (hasRealTax ? "Impuesto anual" : "Impuesto anual (est.)") : (hasRealTax ? "Annual tax" : "Annual tax (est.)"), annualTax ? "$" + num(annualTax) : null],
+              [lang === "es" ? "Año fiscal" : "Tax year", String(taxYear)],
+              [lang === "es" ? "Valor catastral" : "Assessed value", assessed ? "$" + num(assessed) + (hasRealAssess ? "" : " (est.)") : null],
+              [lang === "es" ? "· Terreno" : "· Land", subj.assessedLand ? "$" + num(subj.assessedLand) : null],
+              [lang === "es" ? "· Construcción" : "· Improvements", subj.assessedImprovements ? "$" + num(subj.assessedImprovements) : null],
+              [lang === "es" ? "Tasa efectiva" : "Effective rate", effRate],
+            ]} />
+            {taxHist.length >= 2 && (
+              <div className="rounded-xl mt-2 px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
+                <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Historial de impuestos" : "Tax history"}</p>
+                {taxHist.map((r, i) => (
+                  <div key={r.year} className="flex justify-between py-1" style={{ borderTop: i ? `1px solid ${QC.line}` : "none", fontSize: 12.5, fontWeight: 700 }}>
+                    <span style={{ color: QC.muted2 }}>{r.year}</span>
+                    <span style={{ color: QC.navy }}>${num(r.total)}{i < taxHist.length - 1 && taxHist[i + 1].total ? <span style={{ color: r.total >= taxHist[i + 1].total ? "#C0392B" : "#1E7B3C", fontSize: 10.5, marginLeft: 6 }}>{r.total >= taxHist[i + 1].total ? "▲" : "▼"}{Math.abs(((r.total - taxHist[i + 1].total) / taxHist[i + 1].total) * 100).toFixed(1)}%</span> : null}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Datos clave de la propiedad" : "Key property facts"}</p>
-            <div className="grid grid-cols-4 gap-2">
+            )}
+          </Sect>
+
+          {/* Sale history — what they paid tells the realtor their equity story */}
+          {(subj.lastSalePrice || saleDateTxt) && (
+            <Sect label={lang === "es" ? "Última venta" : "Last sale"}>
+              <KV rows={[
+                [lang === "es" ? "Precio de compra" : "Sale price", subj.lastSalePrice ? "$" + num(subj.lastSalePrice) : null],
+                [lang === "es" ? "Fecha" : "Date", saleDateTxt],
+                ...(subj.lastSalePrice && R.value ? [[lang === "es" ? "Plusvalía estimada" : "Est. equity gained", "$" + num(Math.max(0, R.value - subj.lastSalePrice))]] : []),
+              ]} />
+            </Sect>
+          )}
+
+          {/* Property facts */}
+          <Sect label={lang === "es" ? "Datos de la propiedad" : "Property facts"}>
+            <div className="grid grid-cols-4 gap-2 mb-1">
               {facts.map(([icon, v, label]) => (
                 <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
                   <p className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{v}</p>
@@ -1807,7 +1917,11 @@ export default function TradeTechPro() {
                 </div>
               ))}
             </div>
-          </div>
+            <KV rows={[
+              [lang === "es" ? "Tipo" : "Type", subj.propertyType],
+              [lang === "es" ? "Terreno" : "Lot size", subj.lotSize ? num(subj.lotSize) + " " + (lang === "es" ? "pie²" : "sq ft") : null],
+            ]} />
+          </Sect>
           <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
             <span style={{ color: QC.green }}>✓</span>
             <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Resumen fiscal listo para el cliente" : "Client-ready tax summary available"}</span>
@@ -1816,25 +1930,18 @@ export default function TradeTechPro() {
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
             {lang === "es" ? "Nueva búsqueda" : "New search"}
           </button>
-          {estimated && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
+          {(!hasRealAssess || !hasRealTax) && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
           <p className="mt-2" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>ℹ️ {lang === "es" ? "Al venderse, el impuesto suele recalcularse — las exenciones del dueño actual no se transfieren al comprador." : "After a sale, taxes are usually recalculated — the current owner's exemptions don't transfer to the buyer."}</p>
         </div>
       </div>
     );
   };
 
-  /* ── 04 · WORKSPACE — saved work + Realtor branding ── */
+  /* ── 04 · WORKSPACE — the agent's tools + Realtor branding ── */
   const Workspace = () => {
-    const reopen = reopenSaved;
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
-            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Trabajo guardado" : "Saved work"}</p>
-            <p className="text-white font-extrabold" style={{ fontSize: 26, margin: "4px 0 6px" }}>{savedWork.length} {lang === "es" ? (savedWork.length === 1 ? "elemento reciente" : "elementos recientes") : (savedWork.length === 1 ? "recent item" : "recent items")}</p>
-            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Reabre comps, estimados de financiamiento e impuestos sin empezar de cero." : "Reopen past comps, lending estimates, and tax snapshots without starting over."}</p>
-          </div>
-
           {/* Listing writer — standalone entry: type the facts from anywhere */}
           <button onClick={() => openListing(null)} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
             style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
@@ -1897,29 +2004,18 @@ export default function TradeTechPro() {
               })}
             </div>
           )}
-          {savedWork.length === 0 ? (
-            <div className="rounded-2xl text-center mb-3" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
-              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Tus búsquedas de propiedades aparecerán aquí." : "Your property searches will show up here."}</p>
-            </div>
-          ) : (
-            <div className="mb-3">
-              {savedWork.map((it, i) => (
-                <button key={it.addr + i} onClick={() => reopen(it)} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mb-2 text-left active:scale-[0.99] transition-transform"
-                  style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-                  <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 40, height: 40, background: QC.bg, border: `1px solid ${QC.line}`, color: QC.navy, fontSize: 13 }}>{`0${i + 1}`.slice(-2)}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 14 }}>{it.addr || "—"}</span>
-                    <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Comp · valor" : "Comp · value"} {it.value ? "$" + Number(it.value).toLocaleString("en-US") : "—"}</span>
-                  </span>
-                  <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
-                </button>
-              ))}
-            </div>
-          )}
-
+          {/* Realtor profile — collapsed by default; tap to edit branding */}
           <div className="rounded-2xl p-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Perfil del agente" : "Realtor profile"}</p>
-            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 17 }}>{lang === "es" ? "Marca de tus informes" : "Client report branding"}</p>
+            <button onClick={() => setProfileOpen((o) => !o)} className="w-full flex items-center gap-3 text-left active:opacity-80"
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+              <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 38, height: 38, background: QC.headGrad, color: QC.goldHi, fontSize: 16 }}>{(userName || "R")[0].toUpperCase()}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block" style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Perfil del agente" : "Realtor profile"}</span>
+                <span className="block font-extrabold truncate" style={{ color: QC.navyDeep, fontSize: 14 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}{bizName ? ` · ${bizName}` : ""}</span>
+              </span>
+              <span style={{ color: QC.gold, fontSize: 14 }}>{profileOpen ? "▾" : "▸"}</span>
+            </button>
+            {profileOpen && (<div className="mt-3">
             <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
               <span style={{ color: QC.gold }}>✦</span>
               <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Marca personal activa — tus informes la usan." : "Personal branding is active — reports use it."}</span>
@@ -1965,6 +2061,7 @@ export default function TradeTechPro() {
                   {lang === "es" ? "＋ Subir imagen" : "＋ Upload image"}
                   <input type="file" accept="image/*" onChange={(e) => onLogoFile(e.target.files?.[0])} style={{ display: "none" }} />
                 </label>)}
+            </div>)}
           </div>
         </div>
       </div>
@@ -2137,15 +2234,16 @@ export default function TradeTechPro() {
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          {/* The report document */}
-          <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+          {/* The report document — consulting-grade: serif display, hairline
+              rules, numbered sections, a stat band, and a real comps table */}
+          <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
             {(subj.latitude ?? R.lat) != null && (
               <img src={`/api/streetview?lat=${subj.latitude ?? R.lat}&lng=${subj.longitude ?? R.lng}`} alt=""
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
-                style={{ width: "100%", height: 160, objectFit: "cover", display: "block", background: QC.bg }} />
+                style={{ width: "100%", height: 150, objectFit: "cover", display: "block", background: QC.bg }} />
             )}
-            {/* Branded header band */}
-            <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
+            {/* Masthead */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5" style={{ background: QC.headGrad, borderBottom: `2.5px solid ${QC.gold}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
@@ -2156,60 +2254,93 @@ export default function TradeTechPro() {
                   {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9.5 }}>{lang === "es" ? "Lic. " : "Lic. "}{license}</p>}
                 </div>
               </div>
-              <p className="text-white font-extrabold shrink-0" style={{ fontSize: 13, letterSpacing: "0.03em" }}>{lang === "es" ? "Informe CMA" : "Client CMA Report"}</p>
+              <div className="text-right shrink-0">
+                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase" }}>{lang === "es" ? "Análisis comparativo" : "Comparative Market"}</p>
+                <p className="text-white" style={{ fontFamily: DOC.serif, fontSize: 16, lineHeight: 1.2 }}>{lang === "es" ? "de Mercado" : "Analysis"}</p>
+              </div>
             </div>
             {/* Body */}
-            <div className="px-4 py-4">
-              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{t.cmpValue}</p>
-              <p style={{ color: QC.navyDeep, fontSize: 36, fontWeight: 900, lineHeight: 1, margin: "6px 0" }}>{fmt(R.value)}</p>
-              {hasRange && <p style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{fmt(R.low)} – {fmt(R.high)} {lang === "es" ? "rango sugerido" : "suggested range"}</p>}
-              <p className="font-bold mt-1.5" style={{ color: QC.navy, fontSize: 13 }}>{subj.address || R.addr}</p>
-
-              {/* Sold comparable support */}
-              <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em", marginBottom: 8 }}>{lang === "es" ? "Apoyo de ventas comparables" : "Sold Comparable Support"}</p>
-                {comps.length === 0 && <p style={{ color: QC.muted, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Sin comparables disponibles." : "No comparables available."}</p>}
-                {comps.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 py-1.5" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                    <span className="truncate" style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>{i + 1}. {c.address}</span>
-                    <span className="shrink-0 font-extrabold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{fmt(c.soldPrice)}</span>
-                  </div>
-                ))}
+            <div className="px-5 py-5">
+              <p style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.2em", textTransform: "uppercase" }}>
+                {new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })} · {lang === "es" ? "Privado y confidencial" : "Private & confidential"}
+              </p>
+              <h1 style={{ fontFamily: DOC.serif, color: DOC.ink, fontSize: 23, lineHeight: 1.25, margin: "6px 0 0", fontWeight: 400 }}>{subj.address || R.addr}</h1>
+              <div style={{ width: 44, height: 3, background: QC.gold, margin: "13px 0 0" }} />
+              {/* Stat band */}
+              <div className="flex mt-4" style={{ borderTop: `1px solid ${DOC.hair}`, borderBottom: `1px solid ${DOC.hair}`, padding: "12px 0" }}>
+                <DocStat first big label={t.cmpValue} value={fmt(R.value)} />
+                {hasRange && <DocStat label={lang === "es" ? "Rango sugerido" : "Suggested range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
+                {R.avgPpsf ? <DocStat label={lang === "es" ? "$/pie²" : "$/sq ft"} value={fmt(R.avgPpsf)} /> : null}
+                <DocStat label={lang === "es" ? "Ventas" : "Comp sales"} value={String(n)} />
               </div>
-
-              {/* AI-assisted summary */}
-              <div className="rounded-xl mt-3 px-4 py-3.5" style={{ background: QC.cardGrad, border: `1px solid ${QC.gold}55` }}>
-                <p style={{ color: QC.goldHi, fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 6 }}>{lang === "es" ? "Resumen asistido por IA" : "AI-Assisted Summary"}</p>
-                <p className="text-white" style={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 500 }}>{narrative}</p>
-              </div>
-
-              {payInclude && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                  <div className="flex justify-between" style={{ fontSize: 13, fontWeight: 900, color: QC.navyDeep }}>
-                    <span>💳 {lang === "es" ? "Pago mensual estimado" : "Est. monthly payment"}</span>
-                    <span>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
-                  </div>
-                  <p style={{ color: QC.muted2, fontSize: 10, fontWeight: 600, marginTop: 3 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"} — {lang === "es" ? "incluye impuestos, seguro y seguro hipotecario (est.)" : "incl. taxes, insurance & MI (est.)"}</p>
+              {/* 01 · Executive summary */}
+              <DocSect n="01" title={lang === "es" ? "Resumen ejecutivo" : "Executive summary"}>
+                <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
+              </DocSect>
+              {/* 02 · Subject property */}
+              <DocSect n="02" title={lang === "es" ? "La propiedad" : "Subject property"}>
+                <div className="flex">
+                  <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
+                  <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
+                  <DocStat label={t.cmpSqft} value={subj.sqft ? Number(subj.sqft).toLocaleString("en-US") : "—"} />
+                  <DocStat label={t.builtIn} value={String(subj.yearBuilt ?? "—")} />
                 </div>
+              </DocSect>
+              {/* 03 · Market evidence */}
+              <DocSect n="03" title={lang === "es" ? "Evidencia de mercado — ventas cerradas" : "Market evidence — closed sales"}>
+                {comps.length === 0 && <p style={{ color: DOC.mut, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Sin comparables disponibles." : "No comparables available."}</p>}
+                {comps.length > 0 && (
+                  <div>
+                    <div className="flex gap-2 pb-1.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                      <span style={{ width: 16, color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.1em" }}>#</span>
+                      <span className="flex-1" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{lang === "es" ? "Dirección · vendida" : "Address · sold"}</span>
+                      <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{lang === "es" ? "Precio" : "Sold price"}</span>
+                    </div>
+                    {comps.map((c, i) => {
+                      const dt = c.soldDate ? new Date(c.soldDate) : null;
+                      const when = dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : "";
+                      return (
+                        <div key={i} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                          <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
+                            <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[when, c.sqft ? `${Number(c.sqft).toLocaleString("en-US")} ${t.cmpSqft}` : null, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null].filter(Boolean).join(" · ")}</span>
+                          </span>
+                          <span className="shrink-0" style={{ color: DOC.ink, fontSize: 13.5, fontFamily: DOC.serif }}>{fmt(c.soldPrice)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </DocSect>
+              {payInclude && (
+                <DocSect n="04" title={lang === "es" ? "Pago mensual estimado" : "Financing snapshot"}>
+                  <div className="flex justify-between items-baseline">
+                    <span style={{ color: DOC.body, fontSize: 12, fontWeight: 600 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"}</span>
+                    <span style={{ color: DOC.ink, fontSize: 16, fontFamily: DOC.serif }}>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
+                  </div>
+                  <p style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600, marginTop: 3 }}>{lang === "es" ? "Incluye impuestos, seguro y seguro hipotecario (est.)" : "Includes taxes, insurance & mortgage insurance (est.)"}</p>
+                </DocSect>
               )}
               {netInclude && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                  <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, marginBottom: 6 }}>💰 {lang === "es" ? "Hoja neta del vendedor" : "Seller Net Sheet"}</p>
+                <DocSect n={payInclude ? "05" : "04"} title={lang === "es" ? "Neto estimado del vendedor" : "Estimated seller proceeds"}>
                   {[[lang === "es" ? "Precio de venta" : "Sale price", fmt(R.value)],
                     [`${lang === "es" ? "Comisión" : "Commission"} (${netCommPct}%)`, `−${fmt(commAmt)}`],
                     [`${lang === "es" ? "Gastos de cierre" : "Closing costs"} (${netClosePct}%)`, `−${fmt(closeAmt)}`],
                     ...(payoffN ? [[lang === "es" ? "Saldo de hipoteca" : "Mortgage payoff", `−${fmt(payoffN)}`]] : [])].map(([k, x], i) => (
-                    <div key={k} className="flex justify-between py-1" style={{ borderTop: i ? `1px solid ${QC.goldLine}44` : "none", fontSize: 12, fontWeight: 600, color: QC.body }}>
-                      <span>{k}</span><span style={{ fontWeight: 800, color: QC.navyDeep }}>{x}</span>
+                    <div key={k} className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${DOC.hair}`, fontSize: 12, fontWeight: 600, color: DOC.body }}>
+                      <span>{k}</span><span style={{ fontFamily: DOC.serif, color: DOC.ink }}>{x}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between pt-2 mt-1" style={{ borderTop: `2px solid ${QC.goldLine}`, fontSize: 14, fontWeight: 900, color: QC.navyDeep }}>
-                    <span>{lang === "es" ? "NETO ESTIMADO" : "ESTIMATED NET"}</span><span>{fmt(netAmt)}</span>
+                  <div className="flex justify-between pt-2" style={{ fontSize: 13, fontWeight: 800, color: DOC.ink }}>
+                    <span style={{ letterSpacing: "0.1em", textTransform: "uppercase", fontSize: 10.5 }}>{lang === "es" ? "Neto estimado" : "Estimated net"}</span>
+                    <span style={{ fontFamily: DOC.serif, fontSize: 16 }}>{fmt(netAmt)}</span>
                   </div>
-                </div>
+                </DocSect>
               )}
-              <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {t.cmpDisc}</p>
+              <p className="mt-4" style={{ color: DOC.mut, fontSize: 9, fontWeight: 500, lineHeight: 1.6, borderTop: `1px solid ${DOC.hair}`, paddingTop: 8 }}>¹ {t.cmpDisc}</p>
             </div>
+            <DocFoot left={[bizName || userName, lang === "es" ? "Análisis comparativo de mercado" : "Comparative market analysis"].filter(Boolean).join(" · ")} right={lang === "es" ? "Confidencial" : "Confidential"} />
           </div>
 
           {/* Seller net sheet — the realtor's tool; shared only when included */}
@@ -2518,9 +2649,10 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 font-semibold outline-none resize-none" style={{ ...inputStyle, fontSize: 13, lineHeight: 1.5 }} />
           </div>
 
-          {/* The packet document (this part prints) */}
-          <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
-            <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
+          {/* The packet document (this part prints) — same consulting-grade
+              language as the CMA report: serif display, hairlines, sections */}
+          <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5" style={{ background: QC.headGrad, borderBottom: `2.5px solid ${QC.gold}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
@@ -2531,66 +2663,75 @@ export default function TradeTechPro() {
                   {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9.5 }}>{es ? "Lic. " : "Lic. "}{license}</p>}
                 </div>
               </div>
-              <p className="text-white font-extrabold shrink-0 text-right" style={{ fontSize: 13, letterSpacing: "0.03em" }}>{es ? "Apoyo de comparables" : "Comparable Sales Support"}</p>
+              <div className="text-right shrink-0">
+                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase" }}>{es ? "Apoyo de" : "Comparable Sales"}</p>
+                <p className="text-white" style={{ fontFamily: DOC.serif, fontSize: 16, lineHeight: 1.2 }}>{es ? "Comparables" : "Support"}</p>
+              </div>
             </div>
-            <div className="px-4 py-4">
-              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Propiedad en operación" : "Subject property"}</p>
-              <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 18, lineHeight: 1.3, margin: "5px 0 10px" }}>{addr}</p>
-              <div className="grid grid-cols-4 gap-2 mb-3">
-                {[["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]].map(([icon, v, label]) => (
-                  <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "9px 5px", textAlign: "center" }}>
-                    <p className="font-extrabold" style={{ color: QC.navy, fontSize: 14 }}>{v}</p>
-                    <p style={{ color: QC.muted, fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 3 }}>{icon} {label}</p>
-                  </div>
-                ))}
+            <div className="px-5 py-5">
+              <p style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.2em", textTransform: "uppercase" }}>
+                {new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })} · {es ? "Para el valuador asignado" : "For the assigned appraiser"}
+              </p>
+              <h1 style={{ fontFamily: DOC.serif, color: DOC.ink, fontSize: 23, lineHeight: 1.25, margin: "6px 0 0", fontWeight: 400 }}>{addr}</h1>
+              <div style={{ width: 44, height: 3, background: QC.gold, margin: "13px 0 0" }} />
+              {/* Stat band */}
+              <div className="flex mt-4" style={{ borderTop: `1px solid ${DOC.hair}`, borderBottom: `1px solid ${DOC.hair}`, padding: "12px 0" }}>
+                {contractN > 0 && <DocStat first big label={es ? "Precio de contrato" : "Contract price"} value={fmt(contractN)} />}
+                <DocStat first={!contractN} big={!contractN} label={es ? "Valor indicado" : "Indicated value"} value={fmt(R.value)} />
+                {hasRange && <DocStat label={es ? "Rango" : "Range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
+                <DocStat label={es ? "Ventas" : "Closed sales"} value={String(n)} />
               </div>
-              <div className="flex gap-2 mb-3">
-                {contractN > 0 && (
-                  <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                    <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Precio de contrato" : "Contract price"}</p>
-                    <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(contractN)}</p>
-                  </div>
+              {/* 01 · Purpose & summary */}
+              <DocSect n="01" title={es ? "Propósito y resumen" : "Purpose & summary"}>
+                <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
+                {hasDrift && (
+                  <p className="mt-2" style={{ color: DOC.mut, fontSize: 10.5, fontWeight: 600, lineHeight: 1.6 }}>
+                    {es ? "Tendencia del mercado derivada del conjunto de comparables" : "Market trend derived from the comp set"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{es ? "año" : "yr"} — {es ? "base de los ajustes por fecha de venta" : "the basis for the sale-date adjustments"}.
+                  </p>
                 )}
-                <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                  <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Valor indicado" : "Indicated value"}</p>
-                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(R.value)}</p>
-                  {hasRange && <p style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(R.low)} – {fmt(R.high)}</p>}
+              </DocSect>
+              {/* 02 · Subject property */}
+              <DocSect n="02" title={es ? "La propiedad" : "Subject property"}>
+                <div className="flex">
+                  <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
+                  <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
+                  <DocStat label={t.cmpSqft} value={subj.sqft ? num(subj.sqft) : "—"} />
+                  <DocStat label={t.builtIn} value={String(subj.yearBuilt ?? "—")} />
                 </div>
-              </div>
-              <p style={{ color: QC.body, fontSize: 12.5, lineHeight: 1.65, fontWeight: 500 }}>{narrative}</p>
-              {hasDrift && (
-                <p className="mt-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>
-                  📈 {es ? "Tendencia del mercado derivada del conjunto de comparables" : "Market trend derived from the comp set"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{es ? "año" : "yr"} — {es ? "base de los ajustes por fecha de venta" : "the basis for the sale-date adjustments"}.
-                </p>
-              )}
-              <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em", marginBottom: 6 }}>{es ? "Ventas cerradas comparables" : "Closed Comparable Sales"}</p>
+              </DocSect>
+              {/* 03 · Closed comparable sales */}
+              <DocSect n="03" title={es ? "Ventas cerradas comparables" : "Closed comparable sales"}>
+                <div className="flex gap-2 pb-1.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                  <span style={{ width: 16, color: DOC.mut, fontSize: 8, fontWeight: 800 }}>#</span>
+                  <span className="flex-1" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{es ? "Dirección · detalles" : "Address · details"}</span>
+                  <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{es ? "Precio · ajustado" : "Sold · adjusted"}</span>
+                </div>
                 {comps.map((c, i) => {
                   const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
                   return (
-                    <div key={i} className="py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate font-bold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{i + 1}. {c.address}</span>
-                        <span className="shrink-0 font-extrabold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{fmt(c.soldPrice)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3" style={{ marginTop: 2 }}>
-                        <span style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>
-                          {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}{c.sqft ? ` · ${num(c.sqft)} ${t.cmpSqft}` : ""}{ppsf ? ` · ${fmt(ppsf)}${t.cmpPerSqft}` : ""}
-                        </span>
-                        {c.adjValue ? <span className="shrink-0" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 700 }}>{es ? "ajustado" : "adjusted"} {fmt(c.adjValue)}</span> : null}
-                      </div>
+                    <div key={i} className="flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                      <span style={{ width: 16, color: QC.gold, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
+                        <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[`${t.cmpSold} ${soldDate(c.soldDate)}`, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null, c.sqft ? `${num(c.sqft)} ${t.cmpSqft}` : null, ppsf ? `${fmt(ppsf)}${t.cmpPerSqft}` : null].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block" style={{ color: DOC.ink, fontSize: 13.5, fontFamily: DOC.serif }}>{fmt(c.soldPrice)}</span>
+                        {c.adjValue ? <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{es ? "aj." : "adj."} {fmt(c.adjValue)}</span> : null}
+                      </span>
                     </div>
                   );
                 })}
-              </div>
+              </DocSect>
+              {/* 04 · Agent notes */}
               {apprNote.trim() && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `1px solid ${QC.goldLine}` }}>
-                  <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{es ? "Notas del agente" : "Agent notes"}</p>
-                  <p style={{ color: QC.body, fontSize: 12, lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
-                </div>
+                <DocSect n="04" title={es ? "Notas del agente" : "Agent notes"}>
+                  <p style={{ color: DOC.body, fontSize: 12, lineHeight: 1.7, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
+                </DocSect>
               )}
-              <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Datos de mercado presentados para su consideración — no es un avalúo. La conclusión de valor pertenece al valuador." : "Market data provided for consideration — not an appraisal. The value conclusion remains the appraiser's."}</p>
+              <p className="mt-4" style={{ color: DOC.mut, fontSize: 9, fontWeight: 500, lineHeight: 1.6, borderTop: `1px solid ${DOC.hair}`, paddingTop: 8 }}>¹ {es ? "Datos de mercado presentados para su consideración — no es un avalúo. La conclusión de valor pertenece al valuador." : "Market data provided for consideration — not an appraisal. The value conclusion remains the appraiser's."}</p>
             </div>
+            <DocFoot left={[bizName || userName, es ? "Apoyo de comparables" : "Comparable sales support"].filter(Boolean).join(" · ")} right={es ? "Confidencial" : "Confidential"} />
           </div>
 
           <button onClick={() => window.print()} className="no-print w-full active:translate-y-px transition-transform mt-3"
@@ -2665,6 +2806,14 @@ export default function TradeTechPro() {
         {toast && (
           <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
+          </div>
+        )}
+        {/* Full-screen property photo — tap anywhere to close */}
+        {photoView && (
+          <div className="no-print absolute inset-0 z-50 flex flex-col items-center justify-center px-4" style={{ background: "rgba(7,12,28,0.9)" }} onClick={() => setPhotoView(null)}>
+            <img src={photoView.src} alt="" className="w-full rounded-2xl" style={{ maxHeight: "68vh", objectFit: "contain", boxShadow: "0 30px 80px rgba(0,0,0,.55)" }} />
+            {photoView.label && <p className="text-center mt-3 font-bold text-white px-4" style={{ fontSize: 13.5 }}>📍 {photoView.label}</p>}
+            <p className="text-center mt-1" style={{ color: "rgba(255,255,255,.55)", fontSize: 11, fontWeight: 700 }}>{lang === "es" ? "Toca para cerrar" : "Tap to close"}</p>
           </div>
         )}
       </div>

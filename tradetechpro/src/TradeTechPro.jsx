@@ -94,6 +94,22 @@ const DocFoot = ({ left, right }) => (
     <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>{right}</span>
   </div>
 );
+/* Cover page: the street photo with the address set over it. If the photo
+ * can't load it degrades to a clean navy cover — never a broken layout. */
+const DocCover = ({ ll, kicker, title }) => (
+  <div className="relative overflow-hidden" style={{ background: QC.headGrad }}>
+    {ll && (
+      <img src={`/api/streetview?lat=${ll.lat}&lng=${ll.lng}`} alt=""
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+        className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} />
+    )}
+    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(11,23,51,0.10) 25%, rgba(11,23,51,0.60) 60%, rgba(9,18,40,0.92) 100%)" }} />
+    <div className="relative px-5 pb-4" style={{ paddingTop: 78 }}>
+      <p style={{ color: QC.goldHi, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.24em", textTransform: "uppercase" }}>{kicker}</p>
+      <h1 style={{ fontFamily: DOC.serif, color: "#fff", fontSize: 23, lineHeight: 1.25, marginTop: 4, fontWeight: 400 }}>{title}</h1>
+    </div>
+  </div>
+);
 
 /* ─── Logo (Quick Comp QC monogram) ───
    color="#fff" (or any light value) renders the white mark for navy backgrounds;
@@ -726,6 +742,9 @@ export default function TradeTechPro() {
   const [photoView, setPhotoView] = useState(null); // null | { src, label }
   // Workspace: the Realtor-profile card collapses so it doesn't dominate the tab
   const [profileOpen, setProfileOpen] = useState(false);
+  // Workspace: past searches — one collapsed row that expands into month groups
+  const [searchesOpen, setSearchesOpen] = useState(false);
+  const [searchMonths, setSearchMonths] = useState(null); // per-month overrides; latest open by default
 
   /* Quick Comp tabs: lending calculator inputs + saved-work history */
   const [lendPrice, setLendPrice] = useState(null); // null = follow the comp value
@@ -744,7 +763,7 @@ export default function TradeTechPro() {
     setSavedWork((prev) => {
       const addr = (res.subject && res.subject.address) || res.addr || "";
       const item = { ...res, addr, ts: Date.now() };
-      const next = [item, ...prev.filter((p) => p.addr !== addr)].slice(0, 12);
+      const next = [item, ...prev.filter((p) => p.addr !== addr)].slice(0, 40); // months of history for the Workspace archive
       try { localStorage.setItem("qc_saved", JSON.stringify(next)); } catch {}
       return next;
     });
@@ -2004,6 +2023,57 @@ export default function TradeTechPro() {
               })}
             </div>
           )}
+          {/* Past searches — one collapsed row; expands into month groups so a
+              search from months ago is three taps away without owning the screen */}
+          {savedWork.length > 0 && (
+            <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <button onClick={() => setSearchesOpen((o) => !o)} className="w-full flex items-center gap-3 text-left active:opacity-80"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+                <span style={{ fontSize: 20 }}>🕘</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Búsquedas anteriores" : "Past searches"}</span>
+                  <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{savedWork.length} {lang === "es" ? "propiedades — toca para reabrir" : "properties — tap any to reopen"}</span>
+                </span>
+                <span style={{ color: QC.gold, fontSize: 14 }}>{searchesOpen ? "▾" : "▸"}</span>
+              </button>
+              {searchesOpen && (() => {
+                const groups = [];
+                savedWork.forEach((it) => {
+                  const d = new Date(it.ts || 0);
+                  const known = it.ts != null && !Number.isNaN(d.getTime());
+                  const k = known ? `${d.getFullYear()}-${d.getMonth()}` : "old";
+                  const label = known ? d.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", year: "numeric" }) : (lang === "es" ? "Anteriores" : "Earlier");
+                  const g = groups[groups.length - 1];
+                  if (g && g.k === k) g.items.push(it); else groups.push({ k, label, items: [it] });
+                });
+                return groups.map((g, gi) => {
+                  const open = searchMonths?.[g.k] ?? (gi === 0);
+                  return (
+                    <div key={g.k} className="mt-3">
+                      <button onClick={() => setSearchMonths((m) => ({ ...(m || {}), [g.k]: !open }))}
+                        className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left active:opacity-80"
+                        style={{ background: QC.bg, border: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                        <span style={{ color: QC.gold, fontSize: 11 }}>{open ? "▾" : "▸"}</span>
+                        <span className="flex-1 font-extrabold capitalize" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{g.label}</span>
+                        <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700 }}>{g.items.length}</span>
+                      </button>
+                      {open && g.items.map((it, i) => (
+                        <button key={(it.addr || "") + i} onClick={() => reopenSaved(it)} className="w-full flex items-center gap-2.5 py-2.5 px-1 text-left active:opacity-80"
+                          style={{ background: "none", border: "none", borderBottom: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr || "—"}</span>
+                            <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{it.value ? fmt(it.value) : "—"}{it.ts ? ` · ${new Date(it.ts).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })}` : ""}</span>
+                          </span>
+                          <span style={{ color: QC.gold, fontSize: 15 }}>›</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
           {/* Realtor profile — collapsed by default; tap to edit branding */}
           <div className="rounded-2xl p-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <button onClick={() => setProfileOpen((o) => !o)} className="w-full flex items-center gap-3 text-left active:opacity-80"
@@ -2237,13 +2307,13 @@ export default function TradeTechPro() {
           {/* The report document — consulting-grade: serif display, hairline
               rules, numbered sections, a stat band, and a real comps table */}
           <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
-            {(subj.latitude ?? R.lat) != null && (
-              <img src={`/api/streetview?lat=${subj.latitude ?? R.lat}&lng=${subj.longitude ?? R.lng}`} alt=""
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
-                style={{ width: "100%", height: 150, objectFit: "cover", display: "block", background: QC.bg }} />
-            )}
+            {/* Cover — the house itself, address set over the photo */}
+            <DocCover
+              ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
+              kicker={lang === "es" ? "Análisis comparativo de mercado" : "Comparative Market Analysis"}
+              title={subj.address || R.addr} />
             {/* Masthead */}
-            <div className="flex items-center justify-between gap-3 px-5 py-3.5" style={{ background: QC.headGrad, borderBottom: `2.5px solid ${QC.gold}` }}>
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: QC.headGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${QC.gold}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
@@ -2255,19 +2325,14 @@ export default function TradeTechPro() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase" }}>{lang === "es" ? "Análisis comparativo" : "Comparative Market"}</p>
-                <p className="text-white" style={{ fontFamily: DOC.serif, fontSize: 16, lineHeight: 1.2 }}>{lang === "es" ? "de Mercado" : "Analysis"}</p>
+                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{lang === "es" ? "Privado y confidencial" : "Private & confidential"}</p>
               </div>
             </div>
             {/* Body */}
             <div className="px-5 py-5">
-              <p style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.2em", textTransform: "uppercase" }}>
-                {new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })} · {lang === "es" ? "Privado y confidencial" : "Private & confidential"}
-              </p>
-              <h1 style={{ fontFamily: DOC.serif, color: DOC.ink, fontSize: 23, lineHeight: 1.25, margin: "6px 0 0", fontWeight: 400 }}>{subj.address || R.addr}</h1>
-              <div style={{ width: 44, height: 3, background: QC.gold, margin: "13px 0 0" }} />
               {/* Stat band */}
-              <div className="flex mt-4" style={{ borderTop: `1px solid ${DOC.hair}`, borderBottom: `1px solid ${DOC.hair}`, padding: "12px 0" }}>
+              <div className="flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
                 <DocStat first big label={t.cmpValue} value={fmt(R.value)} />
                 {hasRange && <DocStat label={lang === "es" ? "Rango sugerido" : "Suggested range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
                 {R.avgPpsf ? <DocStat label={lang === "es" ? "$/pie²" : "$/sq ft"} value={fmt(R.avgPpsf)} /> : null}
@@ -2652,7 +2717,12 @@ export default function TradeTechPro() {
           {/* The packet document (this part prints) — same consulting-grade
               language as the CMA report: serif display, hairlines, sections */}
           <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
-            <div className="flex items-center justify-between gap-3 px-5 py-3.5" style={{ background: QC.headGrad, borderBottom: `2.5px solid ${QC.gold}` }}>
+            {/* Cover — the subject property, address set over the photo */}
+            <DocCover
+              ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
+              kicker={es ? "Apoyo de ventas comparables" : "Comparable Sales Support"}
+              title={addr} />
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: QC.headGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${QC.gold}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
@@ -2664,18 +2734,13 @@ export default function TradeTechPro() {
                 </div>
               </div>
               <div className="text-right shrink-0">
-                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.22em", textTransform: "uppercase" }}>{es ? "Apoyo de" : "Comparable Sales"}</p>
-                <p className="text-white" style={{ fontFamily: DOC.serif, fontSize: 16, lineHeight: 1.2 }}>{es ? "Comparables" : "Support"}</p>
+                <p style={{ color: QC.goldHi, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{es ? "Para el valuador asignado" : "For the assigned appraiser"}</p>
               </div>
             </div>
             <div className="px-5 py-5">
-              <p style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.2em", textTransform: "uppercase" }}>
-                {new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })} · {es ? "Para el valuador asignado" : "For the assigned appraiser"}
-              </p>
-              <h1 style={{ fontFamily: DOC.serif, color: DOC.ink, fontSize: 23, lineHeight: 1.25, margin: "6px 0 0", fontWeight: 400 }}>{addr}</h1>
-              <div style={{ width: 44, height: 3, background: QC.gold, margin: "13px 0 0" }} />
               {/* Stat band */}
-              <div className="flex mt-4" style={{ borderTop: `1px solid ${DOC.hair}`, borderBottom: `1px solid ${DOC.hair}`, padding: "12px 0" }}>
+              <div className="flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
                 {contractN > 0 && <DocStat first big label={es ? "Precio de contrato" : "Contract price"} value={fmt(contractN)} />}
                 <DocStat first={!contractN} big={!contractN} label={es ? "Valor indicado" : "Indicated value"} value={fmt(R.value)} />
                 {hasRange && <DocStat label={es ? "Rango" : "Range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}

@@ -2622,6 +2622,7 @@ function landingPage(req) {
     pNew: "1 NEW", pNew2: "NEW",
     duoH: "What's my home worth?", duoBrand: "CASA BELLA REALTY", duoName: "Your name", duoPhone: "Your phone", duoBtn: "SEE MY HOME'S VALUE", duoNotif: "<b>New seller lead</b> · just now", duoEmpty: "Your seller leads land here…",
     duoKick: "FREE HOME VALUATION", duoSub: "See what your home is worth from real recent sales — in seconds.", duoNav: ["Home", "Listings", "Sell", "Contact"],
+    duoValLab: "Your home's estimated value", duoValSub: "From recent comparable sales nearby", pNewTwo: "2 NEW",
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
     appTryT: "TRY THE APP <em>YOURSELF</em>",
@@ -2674,6 +2675,7 @@ function landingPage(req) {
     pNew: "1 NUEVO", pNew2: "NUEVO",
     duoH: "¿Cuánto vale mi casa?", duoBrand: "CASA BELLA REALTY", duoName: "Tu nombre", duoPhone: "Tu teléfono", duoBtn: "VER EL VALOR DE MI CASA", duoNotif: "<b>¡Nuevo lead de venta!</b> · ahora mismo", duoEmpty: "Tus leads de venta llegan aquí…",
     duoKick: "VALUACIÓN GRATIS DE TU CASA", duoSub: "Mira cuánto vale tu casa con ventas recientes reales — en segundos.", duoNav: ["Inicio", "Propiedades", "Vender", "Contacto"],
+    duoValLab: "El valor estimado de tu casa", duoValSub: "Con ventas comparables recientes de tu zona", pNewTwo: "2 NUEVOS",
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     appTryT: "PRUEBA LA APP <em>TÚ MISMO</em>",
@@ -2775,6 +2777,13 @@ section{padding:64px 0}
 .sh-sub{font-size:11.5px;font-weight:600;color:rgba(255,255,255,.72);margin-bottom:13px}
 .widget-card{background:#fff;border-radius:13px;padding:13px;color:#101B30;box-shadow:0 16px 38px rgba(0,0,0,.38)}
 .wc-row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+/* Server-rendered finished state: the client already saw their value */
+.wc-form{display:none}
+.wv-lab{font-size:9px;font-weight:800;letter-spacing:.18em;color:#5A6478;text-transform:uppercase}
+.wv-num{font-size:25px;font-weight:800;color:#B07A00;margin:4px 0 3px}
+.wv-sub{font-size:10.5px;font-weight:600;color:#7A8398}
+@keyframes valpop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+.wc-val.pop{animation:valpop .5s ease}
 .ms-bar{background:#E8ECF3;display:flex;align-items:center;gap:5px;padding:8px 10px}
 .ms-dot{width:9px;height:9px;border-radius:5px;background:#C6CEDC}
 .ms-url{background:#fff;border-radius:7px;font-size:10px;font-weight:700;color:#5A6478;padding:3px 10px;margin-left:6px;flex:1;text-align:center}
@@ -2922,12 +2931,19 @@ footer a{color:#8A94A8}
             <div class="sh-h">${L.duoH}</div>
             <div class="sh-sub">${L.duoSub}</div>
             <div class="widget-card">
-              <div class="ms-addr">📍 502 Britton Ave</div>
-              <div class="wc-row">
-                <div><div class="ms-lab">${L.duoName}</div><div class="ms-in"><span id="msName">Carlos Pérez</span><span class="ms-caret"></span></div></div>
-                <div><div class="ms-lab">${L.duoPhone}</div><div class="ms-in"><span id="msPhone">(956) 555-0188</span><span class="ms-caret"></span></div></div>
+              <div class="ms-addr" id="msAddr">📍 1214 Fresno Ave</div>
+              <div class="wc-form" id="wcForm">
+                <div class="wc-row">
+                  <div><div class="ms-lab">${L.duoName}</div><div class="ms-in"><span id="msName">Ana García</span><span class="ms-caret"></span></div></div>
+                  <div><div class="ms-lab">${L.duoPhone}</div><div class="ms-in"><span id="msPhone">(956) 555-0121</span><span class="ms-caret"></span></div></div>
+                </div>
+                <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
               </div>
-              <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
+              <div class="wc-val" id="wcVal">
+                <div class="wv-lab">${L.duoValLab}</div>
+                <div class="wv-num" id="wvNum">$268,000 – $285,000</div>
+                <div class="wv-sub">${L.duoValSub}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -2938,8 +2954,11 @@ footer a{color:#8A94A8}
         <div class="papp">
           <div class="papp-top">⚡ QUICK COMP</div>
           <div class="pnotif" id="pnotif">📥 ${L.duoNotif}</div>
-          <div class="phead">📥 Leads <span class="pbadge" id="pbadge">${L.pNew}</span></div>
+          <div class="phead">📥 Leads <span class="pbadge" id="pbadge" data-n1="${L.pNew}" data-n2="${L.pNewTwo}">${L.pNewTwo}</span></div>
           <div class="pempty" id="pempty">${L.duoEmpty}</div>
+          <div class="plead" id="plead2" style="margin-bottom:9px"><b>Ana García</b> <span class="pnew">${L.pNew2}</span><br>📍 1214 Fresno Ave<br>(956) 555-0121 · <span class="gold">$268,000–$285,000</span>
+            <div class="pwa">💬 WhatsApp</div>
+          </div>
           <div class="plead" id="plead"><b>Carlos Pérez</b> <span class="pnew">${L.pNew2}</span><br>📍 502 Britton Ave<br>(956) 555-0188 · <span class="gold">$385,000–$412,000</span>
             <div class="pwa">💬 WhatsApp</div>
           </div>
@@ -3047,10 +3066,12 @@ function qBack(){qShow(qCur-1)}
     })},{threshold:.3}).observe(v);
   }
 })();
-// Lead duo: the homeowner "types" into the website form on the left, presses
-// the button, and the lead flies into the phone on the right — notification,
-// buzz, badge, card. Loops while in view. The page is server-rendered in the
-// finished state, so no-JS and reduced-motion visitors still see the story.
+// Lead duo: two homeowners in a row "type" into the website form on the
+// laptop, the site reveals their home's VALUE (what the client sees), and
+// each lead flies into the phone — notification, buzz, badge counting up,
+// cards stacking in the inbox. Loops while in view. The page is
+// server-rendered in the finished state (value shown, 2 leads landed), so
+// no-JS and reduced-motion visitors still see the complete story.
 (function(){
   var duo=document.getElementById('lduo');if(!duo)return;
   if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;
@@ -3058,8 +3079,14 @@ function qBack(){qShow(qCur-1)}
   var in1=nameEl.parentNode,in2=phEl.parentNode;
   var btn=document.getElementById('msBtn'),fly=document.getElementById('duoFly');
   var phone=document.getElementById('duoPhone'),notif=document.getElementById('pnotif');
-  var badge=document.getElementById('pbadge'),empty=document.getElementById('pempty'),lead=document.getElementById('plead');
-  var BTN=btn.textContent,NAME='Carlos Pérez',PH='(956) 555-0188';
+  var badge=document.getElementById('pbadge'),empty=document.getElementById('pempty');
+  var addr=document.getElementById('msAddr'),wcForm=document.getElementById('wcForm');
+  var wcVal=document.getElementById('wcVal'),wvNum=document.getElementById('wvNum');
+  var BTN=btn.textContent,N1=badge.getAttribute('data-n1'),N2=badge.getAttribute('data-n2');
+  var PEOPLE=[
+    {name:'Carlos Pérez',ph:'(956) 555-0188',addr:'📍 502 Britton Ave',val:'$385,000 – $412,000',card:document.getElementById('plead')},
+    {name:'Ana García',ph:'(956) 555-0121',addr:'📍 1214 Fresno Ave',val:'$268,000 – $285,000',card:document.getElementById('plead2')}
+  ];
   var playing=false;
   function type(el,box,txt,done){
     box.classList.add('typing');var i=0;
@@ -3068,24 +3095,28 @@ function qBack(){qShow(qCur-1)}
       else{box.classList.remove('typing');done&&done()}
     })();
   }
-  function reset(){
-    nameEl.textContent='';phEl.textContent='';
+  function formReset(p){
+    addr.textContent=p.addr;nameEl.textContent='';phEl.textContent='';
     btn.classList.remove('press','sent');btn.textContent=BTN;
-    notif.style.visibility='hidden';badge.style.visibility='hidden';
-    lead.style.display='none';lead.classList.remove('in');empty.style.display='block';
+    wcVal.style.display='none';wcVal.classList.remove('pop');wcForm.style.display='block';
     phone.classList.remove('buzz');fly.style.opacity='0';fly.style.transition='none';fly.style.transform='none';
   }
-  function land(){
-    phone.classList.add('buzz');
-    notif.style.visibility='visible';empty.style.display='none';
-    badge.style.visibility='visible';lead.style.display='block';lead.classList.add('in');
-    setTimeout(function(){playing=false;play()},4600);
+  function phoneReset(){
+    notif.style.visibility='hidden';badge.style.visibility='hidden';badge.textContent=N1;
+    PEOPLE.forEach(function(p){p.card.style.display='none';p.card.classList.remove('in')});
+    empty.style.display='block';
   }
-  function send(){
+  function send(i,p){
     setTimeout(function(){btn.classList.add('press')},250);
     setTimeout(function(){btn.classList.remove('press');btn.classList.add('sent');btn.textContent='✓'},450);
+    // the client sees the value on the website...
     setTimeout(function(){
-      var a=btn.getBoundingClientRect(),b=phone.getBoundingClientRect(),d=duo.getBoundingClientRect();
+      wvNum.textContent=p.val;wcForm.style.display='none';
+      wcVal.style.display='block';wcVal.classList.add('pop');
+    },1000);
+    // ...and the lead flies to the realtor's phone
+    setTimeout(function(){
+      var a=wcVal.getBoundingClientRect(),b=phone.getBoundingClientRect(),d=duo.getBoundingClientRect();
       fly.style.left=(a.left-d.left+a.width/2-13)+'px';
       fly.style.top=(a.top-d.top+a.height/2-13)+'px';
       fly.style.opacity='1';
@@ -3094,16 +3125,28 @@ function qBack(){qShow(qCur-1)}
         fly.style.transform='translate('+(b.left+b.width/2-a.left-a.width/2)+'px,'+(b.top+b.height/2-a.top-a.height/2)+'px) scale(.4)';
         fly.style.opacity='0';
       })});
-    },650);
-    setTimeout(land,1350);
+    },1500);
+    setTimeout(function(){land(i,p)},2200);
   }
-  function play(){
-    if(playing)return;playing=true;reset();
+  function land(i,p){
+    phone.classList.add('buzz');
+    notif.style.visibility='visible';empty.style.display='none';
+    badge.style.visibility='visible';badge.textContent=(i===0?N1:N2);
+    p.card.style.display='block';p.card.classList.add('in');
+    if(i===0){setTimeout(function(){cycle(1)},4200)}
+    else{setTimeout(function(){playing=false;play()},5600)}
+  }
+  function cycle(i){
+    var p=PEOPLE[i];
+    formReset(p);
     setTimeout(function(){
-      type(nameEl,in1,NAME,function(){
-        setTimeout(function(){type(phEl,in2,PH,send)},320);
+      type(nameEl,in1,p.name,function(){
+        setTimeout(function(){type(phEl,in2,p.ph,function(){send(i,p)})},320);
       });
     },500);
+  }
+  function play(){
+    if(playing)return;playing=true;phoneReset();cycle(0);
   }
   if('IntersectionObserver' in window){
     new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)play()})},{threshold:.35}).observe(duo);

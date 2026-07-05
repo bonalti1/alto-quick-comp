@@ -800,7 +800,7 @@ export default function TradeTechPro() {
   };
 
   /* ── AI listing writer — prefilled from a search, editable, works standalone ── */
-  const [listingDraft, setListingDraft] = useState({ address: "", beds: "", baths: "", sqft: "", year: "", highlights: "" });
+  const [listingDraft, setListingDraft] = useState({ address: "", beds: "", baths: "", sqft: "", year: "", lot: "", type: "", schools: "", highlights: "" });
   const [listingOut, setListingOut] = useState(null);   // {mls, social, source}
   const [listingBusy, setListingBusy] = useState(false);
   const openListing = (subj) => {
@@ -808,7 +808,7 @@ export default function TradeTechPro() {
     // A new property prefills fresh facts; reopening the same one (or entering
     // standalone) keeps whatever the agent already typed.
     if (subj && addr !== listingDraft.address) {
-      setListingDraft({ address: addr, beds: subj.beds ?? "", baths: subj.baths ?? "", sqft: subj.sqft ?? "", year: subj.yearBuilt ?? "", highlights: "" });
+      setListingDraft({ address: addr, beds: subj.beds ?? "", baths: subj.baths ?? "", sqft: subj.sqft ?? "", year: subj.yearBuilt ?? "", lot: subj.lotSize ?? "", type: subj.propertyType ?? "", schools: "", highlights: "" });
       setListingOut(null);
     }
     setScreen("listing");
@@ -824,7 +824,7 @@ export default function TradeTechPro() {
     try {
       const r = await api("/api/listing", {
         method: "POST",
-        body: JSON.stringify({ lang, address: d.address, beds: d.beds, baths: d.baths, sqft: d.sqft, year: d.year, highlights: d.highlights }),
+        body: JSON.stringify({ lang, address: d.address, beds: d.beds, baths: d.baths, sqft: d.sqft, year: d.year, lot: d.lot, type: d.type, schools: d.schools, highlights: d.highlights }),
       });
       if (r.status === 429) {
         setListingBusy(false);
@@ -841,13 +841,15 @@ export default function TradeTechPro() {
       d.baths && `${d.baths} ${es ? "baños" : "baths"}`,
       d.sqft && `${Number(String(d.sqft).replace(/[^0-9.]/g, "")).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`,
       d.year && (es ? `construida en ${d.year}` : `built in ${d.year}`),
+      d.lot && `${Number(String(d.lot).replace(/[^0-9.]/g, "")).toLocaleString("en-US")} ${es ? "pie² de terreno" : "sq ft lot"}`,
     ].filter(Boolean).join(", ");
     const hl = String(d.highlights || "").trim().replace(/[.\s]+$/, "");
+    const sch = String(d.schools || "").trim().replace(/[.\s]+$/, "");
     setListingOut({
       source: "demo",
       mls: es
-        ? `Bienvenido a ${d.address || "esta propiedad"} — una casa de ${bits || "gran potencial"}. ${hl ? hl + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
-        : `Welcome to ${d.address || "this property"} — a ${bits || "wonderful"} home. ${hl ? hl + ". " : ""}Schedule your showing today — homes like this don't last.`,
+        ? `Bienvenido a ${d.address || "esta propiedad"} — ${d.type ? `${d.type} de ` : "una casa de "}${bits || "gran potencial"}. ${hl ? hl + ". " : ""}${sch ? `Cerca de: ${sch}. ` : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${d.address || "this property"} — a ${bits || "wonderful"}${d.type ? ` ${String(d.type).toLowerCase()}` : " home"}. ${hl ? hl + ". " : ""}${sch ? `Zoned to ${sch}. ` : ""}Schedule your showing today — homes like this don't last.`,
       social: es
         ? `🏡 ¡NUEVO LISTING! ${d.address || ""}${bits ? " · " + bits : ""} ✨ Manda mensaje para verla 📲`
         : `🏡 JUST LISTED! ${d.address || ""}${bits ? " · " + bits : ""} ✨ DM to see it 📲`,
@@ -856,6 +858,50 @@ export default function TradeTechPro() {
   };
   const copyText = async (txt) => {
     try { await navigator.clipboard.writeText(txt); showToast(lang === "es" ? "Copiado ✓" : "Copied ✓"); } catch { /* ignore */ }
+  };
+
+  /* ── Social media writer — address in, the server pulls the property facts
+   * itself and writes a ready-to-post caption. Output stays editable. ── */
+  const [socialDraft, setSocialDraft] = useState({ address: "", kind: "listed", notes: "" });
+  const [socialOut, setSocialOut] = useState(null);   // {post, facts, source} — post is editable
+  const [socialBusy, setSocialBusy] = useState(false);
+  const socialTag = (kind) => {
+    const es = lang === "es";
+    return { listed: es ? "¡NUEVO LISTING!" : "JUST LISTED!", sold: es ? "¡VENDIDA!" : "JUST SOLD!", open: "OPEN HOUSE", price: es ? "¡NUEVO PRECIO!" : "NEW PRICE!" }[kind] || "";
+  };
+  const generateSocial = async () => {
+    const d = socialDraft;
+    if (!String(d.address).trim()) {
+      showToast(lang === "es" ? "Pon la dirección de la propiedad" : "Enter the property address");
+      return;
+    }
+    setSocialBusy(true);
+    setSocialOut(null);
+    try {
+      const r = await api("/api/social", {
+        method: "POST",
+        body: JSON.stringify({ lang, address: d.address, kind: d.kind, notes: d.notes }),
+      });
+      if (r.status === 429) {
+        setSocialBusy(false);
+        showToast("🔒 " + (lang === "es" ? "Límite de hoy alcanzado" : "Daily limit reached"));
+        return;
+      }
+      const j = r.ok ? await r.json() : null;
+      if (j?.post) { setSocialOut(j); setSocialBusy(false); return; }
+    } catch { /* backend unreachable — compose locally below */ }
+    // Offline/demo fallback — the button always answers with something usable
+    const es = lang === "es";
+    const nt = String(d.notes || "").trim().replace(/[.\s]+$/, "");
+    setSocialOut({
+      source: "demo",
+      facts: null,
+      post: `🏡 ${socialTag(d.kind)}\n📍 ${d.address}${nt ? `\n✨ ${nt}` : ""}\n${es ? "Manda DM para más información 📲" : "DM me for details 📲"}\n\n#realestate ${es ? "#bienesraices" : "#realtor"} #home #newlisting`,
+    });
+    setSocialBusy(false);
+  };
+  const shareSocial = async (txt) => {
+    try { await navigator.share({ text: txt }); } catch { copyText(txt); }
   };
 
   /* ── Appraisal defense packet — contract price being defended + agent notes ── */
@@ -1990,6 +2036,17 @@ export default function TradeTechPro() {
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
 
+          {/* Social media writer — address in, ready-to-post caption out */}
+          <button onClick={() => setScreen("social")} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+            <span style={{ fontSize: 22 }}>📲</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Redactor para redes (IA)" : "Social media writer (AI)"}</span>
+              <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Pon la dirección — buscamos los datos y escribimos el post. Tú lo editas." : "Type an address — we pull the facts and write the post. You edit it."}</span>
+            </span>
+            <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
+          </button>
+
           {/* Appraisal defense — send the appraiser your comps as a clean PDF */}
           <button onClick={() => setScreen("appraisal")} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
             style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
@@ -2617,12 +2674,20 @@ export default function TradeTechPro() {
               <input value={d.baths} onChange={set("baths")} placeholder={t.baths} inputMode="decimal"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
             </div>
-            <div className="flex gap-2 mb-3">
+            <div className="flex gap-2 mb-2">
               <input value={d.sqft} onChange={set("sqft")} placeholder="Sq ft" inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
               <input value={d.year} onChange={set("year")} placeholder={es ? "Año de construcción" : "Year built"} inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
             </div>
+            <div className="flex gap-2 mb-2">
+              <input value={d.type} onChange={set("type")} placeholder={es ? "Tipo (ej. Single Family)" : "Type (e.g. Single Family)"}
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <input value={d.lot} onChange={set("lot")} placeholder={es ? "Terreno (pie²)" : "Lot (sq ft)"} inputMode="numeric"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+            </div>
+            <input value={d.schools} onChange={set("schools")} placeholder={es ? "Escuelas (ej. Memorial High…)" : "Schools (e.g. Memorial High…)"}
+              className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={inputStyle} />
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{es ? "Lo que la hace especial (opcional — tú la conoces mejor)" : "What makes it special (optional — you know it best)"}</p>
             <div className="flex items-start gap-2 rounded-xl px-3 py-1 mb-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
               <textarea rows={3} value={d.highlights} onChange={set("highlights")}
@@ -2659,6 +2724,89 @@ export default function TradeTechPro() {
                   <p style={{ color: QC.body, fontSize: 13.5, lineHeight: 1.65, fontWeight: 500, whiteSpace: "pre-wrap" }}>{listingOut.social}</p>
                 </div>
               )}
+              <p style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Revisa antes de publicar — tú eres responsable del texto final. Escrito con reglas de Vivienda Justa (solo describe la propiedad, nunca al comprador)." : "Review before you publish — you own the final text. Written under Fair Housing rules (describes the property, never the buyer)."}</p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Social media writer — type an address, the server pulls the property
+   * facts and writes the post. The result is a live textarea: edit, copy, share. ── */
+  const SocialWriter = () => {
+    const es = lang === "es";
+    const d = socialDraft;
+    const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
+    const KINDS = [
+      ["listed", es ? "Nuevo listing" : "Just listed"],
+      ["open", "Open house"],
+      ["price", es ? "Nuevo precio" : "Price drop"],
+      ["sold", es ? "Vendida" : "Just sold"],
+    ];
+    const F = socialOut?.facts;
+    const factBits = F ? [
+      F.beds && `${F.beds} ${es ? "rec" : "bd"}`,
+      F.baths && `${F.baths} ${es ? "baños" : "ba"}`,
+      F.sqft && `${Number(F.sqft).toLocaleString("en-US")} ${es ? "pie²" : "sq ft"}`,
+      F.yearBuilt && (es ? `del ${F.yearBuilt}` : `built ${F.yearBuilt}`),
+    ].filter(Boolean).join(" · ") : "";
+    return (
+      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
+            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Redactor para redes" : "Social media writer"}</p>
+            <p className="text-white font-extrabold" style={{ fontSize: 20, margin: "4px 0 6px" }}>{es ? "De dirección a post en segundos" : "From address to post in seconds"}</p>
+            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{es ? "Pon la dirección — buscamos los datos de la propiedad y escribimos el post. Edítalo a tu gusto antes de publicar." : "Type the address — we pull the property facts and write the post. Edit it your way before you publish."}</p>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{es ? "¿Qué anunciamos?" : "What are we announcing?"}</p>
+            <div className="flex gap-1.5 mb-3 flex-wrap">
+              {KINDS.map(([k, label]) => {
+                const on = d.kind === k;
+                return (
+                  <button key={k} onClick={() => setSocialDraft((f) => ({ ...f, kind: k }))}
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "7px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+                );
+              })}
+            </div>
+            <input value={d.address} onChange={(e) => setSocialDraft((f) => ({ ...f, address: e.target.value }))} placeholder={es ? "Dirección de la propiedad" : "Property address"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={inputStyle} />
+            <div className="flex items-start gap-2 rounded-xl px-3 py-1 mb-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
+              <textarea rows={2} value={d.notes} onChange={(e) => setSocialDraft((f) => ({ ...f, notes: e.target.value }))}
+                placeholder={es ? "Opcional: precio, hora del open house, lo especial…" : "Optional: price, open-house time, what's special…"}
+                className="flex-1 py-2 font-semibold outline-none bg-transparent resize-none" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.5 }} />
+              {hasVoice && (
+                <button onClick={() => startVoice((txt) => setSocialDraft((f) => ({ ...f, notes: (f.notes ? f.notes.trim() + " " : "") + txt })))}
+                  className="text-xl mt-2 active:scale-90 transition-transform" style={{ background: "none", border: "none", opacity: listening ? 1 : 0.6 }}>{listening ? "🔴" : "🎤"}</button>
+              )}
+            </div>
+            <button onClick={generateSocial} disabled={socialBusy} className="w-full active:translate-y-px transition-transform"
+              style={{ background: socialBusy ? QC.line : `linear-gradient(135deg,${QC.gold},#BD8426)`, color: QC.navyDeep, border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 800, boxShadow: socialBusy ? "none" : "0 4px 14px rgba(189,132,38,0.35)" }}>
+              {socialBusy ? (es ? "Escribiendo…" : "Writing…") : "📲 " + (es ? "Escribir el post" : "Write the post")}
+            </button>
+          </div>
+
+          {socialOut && (
+            <>
+              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>📲 {es ? "Tu post — edítalo aquí mismo" : "Your post — edit it right here"}</p>
+                </div>
+                {factBits && (
+                  <p className="mb-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 700 }}>✓ {es ? "Datos encontrados" : "Facts pulled"}: {factBits}</p>
+                )}
+                <textarea rows={9} value={socialOut.post} onChange={(e) => setSocialOut((o) => ({ ...o, post: e.target.value }))}
+                  className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none resize-none"
+                  style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.body, fontSize: 13.5, lineHeight: 1.6 }} />
+                <div className="flex gap-2">
+                  <button onClick={() => copyText(socialOut.post)} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {es ? "Copiar" : "Copy"}</button>
+                  <button onClick={() => shareSocial(socialOut.post)} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>↗ {es ? "Compartir" : "Share"}</button>
+                </div>
+              </div>
               <p style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Revisa antes de publicar — tú eres responsable del texto final. Escrito con reglas de Vivienda Justa (solo describe la propiedad, nunca al comprador)." : "Review before you publish — you own the final text. Written under Fair Housing rules (describes the property, never the buyer)."}</p>
             </>
           )}
@@ -2857,12 +3005,14 @@ export default function TradeTechPro() {
   const titles = {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
     listing: "✨ " + (lang === "es" ? "Redactor de listing" : "Listing writer"),
+    social: "📲 " + (lang === "es" ? "Redactor para redes" : "Social media writer"),
     appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
     leads: "📥 Leads",
   };
   const backMap = {
     report: "comps",
     listing: "comps",
+    social: "workspace",
     appraisal: "workspace",
     leads: "comps",
   };
@@ -2919,6 +3069,7 @@ export default function TradeTechPro() {
           {screen === "leads" && Leads()}
           {screen === "report" && Report()}
           {screen === "listing" && ListingWriter()}
+          {screen === "social" && SocialWriter()}
           {screen === "appraisal" && AppraisalPacket()}
         </div>
         {/* Pinned bottom tabs */}

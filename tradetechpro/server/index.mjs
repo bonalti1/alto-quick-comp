@@ -5780,18 +5780,21 @@ app.post("/api/listing", async (req, res) => {
     baths: Number(b.baths) || null,
     sqft: Number(b.sqft) || null,
     yearBuilt: Number(b.year) || null,
+    lotSizeSqft: Number(b.lot) || null,
+    propertyType: String(b.type || "").slice(0, 60) || null,
+    schools: String(b.schools || "").slice(0, 220) || null,
     agentHighlights: String(b.highlights || "").slice(0, 900),
   };
   if (!facts.address && !facts.agentHighlights) return res.status(400).json({ error: "facts required" });
   if (!aiLive) {
     // Demo fallback so the button always works
     const es = lang === "es";
-    const bits = [facts.beds && `${facts.beds} ${es ? "recámaras" : "bedrooms"}`, facts.baths && `${facts.baths} ${es ? "baños" : "baths"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`, facts.yearBuilt && (es ? `construida en ${facts.yearBuilt}` : `built in ${facts.yearBuilt}`)].filter(Boolean).join(", ");
+    const bits = [facts.beds && `${facts.beds} ${es ? "recámaras" : "bedrooms"}`, facts.baths && `${facts.baths} ${es ? "baños" : "baths"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`, facts.yearBuilt && (es ? `construida en ${facts.yearBuilt}` : `built in ${facts.yearBuilt}`), facts.lotSizeSqft && `${Number(facts.lotSizeSqft).toLocaleString("en-US")} ${es ? "pie² de terreno" : "sq ft lot"}`].filter(Boolean).join(", ");
     return res.json({
       source: "demo",
       mls: es
-        ? `Bienvenido a ${facts.address || "esta propiedad"} — una casa de ${bits}. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
-        : `Welcome to ${facts.address || "this property"} — a ${bits} home. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Schedule your showing today — homes like this don't last.`,
+        ? `Bienvenido a ${facts.address || "esta propiedad"} — una casa de ${bits}. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}${facts.schools ? `Cerca de: ${facts.schools}. ` : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${facts.address || "this property"} — a ${bits} home. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}${facts.schools ? `Zoned to ${facts.schools}. ` : ""}Schedule your showing today — homes like this don't last.`,
       social: es
         ? `🏡 ¡NUEVO LISTING! ${facts.address || ""} · ${bits} ✨ Manda mensaje para verla 📲`
         : `🏡 JUST LISTED! ${facts.address || ""} · ${bits} ✨ DM to see it 📲`,
@@ -5800,7 +5803,7 @@ app.post("/api/listing", async (req, res) => {
   try {
     const raw = await aiChat({
       maxTokens: 700,
-      system: `You are an expert US real-estate listing copywriter. Write in ${lang === "es" ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, schools, or conditions. (3) Weave the agent's highlights in naturally. Respond with ONLY a JSON object: {"mls": "an MLS-ready description, 110-170 words, engaging but professional, no emojis, ending with a showing call-to-action", "social": "a short social-media caption, max 45 words, with tasteful emojis and a DM call-to-action"}. No markdown.`,
+      system: `You are an expert US real-estate listing copywriter. Write in ${lang === "es" ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, schools, or conditions. If schools are provided, mention them factually (school names only, no quality claims). (3) Weave the agent's highlights in naturally. Respond with ONLY a JSON object: {"mls": "an MLS-ready description, 110-170 words, engaging but professional, no emojis, ending with a showing call-to-action", "social": "a short social-media caption, max 45 words, with tasteful emojis and a DM call-to-action"}. No markdown.`,
       messages: [{ role: "user", content: JSON.stringify(facts) }],
     });
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
@@ -5808,6 +5811,64 @@ app.post("/api/listing", async (req, res) => {
     res.json({ source: "live", mls: String(j.mls).slice(0, 1600), social: String(j.social || "").slice(0, 500) });
   } catch (e) {
     console.error("listing writer failed:", e.message);
+    res.status(502).json({ error: "ai_failed" });
+  }
+});
+
+/* ── Social media writer — the agent types ONLY an address; the server pulls
+ * the county property record itself (a /properties call, no AVM spend) and
+ * writes a ready-to-post caption for the chosen announcement type. The client
+ * renders it in a textarea, so the agent edits before publishing. ── */
+app.post("/api/social", async (req, res) => {
+  const me = await auth(req).catch(() => null);
+  const scIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (!me && overQuota(`soc:${scIp}`, 3)) return res.status(429).json({ error: "demo_limit" });
+  if (me && overQuota(`socc:${me.id}`, 30)) return res.status(429).json({ error: "quota" });
+  const b = req.body || {};
+  const lang = b.lang === "es" ? "es" : "en";
+  const kind = ["listed", "sold", "open", "price"].includes(b.kind) ? b.kind : "listed";
+  const address = String(b.address || "").slice(0, 140).trim();
+  const notes = String(b.notes || "").slice(0, 500).trim();
+  if (!address) return res.status(400).json({ error: "address required" });
+  // Best effort: the record fills in beds/baths/size; a miss never blocks the post.
+  let facts = null;
+  if (RENTCAST_KEY) {
+    try {
+      const rec = await fetchRentcastRecord(address);
+      if (rec) {
+        const n = normalizeSubjectProperty(rec, address);
+        facts = { address: n.address, beds: n.bedrooms, baths: n.bathrooms, sqft: n.squareFootage, yearBuilt: n.yearBuilt, propertyType: n.propertyType, lotSize: n.lotSize };
+      }
+    } catch { /* optional */ }
+  }
+  const es = lang === "es";
+  const tag = { listed: es ? "¡NUEVO LISTING!" : "JUST LISTED!", sold: es ? "¡VENDIDA!" : "JUST SOLD!", open: "OPEN HOUSE", price: es ? "¡NUEVO PRECIO!" : "NEW PRICE!" }[kind];
+  if (!aiLive) {
+    // Demo fallback so the button always works
+    const bits = facts ? [facts.beds && `${facts.beds} ${es ? "rec" : "bd"}`, facts.baths && `${facts.baths} ${es ? "baños" : "ba"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pie²" : "sq ft"}`].filter(Boolean).join(" · ") : "";
+    return res.json({
+      source: "demo",
+      facts,
+      post: `🏡 ${tag}\n📍 ${address}${bits ? `\n✨ ${bits}` : ""}${notes ? `\n${notes}` : ""}\n${es ? "Manda DM para más información 📲" : "DM me for details 📲"}\n\n#realestate ${es ? "#bienesraices" : "#realtor"} #home #newlisting`,
+    });
+  }
+  const KIND_ANGLE = {
+    listed: "a JUST LISTED announcement — build excitement about the new listing",
+    sold: "a JUST SOLD celebration — congratulate the (unnamed) clients and invite followers thinking of selling to reach out",
+    open: "an OPEN HOUSE invitation — create urgency to attend; include date/time ONLY if the agent's notes provide one",
+    price: "a NEW PRICE announcement — frame it as a fresh opportunity, never as desperation",
+  };
+  try {
+    const raw = await aiChat({
+      maxTokens: 500,
+      system: `You are an expert real-estate social media copywriter (Instagram/Facebook). Write in ${es ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, prices, dates, schools, or conditions. (3) Write ${KIND_ANGLE[kind]}. Respond with ONLY a JSON object: {"post": "a ready-to-post caption, 50-100 words, short punchy lines separated by line breaks, tasteful emojis, a clear call-to-action, and 4-6 relevant hashtags at the end"}. No markdown.`,
+      messages: [{ role: "user", content: JSON.stringify({ address, agentNotes: notes || undefined, facts: facts || undefined }) }],
+    });
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    if (!j.post) throw new Error("empty");
+    res.json({ source: "live", facts, post: String(j.post).slice(0, 1200) });
+  } catch (e) {
+    console.error("social writer failed:", e.message);
     res.status(502).json({ error: "ai_failed" });
   }
 });

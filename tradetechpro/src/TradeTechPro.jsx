@@ -236,6 +236,7 @@ const seedJobs = [];
 const DEMO_LEADS = [
   { id: "demo1", name: "Carlos Pérez", phone: "(956) 555-0188", address: "502 Britton Ave, Rio Grande City, TX", info: { low: 385000, high: 412000 }, status: "new", created_at: new Date(Date.now() - 2 * 36e5).toISOString() },
   { id: "demo2", name: "Ana Salinas", phone: "(956) 555-0121", address: "118 Palm Blvd, Roma, TX", info: { low: 214000, high: 236000 }, status: "contacted", created_at: new Date(Date.now() - 26 * 36e5).toISOString() },
+  { id: "demo3", name: "Rogelio Treviño", phone: "(956) 555-0177", address: "44 Encino Dr, Rio Grande City, TX", info: { low: 305000, high: 332000, note: "Quiere vender en agosto — mandarle el CMA." }, status: "interested", created_at: new Date(Date.now() - 40 * 864e5).toISOString() },
 ];
 
 const fmt = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -846,7 +847,7 @@ export default function TradeTechPro() {
     // Leads inbox: demo data without an account. Real accounts pull at launch,
     // on every screen change, and every 60s in between — so when a client fills
     // the form, the pending badge on the front page lights up by itself.
-    if (!session) { setLeads(DEMO_LEADS); return; }
+    if (!session) { setLeads((cur) => (cur.length ? cur : DEMO_LEADS)); return; } // seed once — keep demo edits
     const pull = () => api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
     pull();
     const iv = setInterval(pull, 60000);
@@ -859,6 +860,41 @@ export default function TradeTechPro() {
     setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, status } : l)));
     if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ status }) }).catch(() => { /* refetch on next visit heals it */ });
   };
+  const noteLead = (id, note) => {
+    setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, info: { ...(l.info || {}), note } } : l)));
+    if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ note }) }).catch(() => { /* refetch heals it */ });
+  };
+  // Which lead months are expanded — null = default (latest month open, rest collapsed)
+  const [monthsOpen, setMonthsOpen] = useState(null);
+  /* The phone's back button/gesture navigates the app instead of exiting it:
+   * every screen change (and comps search→result) pushes a history entry, and
+   * popstate walks back through them. Skipped inside embeds (the landing-page
+   * demo iframes) where pushing would pollute the host page's history. */
+  const navPop = useRef(false);
+  const navFirst = useRef(true);
+  useEffect(() => {
+    if (window.parent !== window) return;
+    if (navPop.current) { navPop.current = false; return; }
+    const st = { qcScreen: screen, qcRes: !!(screen === "comps" && lookup) };
+    try {
+      if (navFirst.current) { navFirst.current = false; window.history.replaceState(st, ""); }
+      else window.history.pushState(st, "");
+    } catch { /* sandboxed */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, !!lookup]);
+  useEffect(() => {
+    if (window.parent !== window) return;
+    const onPop = (e) => {
+      const st = e.state;
+      if (!st || !st.qcScreen) return;
+      navPop.current = true;
+      setScreen(st.qcScreen);
+      if (st.qcScreen === "comps" && !st.qcRes) setLookup(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /* The realtor's shareable lead form (their widget) — one tap sends it to a
    * client via the phone's share sheet (or WhatsApp on desktop). */
   const leadFormUrl = `${window.location.origin}/w/${mySlug || "alto-demo"}`;
@@ -1969,35 +2005,79 @@ export default function TradeTechPro() {
             <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
               <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu formulario y aparecerán aquí solos." : "No leads yet — share your form and they'll show up here on their own."}</p>
             </div>
-          ) : leads.map((l) => {
-            const isNew = (l.status || "new") === "new";
-            const low = l.info?.low, high = l.info?.high;
-            return (
-              <div key={l.id} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: isNew ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 15 }}>{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</span>
-                  {isNew
-                    ? <span className="shrink-0 rounded-full px-2 py-0.5" style={{ background: "#FDF3D7", border: `1px solid ${QC.goldLine}`, color: "#8A6A00", fontSize: 10, fontWeight: 900, letterSpacing: "0.06em" }}>{lang === "es" ? "NUEVO" : "NEW"}</span>
-                    : <span className="shrink-0" style={{ color: "#1E7B3C", fontSize: 11, fontWeight: 800 }}>✓ {lang === "es" ? "contactado" : "contacted"}</span>}
+          ) : (() => {
+            // Group by month (leads arrive newest-first); latest month starts open
+            const groups = [];
+            leads.forEach((l) => {
+              const d = new Date(l.created_at);
+              const k = `${d.getFullYear()}-${d.getMonth()}`;
+              const g = groups[groups.length - 1];
+              if (g && g.k === k) g.items.push(l);
+              else groups.push({ k, label: d.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", year: "numeric" }), items: [l] });
+            });
+            return groups.map((g, gi) => {
+              const open = monthsOpen?.[g.k] ?? (gi === 0);
+              const gPending = g.items.filter((l) => (l.status || "new") === "new").length;
+              return (
+                <div key={g.k} className="mb-2.5">
+                  <button onClick={() => setMonthsOpen((m) => ({ ...(m || {}), [g.k]: !open }))}
+                    className="w-full flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-left active:opacity-80"
+                    style={{ background: "#fff", border: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                    <span style={{ color: QC.gold, fontSize: 12 }}>{open ? "▾" : "▸"}</span>
+                    <span className="flex-1 font-extrabold capitalize" style={{ color: QC.navyDeep, fontSize: 13 }}>{g.label}</span>
+                    {gPending > 0 && <span className="shrink-0 rounded-full px-2 py-0.5 font-extrabold" style={{ background: QC.gold, color: QC.navyDeep, fontSize: 10.5 }}>{gPending}</span>}
+                    <span style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 700 }}>{g.items.length} {g.items.length === 1 ? "lead" : "leads"}</span>
+                  </button>
+                  {open && g.items.map((l) => {
+                    const st = l.status || "new";
+                    const isNew = st === "new";
+                    const low = l.info?.low, high = l.info?.high;
+                    return (
+                      <div key={l.id} className="rounded-2xl p-4 mt-2" style={{ background: "#fff", border: isNew ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 15 }}>{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</span>
+                          {isNew && <span className="shrink-0 rounded-full px-2 py-0.5" style={{ background: "#FDF3D7", border: `1px solid ${QC.goldLine}`, color: "#8A6A00", fontSize: 10, fontWeight: 900, letterSpacing: "0.06em" }}>{lang === "es" ? "NUEVO" : "NEW"}</span>}
+                        </div>
+                        {l.address ? <p style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>📍 {l.address}</p> : null}
+                        <p className="mb-2" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>
+                          {l.phone}{low && high ? ` · ${fmt(low)}–${fmt(high)}` : ""} · {ago(l.created_at)}
+                        </p>
+                        {/* Not a CRM — one tap says where this lead stands */}
+                        <div className="flex gap-1.5 mb-2">
+                          {[
+                            ["contacted", lang === "es" ? "Contactado" : "Contacted", "#1E7B3C", "#EAF8EF", "#A7E0BC"],
+                            ["interested", lang === "es" ? "Interesado" : "Interested", "#8A6A00", "#FDF3D7", QC.goldLine],
+                            ["not-interested", lang === "es" ? "No interesado" : "Not interested", "#67718A", "#F2F4F7", "#D5DAE3"],
+                          ].map(([val, lbl, fg, bg, bd]) => {
+                            const on = st === val;
+                            return (
+                              <button key={val} onClick={() => markLead(l.id, val)} className="flex-1 active:translate-y-px"
+                                style={{ background: on ? bg : "#fff", color: on ? fg : QC.muted2, border: `1.5px solid ${on ? bd : QC.line}`, borderRadius: 9, padding: "7px 2px", fontWeight: 800, fontSize: 10.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                {on ? "✓ " : ""}{lbl}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-2">
+                          <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
+                            onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                            style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>💬 WhatsApp</a>
+                          <a href={`tel:+${digits(l.phone)}`} onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                            style={{ background: QC.navy, color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>📞 {lang === "es" ? "Llamar" : "Call"}</a>
+                        </div>
+                        {/* Optional one-liner note */}
+                        {l.info?.note
+                          ? <button onClick={() => { const n = window.prompt(lang === "es" ? "Nota del lead" : "Lead note", l.info.note); if (n !== null) noteLead(l.id, n.slice(0, 300)); }}
+                              className="w-full text-left mt-2 active:opacity-80" style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 9, padding: "8px 10px", color: QC.body, fontSize: 11.5, fontWeight: 600, cursor: "pointer", lineHeight: 1.45 }}>📝 {l.info.note}</button>
+                          : <button onClick={() => { const n = window.prompt(lang === "es" ? "Nota del lead" : "Lead note", ""); if (n !== null && n.trim()) noteLead(l.id, n.slice(0, 300)); }}
+                              className="w-full mt-2 active:opacity-80" style={{ background: "none", border: "none", color: QC.muted2, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "4px 0 0" }}>📝 {lang === "es" ? "＋ Agregar nota" : "＋ Add note"}</button>}
+                      </div>
+                    );
+                  })}
                 </div>
-                {l.address ? <p style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>📍 {l.address}</p> : null}
-                <p className="mb-2.5" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>
-                  {l.phone}{low && high ? ` · ${fmt(low)}–${fmt(high)}` : ""} · {ago(l.created_at)}
-                </p>
-                <div className="flex gap-2">
-                  <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
-                    onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
-                    style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>💬 WhatsApp</a>
-                  <a href={`tel:+${digits(l.phone)}`} onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
-                    style={{ background: QC.navy, color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>📞 {lang === "es" ? "Llamar" : "Call"}</a>
-                  {isNew && (
-                    <button onClick={() => markLead(l.id, "contacted")} title={lang === "es" ? "Marcar contactado" : "Mark contacted"} className="active:translate-y-px"
-                      style={{ background: "#fff", color: QC.muted2, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "10px 12px", fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>✓</button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
     );

@@ -2038,8 +2038,16 @@ app.get("/api/leads", async (req, res) => {
 app.post("/api/leads/:id", async (req, res) => {
   const c = await auth(req);
   if (!c) return res.status(401).json({ error: "no session" });
-  const status = String(req.body?.status || "contacted").slice(0, 20);
-  await db.updateLeadStatus(c.id, String(req.params.id), status);
+  // Deliberately not a CRM: a lead is new/contacted/interested/not-interested,
+  // plus one optional free-text note. Either field may be sent alone.
+  const ALLOWED = ["new", "contacted", "interested", "not-interested"];
+  if (req.body?.status !== undefined) {
+    const status = String(req.body.status).slice(0, 20);
+    await db.updateLeadStatus(c.id, String(req.params.id), ALLOWED.includes(status) ? status : "contacted");
+  }
+  if (req.body?.note !== undefined) {
+    await db.updateLeadNote(c.id, String(req.params.id), String(req.body.note).slice(0, 300));
+  }
   res.json({ ok: true });
 });
 

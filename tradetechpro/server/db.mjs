@@ -452,6 +452,12 @@ export async function updateLeadStatus(contractorId, leadId, status) {
   const l = mem.leads.find(x => x.id === leadId && x.contractor_id === contractorId);
   if (l) { l.status = status; persistMem(); }
 }
+// The agent's free-text note on a lead — stored inside the info jsonb, so no migration
+export async function updateLeadNote(contractorId, leadId, note) {
+  if (pool) { await pool.query("UPDATE leads SET info = COALESCE(info,'{}'::jsonb) || $3::jsonb WHERE id=$1 AND contractor_id=$2", [leadId, contractorId, JSON.stringify({ note })]); return; }
+  const l = mem.leads.find(x => x.id === leadId && x.contractor_id === contractorId);
+  if (l) { l.info = { ...(l.info || {}), note }; persistMem(); }
+}
 
 export async function listLeads(contractorId) {
   if (pool) return (await pool.query("SELECT * FROM leads WHERE contractor_id=$1 ORDER BY created_at DESC LIMIT 200", [contractorId])).rows;

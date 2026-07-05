@@ -2108,14 +2108,6 @@ export default function TradeTechPro() {
               <span style={{ color: QC.gold }}>✦</span>
               <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Marca personal activa — tus informes la usan." : "Personal branding is active — reports use it."}</span>
             </div>
-            <div className="rounded-2xl p-3.5 mb-3 flex items-center gap-3" style={{ background: QC.headGrad }}>
-              <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 40, height: 40, background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.18)", color: QC.goldHi, fontSize: 17 }}>{(userName || "R")[0].toUpperCase()}</span>
-              <span className="min-w-0">
-                <span className="block" style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</span>
-                <span className="block font-extrabold text-white truncate" style={{ fontSize: 15 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}{bizName ? ` · ${bizName}` : ""}</span>
-                {bizEmail && <span className="block truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizEmail}</span>}
-              </span>
-            </div>
             <div className="flex items-center gap-2 mb-3">
               <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>{lang === "es" ? "Idioma" : "Language"}</span>
               {[["en", "English"], ["es", "Español"]].map(([code, label]) => {
@@ -2158,6 +2150,31 @@ export default function TradeTechPro() {
                   {lang === "es" ? "＋ Subir imagen" : "＋ Upload image"}
                   <input type="file" accept="image/*" onChange={(e) => onLogoFile(e.target.files?.[0])} style={{ display: "none" }} />
                 </label>)}
+            {/* Live preview — an exact replica of the document masthead, updating
+                as the realtor edits their color, logo, and identity above */}
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, margin: "14px 0 6px" }}>{lang === "es" ? "Vista previa — así abren tus informes" : "Preview — how your reports open"}</p>
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${QC.line}`, boxShadow: "0 4px 14px rgba(17,27,66,0.10)" }}>
+              <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: brandGrad, borderBottom: `2.5px solid ${brandTint}` }}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 32, maxWidth: 84, objectFit: "contain", background: "#fff", borderRadius: 7, padding: 3 }} />}
+                  <div className="min-w-0">
+                    <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
+                    <p className="text-white font-extrabold truncate" style={{ fontSize: 13 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}</p>
+                    {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 10.5 }}>{bizName}</p>}
+                    {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
+                    {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9 }}>Lic. {license}</p>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p style={{ color: brandTint, fontSize: 7, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                  <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{lang === "es" ? "Privado y confidencial" : "Private & confidential"}</p>
+                </div>
+              </div>
+              <div className="px-4 py-2.5" style={{ background: "#fff" }}>
+                <p style={{ color: QC.muted2, fontSize: 8, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Valor de mercado estimado" : "Estimated market value"}</p>
+                <p style={{ color: brand, fontFamily: DOC.serif, fontSize: 17, fontWeight: 700 }}>$284,000 – $301,500</p>
+              </div>
+            </div>
             </div>)}
           </div>
         </div>

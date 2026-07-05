@@ -231,6 +231,13 @@ const seedCustomers = [
 ];
 const seedJobs = [];
 
+/* Demo-mode seller leads — shows what the Leads inbox looks like before an
+ * account exists. Real accounts fetch their actual leads from the server. */
+const DEMO_LEADS = [
+  { id: "demo1", name: "Carlos Pérez", phone: "(956) 555-0188", address: "502 Britton Ave, Rio Grande City, TX", info: { low: 385000, high: 412000 }, status: "new", created_at: new Date(Date.now() - 2 * 36e5).toISOString() },
+  { id: "demo2", name: "Ana Salinas", phone: "(956) 555-0121", address: "118 Palm Blvd, Roma, TX", info: { low: 214000, high: 236000 }, status: "contacted", created_at: new Date(Date.now() - 26 * 36e5).toISOString() },
+];
+
 const fmt = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
 /* ─── Property lookup (DEMO — simulated data; swap for a property data API) ─── */
@@ -507,6 +514,10 @@ export default function TradeTechPro() {
   // "new views" dot on the Workspace tab: total opens the agent has already seen
   const [seenViews, setSeenViews] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenviews") || "0", 10) || 0; } catch { return 0; } });
   const opensFetched = useRef(false);
+  // Seller-lead inbox (the Leads tab) + its own "new leads" gold dot
+  const [leads, setLeads] = useState([]);
+  const [seenLeads, setSeenLeads] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenleads") || "0", 10) || 0; } catch { return 0; } });
+  const leadsFetched = useRef(false);
   const [hideInstall, setHideInstall] = useState(() => {
     try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
   });
@@ -832,6 +843,39 @@ export default function TradeTechPro() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, reportOpens]);
+  useEffect(() => {
+    // Leads inbox: demo data without an account; real accounts fetch at launch
+    // (so the tab dot can light up) and refresh on every Leads tab visit.
+    if (!session) { setLeads(DEMO_LEADS); return; }
+    if (screen !== "leads" && leadsFetched.current) return;
+    leadsFetched.current = true;
+    api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, session]);
+  useEffect(() => {
+    // Visiting the Leads tab marks them seen — the gold dot clears.
+    if (screen !== "leads") return;
+    if (leads.length > seenLeads) {
+      setSeenLeads(leads.length);
+      try { localStorage.setItem("qc_seenleads", String(leads.length)); } catch { /* private mode */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, leads]);
+  const markLead = (id, status) => {
+    // Optimistic — the tap must feel instant; the server catches up behind it.
+    setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, status } : l)));
+    if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ status }) }).catch(() => { /* refetch on next visit heals it */ });
+  };
+  /* The realtor's shareable lead form (their widget) — one tap sends it to a
+   * client via the phone's share sheet (or WhatsApp on desktop). */
+  const leadFormUrl = `${window.location.origin}/w/${mySlug || "alto-demo"}`;
+  const shareLeadForm = () => {
+    const msg = lang === "es"
+      ? `Mira cuánto vale tu casa hoy — gratis y en 10 segundos 🏡👇\n${leadFormUrl}`
+      : `See what your home is worth today — free, in 10 seconds 🏡👇\n${leadFormUrl}`;
+    if (navigator.share) { navigator.share({ text: msg }).catch(() => { /* user closed the sheet */ }); return; }
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
   /* Monthly payment from the Lending tab's current settings, for the report's
    * optional buyer card — same PMI/MIP/fee math as the Lending screen. */
   const paymentFor = (price) => {
@@ -995,22 +1039,23 @@ export default function TradeTechPro() {
       ["comps", lang === "es" ? "Comps" : "Comps"],
       ["lending", lang === "es" ? "Crédito" : "Lending"],
       ["tax", lang === "es" ? "Impuestos" : "Tax"],
+      ["leads", "Leads"],
       ["workspace", lang === "es" ? "Trabajo" : "Workspace"],
     ];
-    // Unseen report opens light a small gold dot on the Workspace tab
+    // Unseen report opens light a gold dot on Workspace; unseen leads on Leads
     const totalViews = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
     return (
-      <div className="flex justify-around items-center gap-1.5 px-2 py-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}` }}>
+      <div className="flex justify-around items-center gap-1 px-1.5 py-2" style={{ background: "#fff", borderTop: `1px solid ${C.line}` }}>
         {items.map(([s, label], i) => {
           const on = screen === s;
           return (
             <button key={s} onClick={() => setScreen(s)}
-              className="relative flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl"
+              className="relative flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-2xl min-w-0"
               style={{ background: on ? C.navy : "transparent", border: "none" }}>
               <span className="text-xs font-extrabold" style={{ color: on ? C.orange : C.slate, letterSpacing: 0.5 }}>{`0${i + 1}`}</span>
-              <span className="text-[11px] font-bold uppercase truncate" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.5 }}>{label}</span>
-              {s === "workspace" && totalViews > seenViews && (
-                <span className="absolute" style={{ top: 5, right: "24%", width: 9, height: 9, borderRadius: 5, background: "#E3B54E", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
+              <span className="text-[10px] font-bold uppercase truncate max-w-full" style={{ color: on ? "#fff" : C.slate, letterSpacing: 0.4 }}>{label}</span>
+              {((s === "workspace" && totalViews > seenViews) || (s === "leads" && leads.length > seenLeads)) && (
+                <span className="absolute" style={{ top: 5, right: "20%", width: 9, height: 9, borderRadius: 5, background: "#E3B54E", boxShadow: `0 0 0 2px ${on ? C.navy : "#fff"}` }} />
               )}
             </button>
           );
@@ -1119,6 +1164,16 @@ export default function TradeTechPro() {
               })}
             </div>
           )}
+          {/* One-tap: send your lead form to a client — their info lands in the Leads tab */}
+          <button onClick={shareLeadForm} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mt-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+            <span style={{ fontSize: 20 }}>📤</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 13.5 }}>{lang === "es" ? "Mándale tu formulario a un cliente" : "Send your lead form to a client"}</span>
+              <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{lang === "es" ? "Ve el valor de su casa — y te llega como lead 📥" : "They see their home's value — you get the lead 📥"}</span>
+            </span>
+            <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
+          </button>
         </div>
       </div>
     );
@@ -1875,6 +1930,84 @@ export default function TradeTechPro() {
     );
   };
 
+  /* ── 04 · LEADS — the seller-lead inbox + one-tap share of the lead form ── */
+  const Leads = () => {
+    const ago = (x) => {
+      if (!x) return "";
+      const h = (Date.now() - new Date(x).getTime()) / 36e5;
+      if (h < 1) return lang === "es" ? "hace minutos" : "minutes ago";
+      if (h < 24) return lang === "es" ? `hace ${Math.round(h)}h` : `${Math.round(h)}h ago`;
+      return lang === "es" ? `hace ${Math.round(h / 24)}d` : `${Math.round(h / 24)}d ago`;
+    };
+    const digits = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 10 ? "1" + d : d; };
+    const waMsg = (l) => {
+      const first = String(l.name || "").trim().split(/\s+/)[0] || "";
+      const who = [userName, bizName].filter(Boolean).join(" · ");
+      return lang === "es"
+        ? `Hola${first ? " " + first : ""}! Soy ${who || "tu agente"} — vi que checaste el valor de tu casa${l.address ? ` en ${l.address}` : ""}. Te preparo el análisis completo gratis. ¿Cuándo te puedo llamar?`
+        : `Hi${first ? " " + first : ""}! This is ${who || "your agent"} — I saw you checked your home's value${l.address ? ` at ${l.address}` : ""}. I'll put together the full analysis for you, free. When's a good time to call?`;
+    };
+    return (
+      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
+            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Leads de vendedores" : "Seller leads"}</p>
+            <p className="text-white font-extrabold" style={{ fontSize: 26, margin: "4px 0 6px" }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</p>
+            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Cada dueño que llena tu formulario aparece aquí al instante — con su teléfono y el valor que vio." : "Every homeowner who fills out your form lands here instantly — with their phone and the value they saw."}</p>
+          </div>
+
+          {/* Share the lead form — the engine that fills this inbox */}
+          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
+            <p className="mb-2.5" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Mándale tu formulario a un cliente — pone su dirección, ve el valor de su casa, y su información te llega aquí." : "Send your lead form to a client — they type their address, see their home's value, and their info lands right here."}</p>
+            <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-2"
+              style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 12, padding: 13, fontSize: 14.5, fontWeight: 800, cursor: "pointer" }}>💬 {lang === "es" ? "Mandar mi formulario" : "Send my lead form"}</button>
+            <div className="flex gap-2">
+              <button onClick={() => copyText(leadFormUrl)} className="flex-1 active:translate-y-px transition-transform"
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
+              <a href={leadFormUrl} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center"
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
+            </div>
+          </div>
+
+          {leads.length === 0 ? (
+            <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
+              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu formulario y aparecerán aquí solos." : "No leads yet — share your form and they'll show up here on their own."}</p>
+            </div>
+          ) : leads.map((l) => {
+            const isNew = (l.status || "new") === "new";
+            const low = l.info?.low, high = l.info?.high;
+            return (
+              <div key={l.id} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: isNew ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 15 }}>{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</span>
+                  {isNew
+                    ? <span className="shrink-0 rounded-full px-2 py-0.5" style={{ background: "#FDF3D7", border: `1px solid ${QC.goldLine}`, color: "#8A6A00", fontSize: 10, fontWeight: 900, letterSpacing: "0.06em" }}>{lang === "es" ? "NUEVO" : "NEW"}</span>
+                    : <span className="shrink-0" style={{ color: "#1E7B3C", fontSize: 11, fontWeight: 800 }}>✓ {lang === "es" ? "contactado" : "contacted"}</span>}
+                </div>
+                {l.address ? <p style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>📍 {l.address}</p> : null}
+                <p className="mb-2.5" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>
+                  {l.phone}{low && high ? ` · ${fmt(low)}–${fmt(high)}` : ""} · {ago(l.created_at)}
+                </p>
+                <div className="flex gap-2">
+                  <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
+                    onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                    style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>💬 WhatsApp</a>
+                  <a href={`tel:+${digits(l.phone)}`} onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                    style={{ background: QC.navy, color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>📞 {lang === "es" ? "Llamar" : "Call"}</a>
+                  {isNew && (
+                    <button onClick={() => markLead(l.id, "contacted")} title={lang === "es" ? "Marcar contactado" : "Mark contacted"} className="active:translate-y-px"
+                      style={{ background: "#fff", color: QC.muted2, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "10px 12px", fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>✓</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   /* ── Client CMA report (printable / shareable PDF view) ── */
   const Report = () => {
     const R = curatedView(lookup);
@@ -2399,7 +2532,7 @@ export default function TradeTechPro() {
     listing: "comps",
     appraisal: "workspace",
   };
-  const tabScreens = ["comps", "lending", "tax", "workspace"];
+  const tabScreens = ["comps", "lending", "tax", "leads", "workspace"];
   const withNav = tabScreens;
 
   return (
@@ -2438,6 +2571,7 @@ export default function TradeTechPro() {
           {screen === "lending" && Lending()}
           {screen === "tax" && Tax()}
           {screen === "workspace" && Workspace()}
+          {screen === "leads" && Leads()}
           {screen === "report" && Report()}
           {screen === "listing" && ListingWriter()}
           {screen === "appraisal" && AppraisalPacket()}

@@ -2749,6 +2749,15 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={market} onChange={(e) => { setMarket(e.target.value); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
               className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Color de tu marca — tus informes lo usan" : "Your brand color — your reports use it"}</p>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <input type="color" value={brand} onChange={(e) => { setBrandColor(e.target.value); saveProfile({ brandColor: e.target.value }); }}
+                style={{ width: 46, height: 36, border: `1.5px solid ${QC.line}`, borderRadius: 10, background: "#fff", padding: 3, cursor: "pointer" }} />
+              {["#1B2A5C", "#7A1F2B", "#14532D", "#3B2E7E", "#0F766E", "#111111"].map((c) => (
+                <button key={c} onClick={() => { setBrandColor(c); saveProfile({ brandColor: c }); }} title={c}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: c, border: brand === c ? `2.5px solid ${QC.goldLine}` : "2px solid #fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", cursor: "pointer" }} />
+              ))}
+            </div>
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional — sale en tus informes)" : "Logo or headshot (optional — shows on your reports)"}</p>
             {logo
               ? (<div className="flex items-center gap-3">

@@ -1236,6 +1236,40 @@ app.post("/api/admin/status", async (req, res) => {
   res.json({ ok: true, status: paused ? "paused" : "active" });
 });
 
+/* Admin: one-click full data backup (ALTO ownership pattern) — everything the
+ * business can't rebuild, in one dated JSON: clients with their app state and
+ * leads, plus meetings and tasks. Session tokens and invite links are excluded
+ * on purpose: a leaked backup file must never grant access to anything. */
+app.get("/api/admin/backup", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
+  try {
+    const contractors = await db.listContractors();
+    const clients = [];
+    for (const c of contractors) {
+      const [state, leads] = await Promise.all([
+        db.getState(c.id).catch(() => null),
+        db.listLeads(c.id).catch(() => []),
+      ]);
+      clients.push({ id: c.id, slug: c.slug, name: c.name, phone: c.phone, created_at: c.created_at, data: c.data || {}, state, leads });
+    }
+    const backup = {
+      product: "quick-comp",
+      exportedAt: new Date().toISOString(),
+      counts: { clients: clients.length, leads: clients.reduce((n, c) => n + (c.leads?.length || 0), 0) },
+      clients,
+      meetings: await db.listMeetings(5000).catch(() => []),
+      tasks: await db.listTasks(5000).catch(() => []),
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="quickcomp-backup-${stamp}.json"`);
+    res.send(JSON.stringify(backup, null, 1));
+  } catch (e) {
+    console.error("backup failed:", e.message);
+    res.status(500).json({ error: "backup_failed" });
+  }
+});
+
 // Operations dashboard: KPIs, funnel, clients with lead activity, latest leads
 /* Month/date filtering for the closer's sales numbers.
  * period = this | last | all | custom (+ from/to YYYY-MM-DD). */
@@ -1512,6 +1546,12 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
     </div>`; }).join("")}
   `).join("")}
   <p style="color:#9AA0AC;font-size:12px;margin-top:14px">El portal del closer y el onboarding piden clave; los públicos no.</p>
+</div>
+
+<div class="panel">
+  <h2>⚙️ Mantenimiento</h2>
+  <a href="/api/admin/backup?key=${KEY}" download style="display:inline-block;background:#101B30;color:#fff;border-radius:12px;padding:13px 20px;font-weight:800;text-decoration:none;font-size:14px">⬇️ Descargar respaldo (todos los datos)</a>
+  <p class="legend">Respaldo mensual con 1 clic: agentes (con su app y sus leads), reuniones y tareas en un JSON con fecha. Sin tokens de sesión ni links de acceso — un respaldo filtrado nunca abre nada. Guárdalo junto al clon local del código (playbook/06-backup).</p>
 </div>
 
 <div class="panel">

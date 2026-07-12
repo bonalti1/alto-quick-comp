@@ -477,6 +477,18 @@ const savedProfile = (() => {
 const WANT_ROOF = /[?&]demo=(roof|app|qc)/.test(window.location.search);
 const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 
+/* Staff demo pass (?pass=<DEMO_PASS>): remembered on the device so live sales
+ * demos never hit the anonymous valuation cap. Sent with each lookup; the
+ * server ignores anything that doesn't match its DEMO_PASS. */
+const DEMO_PASS_KEY = "qc_pass";
+const demoPass = (() => {
+  try {
+    const fromUrl = /[?&]pass=([^&]+)/.exec(window.location.search)?.[1];
+    if (fromUrl) localStorage.setItem(DEMO_PASS_KEY, decodeURIComponent(fromUrl));
+    return localStorage.getItem(DEMO_PASS_KEY) || "";
+  } catch { return ""; }
+})();
+
 /* ─── Main App ─── */
 /* Maps a /api/lookup comps response to the app's lookup shape — shared by the
  * initial search and the radius re-search so both produce identical state. */
@@ -1074,8 +1086,9 @@ export default function TradeTechPro() {
   const startLookup = async (addr, placeId = null, gps = null, target = "comps") => {
     // Demo mode gets 10 measurements TOTAL (not per day) — a taste, not a tool.
     // The counter lives next to the demo data itself, so wiping it to cheat
-    // also wipes everything the freeloader saved.
-    if (!session) {
+    // also wipes everything the freeloader saved. A staff demo pass (?pass=)
+    // skips the local gate; the server still verifies the pass itself.
+    if (!session && !demoPass) {
       let used = 0;
       try { used = parseInt(localStorage.getItem("alto_demo_meas") || "0", 10) || 0; } catch { /* private mode */ }
       if (used >= 10) { showToast("🔒 " + t.demoLimit); return; }
@@ -1107,8 +1120,8 @@ export default function TradeTechPro() {
           ...(session ? { Authorization: `Bearer ${session}` } : {}),
         },
         body: JSON.stringify(gps
-          ? { lat: gps.lat, lng: gps.lng, parcel: trade === "fence" }
-          : { address: addr, placeId, parcel: trade === "fence" }),
+          ? { lat: gps.lat, lng: gps.lng, parcel: trade === "fence", ...(demoPass && !session ? { pass: demoPass } : {}) }
+          : { address: addr, placeId, parcel: trade === "fence", ...(demoPass && !session ? { pass: demoPass } : {}) }),
       });
       if (r.status === 429) {
         clearTimeout(p1); clearTimeout(p2);
@@ -1460,7 +1473,7 @@ export default function TradeTechPro() {
     try {
       const resp = await api("/api/lookup", {
         method: "POST",
-        body: JSON.stringify({ address: lookup.subject?.address || lookup.addr, ...(r === "auto" ? {} : { radius: r }) }),
+        body: JSON.stringify({ address: lookup.subject?.address || lookup.addr, ...(r === "auto" ? {} : { radius: r }), ...(demoPass && !session ? { pass: demoPass } : {}) }),
       });
       const j = resp.ok ? await resp.json() : null;
       if (j?.found && j.value) {

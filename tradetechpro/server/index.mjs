@@ -26,6 +26,9 @@ const REGRID_KEY = process.env.REGRID_API_KEY || "";
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 const CLOSER_KEY = process.env.CLOSER_KEY || "";
 const CS_KEY = process.env.CS_KEY || "";
+// Staff demo pass (ALTO pattern): ?pass=<DEMO_PASS> makes a device unlimited
+// so a live sales call never dies at the anonymous-demo cap. Unset = off.
+const DEMO_PASS = process.env.DEMO_PASS || "";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 // Cloudflare for SaaS (custom client domains). Off until configured.
 const CF_API_TOKEN = process.env.CF_API_TOKEN || "";
@@ -817,12 +820,16 @@ app.post("/api/lookup", async (req, res) => {
   // wowed, not enough to freeload. Clients get a high anti-runaway ceiling.
   const me = await auth(req).catch(() => null);
   const lkIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
-  if (!me) {
+  // Staff pass: valid ?pass= (stored by the app, sent with each lookup) lifts
+  // the anonymous caps so live sales demos never stall. Wrong/absent pass
+  // falls through to the normal demo allowance.
+  const passOk = DEMO_PASS && String(req.body?.pass || req.get("x-demo-pass") || "") === DEMO_PASS;
+  if (!me && !passOk) {
     if (overQuota(`lk:${lkIp}`, 6)) return res.status(429).json({ error: "demo_limit" });
     // lifetime allowance per connection — survives incognito and browser wipes
     const lifetime = await db.incrCounter(`demolk:${lkIp}`).catch(() => 0);
     if (lifetime > 10) return res.status(429).json({ error: "demo_limit" });
-  } else if (overQuota(`lkc:${me.id}`, 40)) { // per-account daily measure cap — low enough that a shared link is useless as a free tool
+  } else if (me && overQuota(`lkc:${me.id}`, 40)) { // per-account daily measure cap — low enough that a shared link is useless as a free tool
     return res.status(429).json({ error: "quota" });
   }
   const address = String(req.body?.address || "").trim();
@@ -5266,6 +5273,10 @@ ol li{margin-bottom:10px}small{color:#67718A}
 app.get("/demo", (req, res) => {
   const base = canonBase(req);
   const en = req.query.lang === "en";
+  // Staff (closer/admin key or cookie) get the unlimited pass injected into
+  // the embedded app so the valuation cap never interrupts a sales call.
+  // The public deck stays capped on purpose — that cap is a conversion moment.
+  const appPass = DEMO_PASS && closerOk(req) ? `&pass=${encodeURIComponent(DEMO_PASS)}` : "";
   const wMsg = en
     ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
     : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
@@ -5591,7 +5602,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </ul>
         <p class="body" style="margin-top:22px;font-size:14px">${L.live5}</p>
       </div>
-      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app" title="App"></iframe></div></div>
+      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app${appPass}" title="App"></iframe></div></div>
     </div>
   </div>
 </section>

@@ -13,6 +13,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
+import webpush from "web-push";
 import { fromArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import * as db from "./db.mjs";
@@ -2077,6 +2078,55 @@ function forwardLead(c, lead) {
   }, 6000).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
 }
 
+/* ── Web push (the buzz): a new lead pings the realtor's phone ──
+ * Dormant until VAPID keys exist (generate once: npx web-push
+ * generate-vapid-keys → VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in Render).
+ * Subscriptions live in the account's data.push — capped at 5 devices,
+ * dead endpoints pruned on every send. See playbook/05-env.md. */
+const VAPID_PUB = process.env.VAPID_PUBLIC_KEY || "";
+const VAPID_PRIV = process.env.VAPID_PRIVATE_KEY || "";
+const pushLive = !!(VAPID_PUB && VAPID_PRIV);
+if (pushLive) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:hello@getquickcomp.com", VAPID_PUB, VAPID_PRIV);
+
+async function notifyLead(c, lead) {
+  if (!pushLive) return;
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (!subs.length) return;
+  const es = (c.data?.profile?.lang || "") === "es";
+  const payload = JSON.stringify({
+    title: es ? "📥 ¡Nuevo lead de venta!" : "📥 New seller lead!",
+    body: [lead.name, lead.address].filter(Boolean).join(" · ") || String(lead.phone || ""),
+    url: "/?open=leads",
+    tag: "qc-lead",
+  });
+  const dead = [];
+  await Promise.all(subs.map((s) => webpush.sendNotification(s, payload).catch((e) => {
+    if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); // device gone — prune
+    else console.error("push failed:", e.statusCode || e.message);
+  })));
+  if (dead.length) {
+    const keep = subs.filter((s) => !dead.includes(s.endpoint));
+    await db.saveContractorData(c.id, { ...(c.data || {}), push: keep }).catch(() => {});
+  }
+}
+
+// The app asks for the public key before subscribing (404 = push not configured)
+app.get("/api/push/key", (req, res) => (pushLive ? res.json({ key: VAPID_PUB }) : res.status(404).json({ error: "push_off" })));
+
+// Signed-in realtor registers this device for the lead buzz
+app.post("/api/push/subscribe", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  const sub = req.body?.subscription;
+  if (!sub?.endpoint || !/^https:\/\//.test(String(sub.endpoint)) || !sub.keys?.p256dh || !sub.keys?.auth) {
+    return res.status(400).json({ error: "bad subscription" });
+  }
+  const subs = (Array.isArray(c.data?.push) ? c.data.push : []).filter((s) => s.endpoint !== sub.endpoint);
+  subs.unshift({ endpoint: String(sub.endpoint), keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) } });
+  await db.saveContractorData(c.id, { ...(c.data || {}), push: subs.slice(0, 5) }); // newest 5 devices win
+  res.json({ ok: true, devices: Math.min(subs.length, 5) });
+});
+
 /* Ping the team the moment something needs a human — a payment (send their
  * access link!) or a new sales lead. Fire-and-forget to STAFF_WEBHOOK_URL
  * (Slack/Discord-compatible {text} payload). No-op until it's configured, so
@@ -2110,6 +2160,7 @@ app.post("/api/widget/lead", async (req, res) => {
   if (!phone) return res.status(400).json({ error: "phone required" });
   const id = await db.addLead(c.id, { name, phone, address, info });
   forwardLead(c, { id, name, phone, address, ...info });
+  notifyLead(c, { name, phone, address }).catch(() => {}); // buzz the realtor's phone
   // A lead on the sales/demo account is a PROSPECT AGENT (the /ventas quiz) —
   // queue a call task in /cs and ping the team; the quiz promised them a call today.
   if (c.slug === "alto-ventas" || c.slug === "alto-demo") {
@@ -2272,6 +2323,7 @@ app.post("/api/widget/quote", async (req, res) => {
     address: String(m?.addr || address).slice(0, 160),
     value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null,
   });
+  notifyLead(c, { name, phone: digits, address: m?.addr || address }).catch(() => {}); // buzz the realtor's phone
 
   res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null, beds: m?.beds ?? null, baths: m?.baths ?? null, sqft: m?.sqft ?? null, built: m?.built ?? null });
 });

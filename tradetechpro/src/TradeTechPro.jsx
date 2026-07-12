@@ -496,6 +496,19 @@ const demoPass = (() => {
  * all — the user must escape to the real browser first. */
 let installPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; });
+
+/* Web push: the service worker only handles the lead buzz (no offline cache).
+ * Registered on every load so a tapped notification (?open=leads) always has
+ * a live worker behind it. */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { /* http or unsupported */ });
+const WANT_LEADS = /[?&]open=leads/.test(window.location.search);
+const PUSH_SUPPORTED = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+/* VAPID public key arrives base64url; PushManager wants a Uint8Array. */
+const b64ToU8 = (b64) => {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+};
 const isStandalone = () => !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone);
 const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
 const IN_APP_BROWSER = /whatsapp|instagram|fban|fbav|fb_iab|line\/|tiktok|; wv\)/i.test(navigator.userAgent || "");
@@ -554,7 +567,7 @@ export default function TradeTechPro() {
   const [lang, setLang] = useState(savedProfile.lang || (/^es/i.test(navigator.language || "") ? "es" : "en"));
   const t = TR[lang];
   const welcomedInit = (() => { try { return !!localStorage.getItem("qc_welcomed"); } catch { return false; } })();
-  const [screen, setScreen] = useState(WANT_ROOF ? "comps" : (welcomedInit ? "comps" : "welcome"));
+  const [screen, setScreen] = useState(WANT_ROOF ? "comps" : WANT_LEADS && welcomedInit ? "leads" : (welcomedInit ? "comps" : "welcome"));
   const [trade, setTrade] = useState(savedProfile.trade || "roofing");
   const [userName, setUserName] = useState(savedProfile.name || (DEMO_ROOF ? "María" : ""));
   const [bizName, setBizName] = useState(savedProfile.biz || (DEMO_ROOF ? "Casa Bella Realty (Demo)" : ""));
@@ -640,6 +653,31 @@ export default function TradeTechPro() {
   // Seller-lead inbox — surfaced by the navy "Leads" launcher on the front page,
   // whose badge shows how many are still pending (not yet contacted)
   const [leads, setLeads] = useState([]);
+  // Lead-buzz push: hide the enable card once this device subscribed (or the
+  // browser can't do push / the user denied notifications).
+  const [pushOn, setPushOn] = useState(() => {
+    try { return !!localStorage.getItem("qc_push_on"); } catch { return true; }
+  });
+  const enableLeadAlerts = async () => {
+    try {
+      const kr = await fetch("/api/push/key");
+      if (!kr.ok) { showToast("🔔 " + (lang === "es" ? "Las alertas se activan pronto" : "Alerts are coming soon")); return; }
+      const { key } = await kr.json();
+      if (await Notification.requestPermission() !== "granted") {
+        showToast("🔕 " + (lang === "es" ? "Permiso denegado — actívalo en Ajustes" : "Permission denied — enable it in Settings"));
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
+      const r = await api("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
+      if (!r.ok) throw new Error("subscribe failed");
+      try { localStorage.setItem("qc_push_on", "1"); } catch { /* private mode */ }
+      setPushOn(true);
+      showToast("🔔 " + (lang === "es" ? "¡Listo! Cada lead te va a sonar" : "Done! Every lead will buzz your phone"));
+    } catch {
+      showToast("🔕 " + (lang === "es" ? "No se pudo activar — intenta de nuevo" : "Couldn't turn on alerts — try again"));
+    }
+  };
   // Install flow: null = closed · "ios" = Safari steps · "android" = Chrome
   // menu steps (prompt not available) · "inapp" = escape WhatsApp/IG first
   const [installGuide, setInstallGuide] = useState(null);
@@ -696,7 +734,7 @@ export default function TradeTechPro() {
         setCustomers(j.state?.customers || []);
         if (Array.isArray(j.state?.reports)) setSentReports(j.state.reports);
         setJobs(j.state?.jobs || []);
-        if (!WANT_ROOF && welcomedInit) setScreen("comps");
+        if (!WANT_ROOF && !WANT_LEADS && welcomedInit) setScreen("comps");
         setCloudReady(true);
       } catch {
         // offline/transient — local data keeps working; retry so sync recovers
@@ -2348,6 +2386,19 @@ export default function TradeTechPro() {
                 style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
             </div>
           </div>
+
+          {/* The buzz — one tap turns on push for this device (ALTO notifyLead pattern) */}
+          {session && PUSH_SUPPORTED && !pushOn && Notification.permission !== "denied" && (
+            <button onClick={enableLeadAlerts} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mb-3 text-left active:scale-[0.99] transition-transform"
+              style={{ background: QC.navy, border: "none", boxShadow: "0 2px 8px rgba(27,42,92,0.18)", cursor: "pointer" }}>
+              <span style={{ fontSize: 20 }}>🔔</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-extrabold" style={{ color: "#fff", fontSize: 13.5 }}>{lang === "es" ? "Activa las alertas de leads" : "Turn on lead alerts"}</span>
+                <span className="block" style={{ color: "#B9C3DC", fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Tu teléfono suena en cuanto un vendedor deja su número." : "Your phone buzzes the moment a seller leaves their number."}</span>
+              </span>
+              <span style={{ color: QC.goldHi, fontSize: 18 }}>›</span>
+            </button>
+          )}
 
           {leads.length === 0 ? (
             <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>

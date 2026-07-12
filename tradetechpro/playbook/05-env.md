@@ -46,6 +46,7 @@ password, rotated if one ever appears in a screenshot or chat.
 | Var | Notes |
 |---|---|
 | `STAFF_WEBHOOK_URL` | Slack/Discord-compatible webhook — pings the team on payments and sales leads. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (the lead buzz on the realtor's phone). Generate once: `npx web-push generate-vapid-keys`; SUBJECT is `mailto:you@domain`. Without them the 🔔 card says "coming soon". |
 
 ## Client domains (Cloudflare / Render)
 

@@ -489,6 +489,17 @@ const demoPass = (() => {
   } catch { return ""; }
 })();
 
+/* Install-to-home-screen (ALTO install-together pattern). Android fires
+ * beforeinstallprompt once, early — capture it at module level so the
+ * 📲 INSTALL button can replay it on tap. iOS never fires it (guided steps
+ * instead), and in-app browsers (WhatsApp/IG/FB webview) can't install at
+ * all — the user must escape to the real browser first. */
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; });
+const isStandalone = () => !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone);
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+const IN_APP_BROWSER = /whatsapp|instagram|fban|fbav|fb_iab|line\/|tiktok|; wv\)/i.test(navigator.userAgent || "");
+
 /* ─── Main App ─── */
 /* Maps a /api/lookup comps response to the app's lookup shape — shared by the
  * initial search and the radius re-search so both produce identical state. */
@@ -629,12 +640,19 @@ export default function TradeTechPro() {
   // Seller-lead inbox — surfaced by the navy "Leads" launcher on the front page,
   // whose badge shows how many are still pending (not yet contacted)
   const [leads, setLeads] = useState([]);
-  const [hideInstall, setHideInstall] = useState(() => {
-    try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
-  });
-  const showInstallHint = !hideInstall
-    && /iphone|ipad/i.test(navigator.userAgent || "")
-    && !(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone);
+  // Install flow: null = closed · "ios" = Safari steps · "android" = Chrome
+  // menu steps (prompt not available) · "inapp" = escape WhatsApp/IG first
+  const [installGuide, setInstallGuide] = useState(null);
+  const startInstall = async () => {
+    if (IN_APP_BROWSER) { setInstallGuide("inapp"); return; }
+    if (installPrompt) {
+      installPrompt.prompt();
+      const r = await installPrompt.userChoice.catch(() => null);
+      if (r?.outcome === "accepted") { installPrompt = null; showToast("📲 " + (lang === "es" ? "¡Instalada! Búscala en tu pantalla de inicio" : "Installed! Find it on your home screen")); }
+      return;
+    }
+    setInstallGuide(IS_IOS ? "ios" : "android");
+  };
 
   const api = (path, opts = {}) => fetch(path, {
     ...opts,
@@ -2071,6 +2089,19 @@ export default function TradeTechPro() {
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
 
+          {/* Install to home screen — hidden once running installed (ALTO install-together pattern) */}
+          {!isStandalone() && (
+            <button onClick={startInstall} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+              style={{ background: QC.navy, border: "none", boxShadow: "0 2px 8px rgba(27,42,92,0.18)", cursor: "pointer" }}>
+              <span style={{ fontSize: 22 }}>📲</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-extrabold" style={{ color: "#fff", fontSize: 14 }}>{lang === "es" ? "Instalar la app en tu teléfono" : "Install the app on your phone"}</span>
+                <span className="block" style={{ color: "#B9C3DC", fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Un ícono en tu inicio — abre al instante, sin App Store." : "An icon on your home screen — opens instantly, no App Store."}</span>
+              </span>
+              <span style={{ color: QC.goldHi, fontSize: 18 }}>›</span>
+            </button>
+          )}
+
           {/* Widget embed code — paste it into their own website (Widget tier) */}
           {session && mySlug && (() => {
             const embedCode = `<iframe src="${window.location.origin}/w/${mySlug}" style="width:100%;max-width:420px;height:660px;border:0;border-radius:24px;box-shadow:0 12px 32px rgba(16,27,48,.15)" loading="lazy" title="Home value"></iframe>`;
@@ -3120,6 +3151,79 @@ export default function TradeTechPro() {
         {toast && (
           <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
+          </div>
+        )}
+        {/* Install guide overlay — iOS steps, Chrome-menu steps, or the
+            escape-WhatsApp warning. Closes on the ✕ or the backdrop. */}
+        {installGuide && (
+          <div className="no-print absolute inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(7,12,28,0.72)" }} onClick={() => setInstallGuide(null)}>
+            <div className="w-full rounded-t-3xl p-6 pb-8" style={{ background: "#fff", maxWidth: 448 }} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-3">
+                <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 17 }}>
+                  {installGuide === "inapp"
+                    ? (lang === "es" ? "Primero sal de este navegador" : "First, leave this in-app browser")
+                    : (lang === "es" ? "Instala Quick Comp 📲" : "Install Quick Comp 📲")}
+                </p>
+                <button onClick={() => setInstallGuide(null)} style={{ background: "none", border: "none", color: QC.muted2, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>✕</button>
+              </div>
+              {installGuide === "inapp" && (
+                <div>
+                  <p className="mb-3" style={{ color: QC.body, fontSize: 13.5, fontWeight: 600, lineHeight: 1.55 }}>
+                    {lang === "es"
+                      ? "Estás dentro del navegador de WhatsApp/Instagram y ahí no se puede instalar la app."
+                      : "You're inside WhatsApp/Instagram's built-in browser, and apps can't be installed from there."}
+                  </p>
+                  {[[
+                    "1", lang === "es" ? "Toca los tres puntos (⋯ o ⋮) arriba a la derecha" : "Tap the three dots (⋯ or ⋮) in the top corner",
+                  ], [
+                    "2", IS_IOS ? (lang === "es" ? "Elige “Abrir en Safari”" : "Choose “Open in Safari”") : (lang === "es" ? "Elige “Abrir en Chrome” (o “Abrir en el navegador”)" : "Choose “Open in Chrome” (or “Open in browser”)"),
+                  ], [
+                    "3", lang === "es" ? "Ya en el navegador, vuelve a tocar “Instalar la app”" : "Once in the browser, tap “Install the app” again",
+                  ]].map(([n, txt]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{txt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {installGuide === "ios" && (
+                <div>
+                  {[[
+                    "1", lang === "es" ? "Toca el botón Compartir" : "Tap the Share button", "⬆️",
+                    lang === "es" ? "(el cuadrito con flecha, abajo en Safari)" : "(the square with the arrow, at the bottom of Safari)",
+                  ], [
+                    "2", lang === "es" ? "Baja y elige “Agregar a inicio”" : "Scroll down and choose “Add to Home Screen”", "➕", "",
+                  ], [
+                    "3", lang === "es" ? "Toca “Agregar” — y listo" : "Tap “Add” — done", "✅", "",
+                  ]].map(([n, txt, ico, sub]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{ico} {txt}{sub ? <span style={{ display: "block", color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>{sub}</span> : null}</span>
+                    </div>
+                  ))}
+                  <p className="mt-3" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600, lineHeight: 1.5 }}>
+                    {lang === "es" ? "El ícono de Quick Comp queda en tu inicio, como cualquier app." : "The Quick Comp icon lands on your home screen, like any app."}
+                  </p>
+                </div>
+              )}
+              {installGuide === "android" && (
+                <div>
+                  {[[
+                    "1", lang === "es" ? "Toca el menú (⋮) arriba a la derecha de Chrome" : "Tap the menu (⋮) in Chrome's top corner",
+                  ], [
+                    "2", lang === "es" ? "Elige “Agregar a la pantalla principal” o “Instalar app”" : "Choose “Add to Home screen” or “Install app”",
+                  ], [
+                    "3", lang === "es" ? "Confirma — y listo" : "Confirm — done",
+                  ]].map(([n, txt]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{txt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
         {/* Full-screen property photo — tap anywhere to close */}

@@ -2033,7 +2033,7 @@ function forwardLead(c, lead) {
   fetchT(hook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source: "alto-pro", contractor: c.slug, ...lead }),
+    body: JSON.stringify({ source: "quick-comp", contractor: c.slug, ...lead }),
   }, 6000).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
 }
 

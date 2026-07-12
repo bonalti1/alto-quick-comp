@@ -1813,6 +1813,11 @@ export default function TradeTechPro() {
             style={{ background: "#fff", color: QC.navy, border: `2px solid ${QC.goldLine}`, borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800 }}>
             ✨ {lang === "es" ? "Escribir el listing (IA)" : "Write the listing (AI)"}
           </button>
+          <button onClick={() => { const a = subj.address || R.addr || ""; setSocialDraft((f) => (a && a !== f.address ? { address: a, kind: "listed", notes: "" } : f)); setScreen("social"); }}
+            className="w-full active:translate-y-px transition-transform mb-2.5"
+            style={{ background: "#fff", color: QC.navy, border: `2px solid ${QC.goldLine}`, borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800 }}>
+            📲 {lang === "es" ? "Publicar en redes (IA)" : "Post this on social (AI)"}
+          </button>
           <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setLookup(null); setScreen("comps"); }} className="w-full active:translate-y-px transition-transform"
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
             {t.cmpNew}

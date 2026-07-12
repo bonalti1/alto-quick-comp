@@ -2269,6 +2269,29 @@ export default function TradeTechPro() {
         ? `Hola${first ? " " + first : ""}! Soy ${who || "tu agente"} — vi que checaste el valor de tu casa${l.address ? ` en ${l.address}` : ""}. Te preparo el análisis completo gratis. ¿Cuándo te puedo llamar?`
         : `Hi${first ? " " + first : ""}! This is ${who || "your agent"} — I saw you checked your home's value${l.address ? ` at ${l.address}` : ""}. I'll put together the full analysis for you, free. When's a good time to call?`;
     };
+    /* Excel-ready CSV of every lead (BOM so Excel reads accents right). All
+     * client-side — the data is already loaded; nothing extra leaves the phone. */
+    const exportLeadsCsv = () => {
+      const stLbl = lang === "es"
+        ? { "new": "Nuevo", contacted: "Contactado", interested: "Interesado", "not-interested": "No interesado", closed: "Cerrado" }
+        : { "new": "New", contacted: "Contacted", interested: "Interested", "not-interested": "Not interested", closed: "Closed" };
+      const head = lang === "es"
+        ? ["Fecha", "Nombre", "Teléfono", "Dirección", "Valor bajo", "Valor alto", "Estado", "Nota"]
+        : ["Date", "Name", "Phone", "Address", "Value low", "Value high", "Status", "Note"];
+      const rows = [head, ...leads.map((l) => [
+        new Date(l.created_at).toLocaleDateString(lang === "es" ? "es-MX" : "en-US"),
+        l.name || "", l.phone || "", l.address || "",
+        l.info?.low || "", l.info?.high || "",
+        stLbl[l.status || "new"] || l.status || "", l.info?.note || "",
+      ])];
+      const csv = "\uFEFF" + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quickcomp-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
     return (
       <div className="flex-1 overflow-y-auto pb-10" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
@@ -2276,7 +2299,13 @@ export default function TradeTechPro() {
           <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <div className="flex items-center justify-between mb-1">
               <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
-              <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
+              <span className="flex items-center gap-2">
+                <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
+                {leads.length > 0 && (
+                  <button onClick={exportLeadsCsv} className="active:translate-y-px" title={lang === "es" ? "Descargar Excel" : "Download Excel"}
+                    style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 8, padding: "4px 8px", fontWeight: 800, fontSize: 10.5, cursor: "pointer" }}>⬇️ Excel</button>
+                )}
+              </span>
             </div>
             <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600, lineHeight: 1.45 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí sola." : "Send your lead form to a client — their info lands here on its own."}</p>
             <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-1.5"
@@ -2330,12 +2359,13 @@ export default function TradeTechPro() {
                         <p className="mb-2" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>
                           {l.phone}{low && high ? ` · ${fmt(low)}–${fmt(high)}` : ""} · {ago(l.created_at)}
                         </p>
-                        {/* Not a CRM — one tap says where this lead stands */}
-                        <div className="flex gap-1.5 mb-2">
+                        {/* Mini-CRM, 5 stages (ALTO pattern): one tap says where this lead stands */}
+                        <div className="grid grid-cols-2 gap-1.5 mb-2">
                           {[
                             ["contacted", lang === "es" ? "Contactado" : "Contacted", "#1E7B3C", "#EAF8EF", "#A7E0BC"],
                             ["interested", lang === "es" ? "Interesado" : "Interested", "#8A6A00", "#FDF3D7", QC.goldLine],
                             ["not-interested", lang === "es" ? "No interesado" : "Not interested", "#67718A", "#F2F4F7", "#D5DAE3"],
+                            ["closed", lang === "es" ? "Cerrado 🎉" : "Closed 🎉", "#0E5A8A", "#E4F1FA", "#A9D3EC"],
                           ].map(([val, lbl, fg, bg, bd]) => {
                             const on = st === val;
                             return (

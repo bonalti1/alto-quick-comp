@@ -4760,20 +4760,28 @@ app.post("/api/hl/lead", async (req, res) => {
   const b = req.body || {};
   const name = String(b.name || b.full_name || b.first_name || "").slice(0, 80);
   const phone = String(b.phone || b.phone_number || b.number || "").replace(/\D/g, "").slice(0, 15);
-  const note = String(b.note || b.message || "Vino de WhatsApp").slice(0, 500);
+  // Which GHL channel the lead was born on (whatsapp | instagram | facebook) —
+  // set as custom data on the GHL workflow's webhook action (see playbook/03-ghl).
+  const CHANNELS = { whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Messenger", messenger: "Messenger" };
+  const channel = CHANNELS[String(b.channel || "").toLowerCase()] || "";
+  const note = String(b.note || b.message || (channel ? `Came in via ${channel}` : "Came in via GHL")).slice(0, 500);
   if (!name && !phone) return res.status(400).json({ error: "missing name/phone" });
-  // de-dupe: same phone logged in the last 10 minutes → don't create a twin
+  // de-dupe: same phone (last 10 digits) in the last 24h → don't create a twin.
+  // GHL fires Contact Created + channel events for the same person minutes or
+  // hours apart; 24h is the ALTO-proven window that kills the twins without
+  // ever hiding a genuinely new conversation the next day.
   try {
-    const recent = await db.listMeetings(40);
-    const cutoff = Date.now() - 10 * 60 * 1000;
+    const recent = await db.listMeetings(200);
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    const p10 = phone.slice(-10);
     const dup = recent.find((m) => {
-      const mp = String(m.phone || "").replace(/\D/g, "");
-      return phone && mp === phone && new Date(m.created_at).getTime() > cutoff;
+      const mp = String(m.phone || "").replace(/\D/g, "").slice(-10);
+      return p10 && mp === p10 && new Date(m.created_at).getTime() > cutoff;
     });
     if (dup) return res.json({ ok: true, deduped: true, id: dup.id });
   } catch { /* if the lookup fails, fall through and just create it */ }
-  const id = await db.addMeeting({ name, phone, note });
-  res.json({ ok: true, id });
+  const id = await db.addMeeting({ name, phone, note: channel && !b.note && !b.message ? note : (channel ? `[${channel}] ${note}` : note) });
+  res.json({ ok: true, id, ...(channel ? { channel } : {}) });
 });
 
 app.post("/api/closer/contractors", async (req, res) => {

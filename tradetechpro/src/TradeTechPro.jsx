@@ -34,15 +34,90 @@ const QC = {
 /* Range slider — MUST be module-scope: when it was defined inside TradeTechPro
    its function identity changed every render, so React remounted the <input>
    mid-drag and the gesture died after one step. */
-const Slider = ({ label, value, display, min, max, step, onChange }) => (
-  <div className="mb-3.5">
-    <div className="flex justify-between items-baseline mb-1.5">
-      <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
-      <span className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{display}</span>
+const Slider = ({ label, value, display, min, max, step, onChange }) => {
+  // Tap the value to type an exact number — the slider stays for coarse moves
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const commit = () => {
+    setEditing(false);
+    const n = parseFloat(String(draft).replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+  };
+  return (
+    <div className="mb-3.5">
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
+        {editing ? (
+          <input autoFocus inputMode="decimal" value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+            className="text-right font-extrabold outline-none"
+            style={{ color: QC.navy, fontSize: 15, width: 110, background: "#fff", border: `1.5px solid ${QC.goldLine}`, borderRadius: 8, padding: "2px 8px" }} />
+        ) : (
+          <button onClick={() => { setDraft(String(value)); setEditing(true); }} title="Edit"
+            className="font-extrabold active:opacity-70" style={{ color: QC.navy, fontSize: 15, background: "none", border: "none", cursor: "pointer", padding: 0, borderBottom: `1.5px dashed ${QC.goldLine}` }}>
+            {display}
+          </button>
+        )}
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
     </div>
-    <input type="range" min={min} max={max} step={step} value={value}
-      onChange={(e) => onChange(parseFloat(e.target.value))}
-      className="w-full" style={{ accentColor: QC.gold, height: 4 }} />
+  );
+};
+
+/* ─── Consulting-document primitives (CMA report + appraisal packet) ───
+ * Serif display, hairline rules, numbered small-caps sections — the visual
+ * language of a top-tier advisory deliverable, not a phone screenshot. */
+const DOC = { serif: "Georgia, 'Times New Roman', serif", hair: "#DCE1EA", ink: "#0F1B33", mut: "#5A6478", body: "#2A3550" };
+/* Blend a hex color toward black (f<0) or white (f>0) — derives the darker
+ * band and the light tint from the realtor's single brand color. */
+const shadeHex = (hex, f) => {
+  const n = parseInt(hex.slice(1), 16);
+  const t = f < 0 ? 0 : 255, p = Math.abs(f);
+  const r = Math.round(((n >> 16) & 255) + (t - ((n >> 16) & 255)) * p);
+  const g = Math.round(((n >> 8) & 255) + (t - ((n >> 8) & 255)) * p);
+  const b = Math.round((n & 255) + (t - (n & 255)) * p);
+  return "#" + ((r << 16) | (g << 8) | b).toString(16).padStart(6, "0");
+};
+const DocSect = ({ n, title, children, accent }) => (
+  <div className="mt-4">
+    <div className="doc-h flex items-baseline gap-2 pb-1.5 mb-2.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+      <span style={{ color: accent || QC.gold, fontSize: 11, fontWeight: 700, fontFamily: DOC.serif }}>{n}</span>
+      <span style={{ color: DOC.ink, fontSize: 10, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase" }}>{title}</span>
+    </div>
+    {children}
+  </div>
+);
+const DocStat = ({ label, value, sub, big, first }) => (
+  <div className="flex-1 min-w-0" style={{ borderLeft: first ? "none" : `1px solid ${DOC.hair}`, paddingLeft: first ? 0 : 12, paddingRight: 8 }}>
+    <p style={{ color: DOC.mut, fontSize: 7.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase" }}>{label}</p>
+    <p style={{ color: DOC.ink, fontSize: big ? 21 : 13.5, fontWeight: big ? 400 : 700, fontFamily: DOC.serif, marginTop: 3, lineHeight: 1.15 }}>{value}</p>
+    {sub && <p style={{ color: DOC.mut, fontSize: 9, fontWeight: 600, marginTop: 2 }}>{sub}</p>}
+  </div>
+);
+const DocFoot = ({ left, right }) => (
+  <div className="flex items-center justify-between gap-3 px-5 py-2.5" style={{ borderTop: `1px solid ${DOC.hair}` }}>
+    <span className="truncate" style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>{left}</span>
+    <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>{right}</span>
+  </div>
+);
+/* Cover page: the street photo with the address set over it. If the photo
+ * can't load it degrades to a clean navy cover — never a broken layout. */
+const DocCover = ({ ll, kicker, title, grad, tint }) => (
+  <div className="relative overflow-hidden" style={{ background: grad || QC.headGrad }}>
+    {ll && (
+      <img src={`/api/streetview?lat=${ll.lat}&lng=${ll.lng}`} alt=""
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+        className="absolute inset-0 w-full h-full" style={{ objectFit: "cover" }} />
+    )}
+    <div className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(11,23,51,0.10) 25%, rgba(11,23,51,0.60) 60%, rgba(9,18,40,0.92) 100%)" }} />
+    <div className="doc-cover relative px-5 pb-4" style={{ paddingTop: 78 }}>
+      <p style={{ color: tint || QC.goldHi, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.24em", textTransform: "uppercase" }}>{kicker}</p>
+      <h1 style={{ fontFamily: DOC.serif, color: "#fff", fontSize: 23, lineHeight: 1.25, marginTop: 4, fontWeight: 400 }}>{title}</h1>
+    </div>
   </div>
 );
 
@@ -184,7 +259,7 @@ const TR = {
     estimateSt: "Estimado", inProgress: "En Progreso",
     done: "Terminado", paid: "Pagado",
     demoBanner: "🧪 Modo demo — tus datos no se guardan en la nube. ¿Cliente? Entra con tu link de WhatsApp.",
-    demoLimit: "El modo demo incluye 6 valuaciones de prueba y ya las usaste. Los clientes de Quick Comp valúan sin límite.",
+    demoLimit: "El modo demo incluye 10 valuaciones de prueba y ya las usaste. Los clientes de Quick Comp valúan sin límite.",
     measuring1: "Buscando la propiedad…", measuring2: "Analizando ventas comparables…", measuring3: "Calculando el valor…",
     beds: "Recámaras", baths: "Baños", builtIn: "Construida",
     useMyLocation: "Usar mi ubicación", myLocation: "Mi ubicación", locating: "Buscando tu ubicación…",
@@ -205,7 +280,7 @@ const TR = {
     estimateSt: "Estimate", inProgress: "In Progress",
     done: "Done", paid: "Paid",
     demoBanner: "🧪 Demo mode — your data isn't saved to the cloud. Client? Enter with your WhatsApp link.",
-    demoLimit: "The demo includes 6 trial valuations and you've used them. Quick Comp clients value with no limits.",
+    demoLimit: "The demo includes 10 trial valuations and you've used them. Quick Comp clients value with no limits.",
     measuring1: "Finding the property…", measuring2: "Analyzing comparable sales…", measuring3: "Calculating the value…",
     beds: "Bedrooms", baths: "Baths", builtIn: "Built",
     useMyLocation: "Use my location", myLocation: "My location", locating: "Finding your location…",
@@ -230,6 +305,14 @@ const seedCustomers = [
   { id: 3, name: "Ana Ríos", phone: "(956) 555-0102", addr: "88 Palma St, La Grulla, TX" },
 ];
 const seedJobs = [];
+
+/* Demo-mode seller leads — shows what the Leads inbox looks like before an
+ * account exists. Real accounts fetch their actual leads from the server. */
+const DEMO_LEADS = [
+  { id: "demo1", name: "Carlos Pérez", phone: "(956) 555-0188", address: "502 Britton Ave, Rio Grande City, TX", info: { low: 385000, high: 412000 }, status: "new", created_at: new Date(Date.now() - 2 * 36e5).toISOString() },
+  { id: "demo2", name: "Ana Salinas", phone: "(956) 555-0121", address: "118 Palm Blvd, Roma, TX", info: { low: 214000, high: 236000 }, status: "contacted", created_at: new Date(Date.now() - 26 * 36e5).toISOString() },
+  { id: "demo3", name: "Rogelio Treviño", phone: "(956) 555-0177", address: "44 Encino Dr, Rio Grande City, TX", info: { low: 305000, high: 332000, note: "Quiere vender en agosto — mandarle el CMA." }, status: "interested", created_at: new Date(Date.now() - 40 * 864e5).toISOString() },
+];
 
 const fmt = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
@@ -322,7 +405,19 @@ const mockLookup = (addr) => new Promise((resolve) => {
       value, low: Math.round(value * 0.94 / 1000) * 1000, high: Math.round(value * 1.06 / 1000) * 1000,
       confidence: "good", method: "weighted_sold_price_per_sqft", avgPpsf: psf,
       compsUsed: comps.length, radius: 2, lookbackLabel: "6 months",
-      subject: { address: addr, beds, baths, sqft: subjSqft, yearBuilt: subjYear, latitude: baseLat, longitude: baseLng },
+      subject: {
+        address: addr, beds, baths, sqft: subjSqft, yearBuilt: subjYear, latitude: baseLat, longitude: baseLng,
+        // county-record extras so the demo shows the full tax report
+        owner: ["M. & L. García", "R. Treviño", "J. & A. Salinas", "The Martínez Family Trust"][h % 4],
+        ownerOccupied: h % 3 !== 0,
+        assessedValue: Math.round(value * 0.86 / 1000) * 1000, assessedYear: 2025,
+        assessedLand: Math.round(value * 0.18 / 1000) * 1000, assessedImprovements: Math.round(value * 0.68 / 1000) * 1000,
+        annualTax: Math.round(value * 0.017 / 10) * 10, taxYear: 2025,
+        taxHistory: [2025, 2024, 2023].map((y, i) => ({ year: y, total: Math.round(value * 0.017 * (1 - i * 0.06) / 10) * 10 })),
+        county: "Starr County", subdivision: ["Las Lomas", "El Sabino", "Vista Real"][h % 3],
+        propertyType: "Single Family", lotSize: 6000 + (h % 5000),
+        lastSalePrice: Math.round(value * 0.72 / 1000) * 1000, lastSaleDate: `${2015 + (h % 8)}-0${1 + (h % 9)}-15`,
+      },
       comps,
     });
   }, 2600);
@@ -382,6 +477,42 @@ const savedProfile = (() => {
 const WANT_ROOF = /[?&]demo=(roof|app|qc)/.test(window.location.search);
 const DEMO_ROOF = WANT_ROOF && !savedProfile.biz;
 
+/* Staff demo pass (?pass=<DEMO_PASS>): remembered on the device so live sales
+ * demos never hit the anonymous valuation cap. Sent with each lookup; the
+ * server ignores anything that doesn't match its DEMO_PASS. */
+const DEMO_PASS_KEY = "qc_pass";
+const demoPass = (() => {
+  try {
+    const fromUrl = /[?&]pass=([^&]+)/.exec(window.location.search)?.[1];
+    if (fromUrl) localStorage.setItem(DEMO_PASS_KEY, decodeURIComponent(fromUrl));
+    return localStorage.getItem(DEMO_PASS_KEY) || "";
+  } catch { return ""; }
+})();
+
+/* Install-to-home-screen (ALTO install-together pattern). Android fires
+ * beforeinstallprompt once, early — capture it at module level so the
+ * 📲 INSTALL button can replay it on tap. iOS never fires it (guided steps
+ * instead), and in-app browsers (WhatsApp/IG/FB webview) can't install at
+ * all — the user must escape to the real browser first. */
+let installPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; });
+
+/* Web push: the service worker only handles the lead buzz (no offline cache).
+ * Registered on every load so a tapped notification (?open=leads) always has
+ * a live worker behind it. */
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { /* http or unsupported */ });
+const WANT_LEADS = /[?&]open=leads/.test(window.location.search);
+const PUSH_SUPPORTED = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+/* VAPID public key arrives base64url; PushManager wants a Uint8Array. */
+const b64ToU8 = (b64) => {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+};
+const isStandalone = () => !!(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone);
+const IS_IOS = /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+const IN_APP_BROWSER = /whatsapp|instagram|fban|fbav|fb_iab|line\/|tiktok|; wv\)/i.test(navigator.userAgent || "");
+
 /* ─── Main App ─── */
 /* Maps a /api/lookup comps response to the app's lookup shape — shared by the
  * initial search and the radius re-search so both produce identical state. */
@@ -401,6 +532,15 @@ function mapCompsLookup(j, addr) {
       latitude: j.subject.latitude ?? null, longitude: j.subject.longitude ?? null,
       owner: j.subject.owner ?? null, assessedValue: j.subject.assessedValue ?? null,
       annualTax: j.subject.annualTax ?? null, taxYear: j.subject.taxYear ?? null,
+      // full county record extras (owner/tax report on the Tax screen)
+      assessedYear: j.subject.assessedYear ?? null,
+      assessedLand: j.subject.assessedLand ?? null,
+      assessedImprovements: j.subject.assessedImprovements ?? null,
+      taxHistory: Array.isArray(j.subject.taxHistory) ? j.subject.taxHistory : [],
+      ownerOccupied: j.subject.ownerOccupied ?? null,
+      county: j.subject.county ?? null, subdivision: j.subject.subdivision ?? null,
+      propertyType: j.subject.propertyType ?? null, lotSize: j.subject.lotSize ?? null,
+      lastSalePrice: j.subject.lastSalePrice ?? null, lastSaleDate: j.subject.lastSaleDate ?? null,
     } : null,
     comps: Array.isArray(j.comps) ? j.comps : [],
     source: j.source || "live",
@@ -427,7 +567,7 @@ export default function TradeTechPro() {
   const [lang, setLang] = useState(savedProfile.lang || (/^es/i.test(navigator.language || "") ? "es" : "en"));
   const t = TR[lang];
   const welcomedInit = (() => { try { return !!localStorage.getItem("qc_welcomed"); } catch { return false; } })();
-  const [screen, setScreen] = useState(WANT_ROOF ? "comps" : (welcomedInit ? "comps" : "welcome"));
+  const [screen, setScreen] = useState(WANT_ROOF ? "comps" : WANT_LEADS && welcomedInit ? "leads" : (welcomedInit ? "comps" : "welcome"));
   const [trade, setTrade] = useState(savedProfile.trade || "roofing");
   const [userName, setUserName] = useState(savedProfile.name || (DEMO_ROOF ? "María" : ""));
   const [bizName, setBizName] = useState(savedProfile.biz || (DEMO_ROOF ? "Casa Bella Realty (Demo)" : ""));
@@ -436,6 +576,9 @@ export default function TradeTechPro() {
   const [bizEmail, setBizEmail] = useState(savedProfile.email || "");
   const [license, setLicense] = useState(savedProfile.license || "");
   const [market, setMarket] = useState(savedProfile.market || ""); // the realtor's city/area, from onboarding
+  // The realtor's brand color — drives every client-facing document, so the
+  // app's own navy/gold never appears on a client deliverable.
+  const [brandColor, setBrandColor] = useState(savedProfile.brandColor || "");
   const [zelle, setZelle] = useState(savedProfile.zelle || "");
   const [myPrices, setMyPrices] = useState(savedProfile.prices || {});
   const logoIdRef = useRef(null); // server id for the currently uploaded logo
@@ -507,12 +650,47 @@ export default function TradeTechPro() {
   // "new views" dot on the Workspace tab: total opens the agent has already seen
   const [seenViews, setSeenViews] = useState(() => { try { return parseInt(localStorage.getItem("qc_seenviews") || "0", 10) || 0; } catch { return 0; } });
   const opensFetched = useRef(false);
-  const [hideInstall, setHideInstall] = useState(() => {
-    try { return !!localStorage.getItem("alto_inst"); } catch { return true; }
+  // Seller-lead inbox — surfaced by the navy "Leads" launcher on the front page,
+  // whose badge shows how many are still pending (not yet contacted)
+  const [leads, setLeads] = useState([]);
+  // Lead-buzz push: hide the enable card once this device subscribed (or the
+  // browser can't do push / the user denied notifications).
+  const [pushOn, setPushOn] = useState(() => {
+    try { return !!localStorage.getItem("qc_push_on"); } catch { return true; }
   });
-  const showInstallHint = !hideInstall
-    && /iphone|ipad/i.test(navigator.userAgent || "")
-    && !(window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone);
+  const enableLeadAlerts = async () => {
+    try {
+      const kr = await fetch("/api/push/key");
+      if (!kr.ok) { showToast("🔔 " + (lang === "es" ? "Las alertas se activan pronto" : "Alerts are coming soon")); return; }
+      const { key } = await kr.json();
+      if (await Notification.requestPermission() !== "granted") {
+        showToast("🔕 " + (lang === "es" ? "Permiso denegado — actívalo en Ajustes" : "Permission denied — enable it in Settings"));
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
+      const r = await api("/api/push/subscribe", { method: "POST", body: JSON.stringify({ subscription: sub.toJSON() }) });
+      if (!r.ok) throw new Error("subscribe failed");
+      try { localStorage.setItem("qc_push_on", "1"); } catch { /* private mode */ }
+      setPushOn(true);
+      showToast("🔔 " + (lang === "es" ? "¡Listo! Cada lead te va a sonar" : "Done! Every lead will buzz your phone"));
+    } catch {
+      showToast("🔕 " + (lang === "es" ? "No se pudo activar — intenta de nuevo" : "Couldn't turn on alerts — try again"));
+    }
+  };
+  // Install flow: null = closed · "ios" = Safari steps · "android" = Chrome
+  // menu steps (prompt not available) · "inapp" = escape WhatsApp/IG first
+  const [installGuide, setInstallGuide] = useState(null);
+  const startInstall = async () => {
+    if (IN_APP_BROWSER) { setInstallGuide("inapp"); return; }
+    if (installPrompt) {
+      installPrompt.prompt();
+      const r = await installPrompt.userChoice.catch(() => null);
+      if (r?.outcome === "accepted") { installPrompt = null; showToast("📲 " + (lang === "es" ? "¡Instalada! Búscala en tu pantalla de inicio" : "Installed! Find it on your home screen")); }
+      return;
+    }
+    setInstallGuide(IS_IOS ? "ios" : "android");
+  };
 
   const api = (path, opts = {}) => fetch(path, {
     ...opts,
@@ -549,13 +727,14 @@ export default function TradeTechPro() {
         if (p.email) setBizEmail(p.email);
         if (p.license) setLicense(p.license);
         if (p.market) setMarket(p.market);
+        if (p.brandColor) setBrandColor(p.brandColor);
         if (p.zelle) setZelle(p.zelle);
         if (p.prices) setMyPrices(p.prices);
         // Real accounts start clean — no demo data
         setCustomers(j.state?.customers || []);
         if (Array.isArray(j.state?.reports)) setSentReports(j.state.reports);
         setJobs(j.state?.jobs || []);
-        if (!WANT_ROOF && welcomedInit) setScreen("comps");
+        if (!WANT_ROOF && !WANT_LEADS && welcomedInit) setScreen("comps");
         setCloudReady(true);
       } catch {
         // offline/transient — local data keeps working; retry so sync recovers
@@ -576,7 +755,7 @@ export default function TradeTechPro() {
     if (!session || !cloudReady) return;
     const payload = JSON.stringify({
       state: { customers, jobs, reports: sentReports.slice(0, 30) },
-      profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, prices: myPrices } },
+      profile: { profile: { name: userName, biz: bizName, phone: userPhone, logo, lang, trade, email: bizEmail, license, market, zelle, brandColor, prices: myPrices } },
     });
     savePayloadRef.current = payload;
     saveDirtyRef.current = true;
@@ -595,7 +774,7 @@ export default function TradeTechPro() {
     }, 1500);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, myPrices]);
+  }, [session, cloudReady, customers, jobs, sentReports, userName, bizName, userPhone, logo, lang, trade, bizEmail, license, market, zelle, brandColor, myPrices]);
 
   // Flush an unsaved change when the app is backgrounded or closed — the normal
   // mobile gesture (swipe away within the 1.5s debounce) otherwise loses the edit.
@@ -641,10 +820,17 @@ export default function TradeTechPro() {
   const [taxLookup, setTaxLookup] = useState(null); // Tax tab has its own independent search
   const [mapSat, setMapSat] = useState(true); // comparables map: satellite vs roadmap
   const [mapFocus, setMapFocus] = useState(null); // {i, t} — focus a comp on the in-app map
-  const focusCompOnMap = (i) => {
-    setMapFocus({ i, t: Date.now() });
-    document.getElementById("qc-compmap")?.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
+  // Tapping any property photo expands it full-screen (tap again to close)
+  const [photoView, setPhotoView] = useState(null); // null | { src, label }
+  // Workspace: the Realtor-profile card collapses so it doesn't dominate the tab
+  const [profileOpen, setProfileOpen] = useState(false);
+  // Derived brand palette for the client-facing documents
+  const brand = /^#[0-9a-fA-F]{6}$/.test(brandColor) ? brandColor : "#1B2A5C";
+  const brandGrad = `linear-gradient(135deg, ${brand} 0%, ${shadeHex(brand, -0.38)} 100%)`;
+  const brandTint = shadeHex(brand, 0.72);
+  // Workspace: past searches — one collapsed row that expands into month groups
+  const [searchesOpen, setSearchesOpen] = useState(false);
+  const [searchMonths, setSearchMonths] = useState(null); // per-month overrides; latest open by default
 
   /* Quick Comp tabs: lending calculator inputs + saved-work history */
   const [lendPrice, setLendPrice] = useState(null); // null = follow the comp value
@@ -663,7 +849,7 @@ export default function TradeTechPro() {
     setSavedWork((prev) => {
       const addr = (res.subject && res.subject.address) || res.addr || "";
       const item = { ...res, addr, ts: Date.now() };
-      const next = [item, ...prev.filter((p) => p.addr !== addr)].slice(0, 12);
+      const next = [item, ...prev.filter((p) => p.addr !== addr)].slice(0, 40); // months of history for the Workspace archive
       try { localStorage.setItem("qc_saved", JSON.stringify(next)); } catch {}
       return next;
     });
@@ -682,7 +868,7 @@ export default function TradeTechPro() {
   };
 
   /* ── AI listing writer — prefilled from a search, editable, works standalone ── */
-  const [listingDraft, setListingDraft] = useState({ address: "", beds: "", baths: "", sqft: "", year: "", highlights: "" });
+  const [listingDraft, setListingDraft] = useState({ address: "", beds: "", baths: "", sqft: "", year: "", lot: "", type: "", schools: "", highlights: "" });
   const [listingOut, setListingOut] = useState(null);   // {mls, social, source}
   const [listingBusy, setListingBusy] = useState(false);
   const openListing = (subj) => {
@@ -690,7 +876,7 @@ export default function TradeTechPro() {
     // A new property prefills fresh facts; reopening the same one (or entering
     // standalone) keeps whatever the agent already typed.
     if (subj && addr !== listingDraft.address) {
-      setListingDraft({ address: addr, beds: subj.beds ?? "", baths: subj.baths ?? "", sqft: subj.sqft ?? "", year: subj.yearBuilt ?? "", highlights: "" });
+      setListingDraft({ address: addr, beds: subj.beds ?? "", baths: subj.baths ?? "", sqft: subj.sqft ?? "", year: subj.yearBuilt ?? "", lot: subj.lotSize ?? "", type: subj.propertyType ?? "", schools: "", highlights: "" });
       setListingOut(null);
     }
     setScreen("listing");
@@ -706,7 +892,7 @@ export default function TradeTechPro() {
     try {
       const r = await api("/api/listing", {
         method: "POST",
-        body: JSON.stringify({ lang, address: d.address, beds: d.beds, baths: d.baths, sqft: d.sqft, year: d.year, highlights: d.highlights }),
+        body: JSON.stringify({ lang, address: d.address, beds: d.beds, baths: d.baths, sqft: d.sqft, year: d.year, lot: d.lot, type: d.type, schools: d.schools, highlights: d.highlights }),
       });
       if (r.status === 429) {
         setListingBusy(false);
@@ -723,13 +909,15 @@ export default function TradeTechPro() {
       d.baths && `${d.baths} ${es ? "baños" : "baths"}`,
       d.sqft && `${Number(String(d.sqft).replace(/[^0-9.]/g, "")).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`,
       d.year && (es ? `construida en ${d.year}` : `built in ${d.year}`),
+      d.lot && `${Number(String(d.lot).replace(/[^0-9.]/g, "")).toLocaleString("en-US")} ${es ? "pie² de terreno" : "sq ft lot"}`,
     ].filter(Boolean).join(", ");
     const hl = String(d.highlights || "").trim().replace(/[.\s]+$/, "");
+    const sch = String(d.schools || "").trim().replace(/[.\s]+$/, "");
     setListingOut({
       source: "demo",
       mls: es
-        ? `Bienvenido a ${d.address || "esta propiedad"} — una casa de ${bits || "gran potencial"}. ${hl ? hl + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
-        : `Welcome to ${d.address || "this property"} — a ${bits || "wonderful"} home. ${hl ? hl + ". " : ""}Schedule your showing today — homes like this don't last.`,
+        ? `Bienvenido a ${d.address || "esta propiedad"} — ${d.type ? `${d.type} de ` : "una casa de "}${bits || "gran potencial"}. ${hl ? hl + ". " : ""}${sch ? `Cerca de: ${sch}. ` : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${d.address || "this property"} — a ${bits || "wonderful"}${d.type ? ` ${String(d.type).toLowerCase()}` : " home"}. ${hl ? hl + ". " : ""}${sch ? `Zoned to ${sch}. ` : ""}Schedule your showing today — homes like this don't last.`,
       social: es
         ? `🏡 ¡NUEVO LISTING! ${d.address || ""}${bits ? " · " + bits : ""} ✨ Manda mensaje para verla 📲`
         : `🏡 JUST LISTED! ${d.address || ""}${bits ? " · " + bits : ""} ✨ DM to see it 📲`,
@@ -738,6 +926,50 @@ export default function TradeTechPro() {
   };
   const copyText = async (txt) => {
     try { await navigator.clipboard.writeText(txt); showToast(lang === "es" ? "Copiado ✓" : "Copied ✓"); } catch { /* ignore */ }
+  };
+
+  /* ── Social media writer — address in, the server pulls the property facts
+   * itself and writes a ready-to-post caption. Output stays editable. ── */
+  const [socialDraft, setSocialDraft] = useState({ address: "", kind: "listed", notes: "" });
+  const [socialOut, setSocialOut] = useState(null);   // {post, facts, source} — post is editable
+  const [socialBusy, setSocialBusy] = useState(false);
+  const socialTag = (kind) => {
+    const es = lang === "es";
+    return { listed: es ? "¡NUEVO LISTING!" : "JUST LISTED!", sold: es ? "¡VENDIDA!" : "JUST SOLD!", open: "OPEN HOUSE", price: es ? "¡NUEVO PRECIO!" : "NEW PRICE!" }[kind] || "";
+  };
+  const generateSocial = async () => {
+    const d = socialDraft;
+    if (!String(d.address).trim()) {
+      showToast(lang === "es" ? "Pon la dirección de la propiedad" : "Enter the property address");
+      return;
+    }
+    setSocialBusy(true);
+    setSocialOut(null);
+    try {
+      const r = await api("/api/social", {
+        method: "POST",
+        body: JSON.stringify({ lang, address: d.address, kind: d.kind, notes: d.notes }),
+      });
+      if (r.status === 429) {
+        setSocialBusy(false);
+        showToast("🔒 " + (lang === "es" ? "Límite de hoy alcanzado" : "Daily limit reached"));
+        return;
+      }
+      const j = r.ok ? await r.json() : null;
+      if (j?.post) { setSocialOut(j); setSocialBusy(false); return; }
+    } catch { /* backend unreachable — compose locally below */ }
+    // Offline/demo fallback — the button always answers with something usable
+    const es = lang === "es";
+    const nt = String(d.notes || "").trim().replace(/[.\s]+$/, "");
+    setSocialOut({
+      source: "demo",
+      facts: null,
+      post: `🏡 ${socialTag(d.kind)}\n📍 ${d.address}${nt ? `\n✨ ${nt}` : ""}\n${es ? "Manda DM para más información 📲" : "DM me for details 📲"}\n\n#realestate ${es ? "#bienesraices" : "#realtor"} #home #newlisting`,
+    });
+    setSocialBusy(false);
+  };
+  const shareSocial = async (txt) => {
+    try { await navigator.share({ text: txt }); } catch { copyText(txt); }
   };
 
   /* ── Appraisal defense packet — contract price being defended + agent notes ── */
@@ -832,6 +1064,68 @@ export default function TradeTechPro() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, reportOpens]);
+  useEffect(() => {
+    // Leads inbox: demo data without an account. Real accounts pull at launch,
+    // on every screen change, and every 60s in between — so when a client fills
+    // the form, the pending badge on the front page lights up by itself.
+    if (!session) { setLeads((cur) => (cur.length ? cur : DEMO_LEADS)); return; } // seed once — keep demo edits
+    const pull = () => api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
+    pull();
+    const iv = setInterval(pull, 60000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, session]);
+  const pendingLeads = leads.filter((l) => (l.status || "new") === "new").length;
+  const markLead = (id, status) => {
+    // Optimistic — the tap must feel instant; the server catches up behind it.
+    setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, status } : l)));
+    if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ status }) }).catch(() => { /* refetch on next visit heals it */ });
+  };
+  const noteLead = (id, note) => {
+    setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, info: { ...(l.info || {}), note } } : l)));
+    if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ note }) }).catch(() => { /* refetch heals it */ });
+  };
+  // Which lead months are expanded — null = default (latest month open, rest collapsed)
+  const [monthsOpen, setMonthsOpen] = useState(null);
+  /* The phone's back button/gesture navigates the app instead of exiting it:
+   * every screen change (and comps search→result) pushes a history entry, and
+   * popstate walks back through them. Skipped inside embeds (the landing-page
+   * demo iframes) where pushing would pollute the host page's history. */
+  const navPop = useRef(false);
+  const navFirst = useRef(true);
+  useEffect(() => {
+    if (window.parent !== window) return;
+    if (navPop.current) { navPop.current = false; return; }
+    const st = { qcScreen: screen, qcRes: !!(screen === "comps" && lookup) };
+    try {
+      if (navFirst.current) { navFirst.current = false; window.history.replaceState(st, ""); }
+      else window.history.pushState(st, "");
+    } catch { /* sandboxed */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, !!lookup]);
+  useEffect(() => {
+    if (window.parent !== window) return;
+    const onPop = (e) => {
+      const st = e.state;
+      if (!st || !st.qcScreen) return;
+      navPop.current = true;
+      setScreen(st.qcScreen);
+      if (st.qcScreen === "comps" && !st.qcRes) setLookup(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  /* The realtor's shareable lead form (their widget) — one tap sends it to a
+   * client via the phone's share sheet (or WhatsApp on desktop). */
+  const leadFormUrl = `${window.location.origin}/w/${mySlug || "alto-demo"}`;
+  const shareLeadForm = () => {
+    const msg = lang === "es"
+      ? `Mira cuánto vale tu casa hoy — gratis y en 10 segundos 🏡👇\n${leadFormUrl}`
+      : `See what your home is worth today — free, in 10 seconds 🏡👇\n${leadFormUrl}`;
+    if (navigator.share) { navigator.share({ text: msg }).catch(() => { /* user closed the sheet */ }); return; }
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank", "noopener");
+  };
   /* Monthly payment from the Lending tab's current settings, for the report's
    * optional buyer card — same PMI/MIP/fee math as the Lending screen. */
   const paymentFor = (price) => {
@@ -846,13 +1140,14 @@ export default function TradeTechPro() {
   };
 
   const startLookup = async (addr, placeId = null, gps = null, target = "comps") => {
-    // Demo mode gets 6 measurements TOTAL (not per day) — a taste, not a tool.
+    // Demo mode gets 10 measurements TOTAL (not per day) — a taste, not a tool.
     // The counter lives next to the demo data itself, so wiping it to cheat
-    // also wipes everything the freeloader saved.
-    if (!session) {
+    // also wipes everything the freeloader saved. A staff demo pass (?pass=)
+    // skips the local gate; the server still verifies the pass itself.
+    if (!session && !demoPass) {
       let used = 0;
       try { used = parseInt(localStorage.getItem("alto_demo_meas") || "0", 10) || 0; } catch { /* private mode */ }
-      if (used >= 6) { showToast("🔒 " + t.demoLimit); return; }
+      if (used >= 10) { showToast("🔒 " + t.demoLimit); return; }
     }
     setAddrQ(addr);
     setExcludedComps({});
@@ -881,8 +1176,8 @@ export default function TradeTechPro() {
           ...(session ? { Authorization: `Bearer ${session}` } : {}),
         },
         body: JSON.stringify(gps
-          ? { lat: gps.lat, lng: gps.lng, parcel: trade === "fence" }
-          : { address: addr, placeId, parcel: trade === "fence" }),
+          ? { lat: gps.lat, lng: gps.lng, parcel: trade === "fence", ...(demoPass && !session ? { pass: demoPass } : {}) }
+          : { address: addr, placeId, parcel: trade === "fence", ...(demoPass && !session ? { pass: demoPass } : {}) }),
       });
       if (r.status === 429) {
         clearTimeout(p1); clearTimeout(p2);
@@ -1092,6 +1387,19 @@ export default function TradeTechPro() {
             {lang === "es" ? "Ver valor de mercado" : "Get Market Value"}
           </button>
           <p className="text-center mt-3" style={{ color: QC.muted, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Ventas comparables cercanas · 100% gratis" : "Nearby comparable sales · 100% free"}{session ? "" : " · DEMO"}</p>
+          {/* Leads — a navy launcher right up top (Get Market Value style), with a
+              pending badge that lights up on its own when a client fills the form */}
+          <button onClick={() => setScreen("leads")} className="w-full flex items-center gap-3 mt-3 text-left active:translate-y-px transition-transform"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: "12px 16px", boxShadow: "0 4px 14px rgba(27,42,92,0.3)", cursor: "pointer" }}>
+            <span style={{ fontSize: 20 }}>📥</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ fontSize: 15, letterSpacing: "0.01em" }}>Leads</span>
+              <span className="block" style={{ color: "rgba(255,255,255,0.75)", fontSize: 10.5, fontWeight: 600 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí" : "Send your lead form to a client — their info lands here"}</span>
+            </span>
+            {pendingLeads > 0
+              ? <span className="shrink-0 rounded-full px-2.5 py-1 font-extrabold" style={{ background: QC.gold, color: QC.navyDeep, fontSize: 12 }}>{pendingLeads} {lang === "es" ? (pendingLeads === 1 ? "NUEVO" : "NUEVOS") : "NEW"}</span>
+              : <span className="shrink-0" style={{ color: QC.goldHi, fontSize: 18 }}>›</span>}
+          </button>
           {/* Last searches — one tap re-opens the full result instantly */}
           {savedWork.length > 0 && (
             <div className="rounded-2xl px-4 py-3 mt-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -1221,7 +1529,7 @@ export default function TradeTechPro() {
     try {
       const resp = await api("/api/lookup", {
         method: "POST",
-        body: JSON.stringify({ address: lookup.subject?.address || lookup.addr, ...(r === "auto" ? {} : { radius: r }) }),
+        body: JSON.stringify({ address: lookup.subject?.address || lookup.addr, ...(r === "auto" ? {} : { radius: r }), ...(demoPass && !session ? { pass: demoPass } : {}) }),
       });
       const j = resp.ok ? await resp.json() : null;
       if (j?.found && j.value) {
@@ -1282,7 +1590,17 @@ export default function TradeTechPro() {
     }
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
-        <div className="px-5 pt-4">
+        {/* Pinned top bar: the searched address + instant New search — stays put
+            while you scroll the comps, so starting over never means scrolling to
+            the bottom of the page */}
+        <div className="sticky top-0 z-10 flex items-center gap-2 px-5 py-2.5" style={{ background: QC.bg, borderBottom: `1px solid ${QC.line}` }}>
+          <p className="flex-1 min-w-0 truncate" style={{ color: QC.muted2, fontSize: 12, fontWeight: 700 }}>📍 {subj.address || addrQ}</p>
+          <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setLookup(null); setScreen("comps"); }} className="shrink-0 active:translate-y-px transition-transform"
+            style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 99, padding: "8px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", boxShadow: "0 2px 8px rgba(27,42,92,0.25)" }}>
+            🔍 {t.cmpNew}
+          </button>
+        </div>
+        <div className="px-5 pt-3">
           {/* Hero value card */}
           <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
             <div className="flex items-start justify-between gap-2">
@@ -1302,11 +1620,6 @@ export default function TradeTechPro() {
                 : `Based on ${(R.compsUsed || comps.length)} nearby comparable sales within ${R.radius || 2} mi`}
               {R.lookbackLabel ? ` · ${R.lookbackLabel}` : ""}{R.avgPpsf ? ` · ${fmt(R.avgPpsf)}${t.cmpPerSqft}` : ""}{R.curated ? (lang === "es" ? " · tu selección" : " · your selection") : ""}.
             </p>
-            {Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 && (
-              <p className="mt-2 inline-block rounded-full px-3 py-1" style={{ background: R.marketDriftMo > 0 ? "rgba(72,187,120,0.18)" : "rgba(229,115,105,0.18)", border: `1px solid ${R.marketDriftMo > 0 ? "#48BB78" : "#E57369"}55`, color: R.marketDriftMo > 0 ? "#7CE0A3" : "#F1A9A0", fontSize: 11, fontWeight: 800 }}>
-                📈 {lang === "es" ? "Tendencia del mercado" : "Market trend"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{lang === "es" ? "año" : "yr"}
-              </p>
-            )}
           </div>
 
           {/* Comp search radius — Auto expands only as far as needed */}
@@ -1331,7 +1644,8 @@ export default function TradeTechPro() {
                 src={`/api/streetview?lat=${sLat}&lng=${sLng}`}
                 alt={subj.address || R.addr}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}
-                style={{ width: "100%", height: 170, objectFit: "cover", display: "block", background: QC.bg }}
+                onClick={() => setPhotoView({ src: `/api/streetview?lat=${sLat}&lng=${sLng}`, label: subj.address || R.addr })}
+                style={{ width: "100%", height: 170, objectFit: "cover", display: "block", background: QC.bg, cursor: "pointer" }}
               />
             )}
             <div className="p-4">
@@ -1365,7 +1679,7 @@ export default function TradeTechPro() {
               <div key={i} className="rounded-2xl p-4 mb-2.5" style={{ background: "#fff", border: i === 0 ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", opacity: out || manualOut ? 0.5 : 1 }}>
                 <div className="flex items-start gap-3 mb-2.5">
                   {c.latitude != null && c.longitude != null && (
-                    <button onClick={() => focusCompOnMap(i)} title={lang === "es" ? "Ver en el mapa" : "View on map"}
+                    <button onClick={() => setPhotoView({ src: `/api/streetview?lat=${c.latitude}&lng=${c.longitude}`, label: c.address })} title={lang === "es" ? "Ver foto" : "View photo"}
                       className="relative shrink-0 active:scale-95 transition-transform" style={{ padding: 0, border: "none", background: "none", lineHeight: 0 }}>
                       <img
                         src={`/api/streetview?lat=${c.latitude}&lng=${c.longitude}`}
@@ -1373,7 +1687,7 @@ export default function TradeTechPro() {
                         onError={(e) => { e.currentTarget.style.display = "none"; }}
                         style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 12, display: "block", background: QC.bg }}
                       />
-                      <span className="absolute flex items-center justify-center" style={{ right: -5, bottom: -5, width: 20, height: 20, borderRadius: 10, background: QC.navy, color: "#fff", fontSize: 10, border: "2px solid #fff" }}>📍</span>
+                      <span className="absolute flex items-center justify-center" style={{ right: -5, bottom: -5, width: 20, height: 20, borderRadius: 10, background: QC.navy, color: "#fff", fontSize: 10, border: "2px solid #fff" }}>⤢</span>
                     </button>
                   )}
                   <div className="flex items-start justify-between gap-2 flex-1 min-w-0">
@@ -1498,6 +1812,11 @@ export default function TradeTechPro() {
           <button onClick={() => openListing({ ...subj, address: subj.address || R.addr })} className="w-full active:translate-y-px transition-transform mb-2.5"
             style={{ background: "#fff", color: QC.navy, border: `2px solid ${QC.goldLine}`, borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800 }}>
             ✨ {lang === "es" ? "Escribir el listing (IA)" : "Write the listing (AI)"}
+          </button>
+          <button onClick={() => { const a = subj.address || R.addr || ""; setSocialDraft((f) => (a && a !== f.address ? { address: a, kind: "listed", notes: "" } : f)); setScreen("social"); }}
+            className="w-full active:translate-y-px transition-transform mb-2.5"
+            style={{ background: "#fff", color: QC.navy, border: `2px solid ${QC.goldLine}`, borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800 }}>
+            📲 {lang === "es" ? "Publicar en redes (IA)" : "Post this on social (AI)"}
           </button>
           <button onClick={() => { setAddrQ(""); setPlaceSugs(null); setLookup(null); setScreen("comps"); }} className="w-full active:translate-y-px transition-transform"
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
@@ -1671,7 +1990,7 @@ export default function TradeTechPro() {
       );
     }
 
-    // We have a tax record
+    // We have a tax record — the realtor's complete county-record report
     const R = taxLookup;
     const subj = R.subject || {};
     const hasRealAssess = subj.assessedValue != null;
@@ -1680,30 +1999,74 @@ export default function TradeTechPro() {
     const stateRate = TAX_RATE_BY_STATE[stateFromAddress(subj.address || R.addr)] || 0.011;
     const annualTax = hasRealTax ? subj.annualTax : (R.value ? Math.round(R.value * stateRate) : assessed ? Math.round(assessed * 0.011) : null);
     const taxYear = subj.taxYear || new Date().getFullYear();
-    const estimated = !hasRealAssess || !hasRealTax;
+    const effRate = annualTax && assessed ? ((annualTax / assessed) * 100).toFixed(2) + "%" : null;
+    const saleDate = subj.lastSaleDate ? new Date(subj.lastSaleDate) : null;
+    const saleDateTxt = saleDate && !Number.isNaN(saleDate.getTime()) ? saleDate.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : null;
+    const taxHist = Array.isArray(subj.taxHistory) ? subj.taxHistory.filter((r) => r.total != null) : [];
     const facts = [["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]];
-    const rows = [
-      [lang === "es" ? "Dueño registrado" : "Owner of record", subj.owner || (lang === "es" ? "Según registro público" : "Per public record")],
-      [lang === "es" ? "Valor catastral" : "Assessed value", assessed ? "$" + num(assessed) + (hasRealAssess ? "" : (lang === "es" ? " (est.)" : " (est.)")) : "—"],
-      [lang === "es" ? (hasRealTax ? "Impuesto anual" : "Impuesto anual estimado") : (hasRealTax ? "Annual tax" : "Est. annual tax"), annualTax ? "$" + num(annualTax) : "—"],
-      [lang === "es" ? "Año fiscal" : "Tax year", String(taxYear)],
-    ];
+    const Sect = ({ label, children }) => (
+      <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+        <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{label}</p>
+        {children}
+      </div>
+    );
+    const KV = ({ rows }) => rows.filter(([, v]) => v != null && v !== "—").map(([k, v], i) => (
+      <div key={k} className="flex justify-between gap-3 py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
+        <span style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{k}</span>
+        <span className="font-extrabold text-right" style={{ color: QC.navy, fontSize: 13 }}>{v}</span>
+      </div>
+    ));
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 6 }}>{lang === "es" ? "Resumen de impuestos" : "Tax snapshot"}</p>
-            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
-            {rows.map(([k, v], i) => (
-              <div key={k} className="flex justify-between py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                <span style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{k}</span>
-                <span className="font-extrabold" style={{ color: QC.navy, fontSize: 13 }}>{v}</span>
+          {/* Ownership — who the realtor is actually talking to */}
+          <Sect label={lang === "es" ? "Dueño y registro" : "Ownership & record"}>
+            <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
+            <KV rows={[
+              [lang === "es" ? "Dueño registrado" : "Owner of record", subj.owner || (lang === "es" ? "Según registro público" : "Per public record")],
+              [lang === "es" ? "¿Vive el dueño ahí?" : "Owner-occupied", subj.ownerOccupied == null ? null : (subj.ownerOccupied ? (lang === "es" ? "Sí" : "Yes") : "No")],
+              [lang === "es" ? "Condado" : "County", subj.county],
+              [lang === "es" ? "Colonia / subdivisión" : "Subdivision", subj.subdivision],
+            ]} />
+          </Sect>
+
+          {/* Taxes — what they pay, and the trail of what they've paid */}
+          <Sect label={lang === "es" ? "Impuestos" : "Property taxes"}>
+            <KV rows={[
+              [lang === "es" ? (hasRealTax ? "Impuesto anual" : "Impuesto anual (est.)") : (hasRealTax ? "Annual tax" : "Annual tax (est.)"), annualTax ? "$" + num(annualTax) : null],
+              [lang === "es" ? "Año fiscal" : "Tax year", String(taxYear)],
+              [lang === "es" ? "Valor catastral" : "Assessed value", assessed ? "$" + num(assessed) + (hasRealAssess ? "" : " (est.)") : null],
+              [lang === "es" ? "· Terreno" : "· Land", subj.assessedLand ? "$" + num(subj.assessedLand) : null],
+              [lang === "es" ? "· Construcción" : "· Improvements", subj.assessedImprovements ? "$" + num(subj.assessedImprovements) : null],
+              [lang === "es" ? "Tasa efectiva" : "Effective rate", effRate],
+            ]} />
+            {taxHist.length >= 2 && (
+              <div className="rounded-xl mt-2 px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
+                <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Historial de impuestos" : "Tax history"}</p>
+                {taxHist.map((r, i) => (
+                  <div key={r.year} className="flex justify-between py-1" style={{ borderTop: i ? `1px solid ${QC.line}` : "none", fontSize: 12.5, fontWeight: 700 }}>
+                    <span style={{ color: QC.muted2 }}>{r.year}</span>
+                    <span style={{ color: QC.navy }}>${num(r.total)}{i < taxHist.length - 1 && taxHist[i + 1].total ? <span style={{ color: r.total >= taxHist[i + 1].total ? "#C0392B" : "#1E7B3C", fontSize: 10.5, marginLeft: 6 }}>{r.total >= taxHist[i + 1].total ? "▲" : "▼"}{Math.abs(((r.total - taxHist[i + 1].total) / taxHist[i + 1].total) * 100).toFixed(1)}%</span> : null}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Datos clave de la propiedad" : "Key property facts"}</p>
-            <div className="grid grid-cols-4 gap-2">
+            )}
+          </Sect>
+
+          {/* Sale history — what they paid tells the realtor their equity story */}
+          {(subj.lastSalePrice || saleDateTxt) && (
+            <Sect label={lang === "es" ? "Última venta" : "Last sale"}>
+              <KV rows={[
+                [lang === "es" ? "Precio de compra" : "Sale price", subj.lastSalePrice ? "$" + num(subj.lastSalePrice) : null],
+                [lang === "es" ? "Fecha" : "Date", saleDateTxt],
+                ...(subj.lastSalePrice && R.value ? [[lang === "es" ? "Plusvalía estimada" : "Est. equity gained", "$" + num(Math.max(0, R.value - subj.lastSalePrice))]] : []),
+              ]} />
+            </Sect>
+          )}
+
+          {/* Property facts */}
+          <Sect label={lang === "es" ? "Datos de la propiedad" : "Property facts"}>
+            <div className="grid grid-cols-4 gap-2 mb-1">
               {facts.map(([icon, v, label]) => (
                 <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
                   <p className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{v}</p>
@@ -1711,7 +2074,11 @@ export default function TradeTechPro() {
                 </div>
               ))}
             </div>
-          </div>
+            <KV rows={[
+              [lang === "es" ? "Tipo" : "Type", subj.propertyType],
+              [lang === "es" ? "Terreno" : "Lot size", subj.lotSize ? num(subj.lotSize) + " " + (lang === "es" ? "pie²" : "sq ft") : null],
+            ]} />
+          </Sect>
           <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
             <span style={{ color: QC.green }}>✓</span>
             <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Resumen fiscal listo para el cliente" : "Client-ready tax summary available"}</span>
@@ -1720,25 +2087,18 @@ export default function TradeTechPro() {
             style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 700, boxShadow: "0 4px 14px rgba(27,42,92,0.3)" }}>
             {lang === "es" ? "Nueva búsqueda" : "New search"}
           </button>
-          {estimated && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
+          {(!hasRealAssess || !hasRealTax) && <p className="mt-3" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {lang === "es" ? "Valores catastrales estimados — confirma con el condado." : "Assessed values are estimates — confirm with the county."}</p>}
           <p className="mt-2" style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>ℹ️ {lang === "es" ? "Al venderse, el impuesto suele recalcularse — las exenciones del dueño actual no se transfieren al comprador." : "After a sale, taxes are usually recalculated — the current owner's exemptions don't transfer to the buyer."}</p>
         </div>
       </div>
     );
   };
 
-  /* ── 04 · WORKSPACE — saved work + Realtor branding ── */
+  /* ── 04 · WORKSPACE — the agent's tools + Realtor branding ── */
   const Workspace = () => {
-    const reopen = reopenSaved;
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
-            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Trabajo guardado" : "Saved work"}</p>
-            <p className="text-white font-extrabold" style={{ fontSize: 26, margin: "4px 0 6px" }}>{savedWork.length} {lang === "es" ? (savedWork.length === 1 ? "elemento reciente" : "elementos recientes") : (savedWork.length === 1 ? "recent item" : "recent items")}</p>
-            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Reabre comps, estimados de financiamiento e impuestos sin empezar de cero." : "Reopen past comps, lending estimates, and tax snapshots without starting over."}</p>
-          </div>
-
           {/* Listing writer — standalone entry: type the facts from anywhere */}
           <button onClick={() => openListing(null)} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
             style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
@@ -1746,6 +2106,17 @@ export default function TradeTechPro() {
             <span className="flex-1 min-w-0">
               <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Redactor de listing (IA)" : "Listing writer (AI)"}</span>
               <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Escribe los datos de donde sea — descripción MLS + post social al instante." : "Type the facts from anywhere — instant MLS description + social caption."}</span>
+            </span>
+            <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
+          </button>
+
+          {/* Social media writer — address in, ready-to-post caption out */}
+          <button onClick={() => setScreen("social")} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+            <span style={{ fontSize: 22 }}>📲</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Redactor para redes (IA)" : "Social media writer (AI)"}</span>
+              <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Pon la dirección — buscamos los datos y escribimos el post. Tú lo editas." : "Type an address — we pull the facts and write the post. You edit it."}</span>
             </span>
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
@@ -1760,6 +2131,19 @@ export default function TradeTechPro() {
             </span>
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
+
+          {/* Install to home screen — hidden once running installed (ALTO install-together pattern) */}
+          {!isStandalone() && (
+            <button onClick={startInstall} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+              style={{ background: QC.navy, border: "none", boxShadow: "0 2px 8px rgba(27,42,92,0.18)", cursor: "pointer" }}>
+              <span style={{ fontSize: 22 }}>📲</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-extrabold" style={{ color: "#fff", fontSize: 14 }}>{lang === "es" ? "Instalar la app en tu teléfono" : "Install the app on your phone"}</span>
+                <span className="block" style={{ color: "#B9C3DC", fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Un ícono en tu inicio — abre al instante, sin App Store." : "An icon on your home screen — opens instantly, no App Store."}</span>
+              </span>
+              <span style={{ color: QC.goldHi, fontSize: 18 }}>›</span>
+            </button>
+          )}
 
           {/* Widget embed code — paste it into their own website (Widget tier) */}
           {session && mySlug && (() => {
@@ -1801,40 +2185,72 @@ export default function TradeTechPro() {
               })}
             </div>
           )}
-          {savedWork.length === 0 ? (
-            <div className="rounded-2xl text-center mb-3" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
-              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Tus búsquedas de propiedades aparecerán aquí." : "Your property searches will show up here."}</p>
-            </div>
-          ) : (
-            <div className="mb-3">
-              {savedWork.map((it, i) => (
-                <button key={it.addr + i} onClick={() => reopen(it)} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mb-2 text-left active:scale-[0.99] transition-transform"
-                  style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-                  <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 40, height: 40, background: QC.bg, border: `1px solid ${QC.line}`, color: QC.navy, fontSize: 13 }}>{`0${i + 1}`.slice(-2)}</span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 14 }}>{it.addr || "—"}</span>
-                    <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Comp · valor" : "Comp · value"} {it.value ? "$" + Number(it.value).toLocaleString("en-US") : "—"}</span>
-                  </span>
-                  <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
-                </button>
-              ))}
+          {/* Past searches — one collapsed row; expands into month groups so a
+              search from months ago is three taps away without owning the screen */}
+          {savedWork.length > 0 && (
+            <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <button onClick={() => setSearchesOpen((o) => !o)} className="w-full flex items-center gap-3 text-left active:opacity-80"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+                <span style={{ fontSize: 20 }}>🕘</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Búsquedas anteriores" : "Past searches"}</span>
+                  <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{savedWork.length} {lang === "es" ? "propiedades — toca para reabrir" : "properties — tap any to reopen"}</span>
+                </span>
+                <span style={{ color: QC.gold, fontSize: 14 }}>{searchesOpen ? "▾" : "▸"}</span>
+              </button>
+              {searchesOpen && (() => {
+                const groups = [];
+                savedWork.forEach((it) => {
+                  const d = new Date(it.ts || 0);
+                  const known = it.ts != null && !Number.isNaN(d.getTime());
+                  const k = known ? `${d.getFullYear()}-${d.getMonth()}` : "old";
+                  const label = known ? d.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", year: "numeric" }) : (lang === "es" ? "Anteriores" : "Earlier");
+                  const g = groups[groups.length - 1];
+                  if (g && g.k === k) g.items.push(it); else groups.push({ k, label, items: [it] });
+                });
+                return groups.map((g, gi) => {
+                  const open = searchMonths?.[g.k] ?? (gi === 0);
+                  return (
+                    <div key={g.k} className="mt-3">
+                      <button onClick={() => setSearchMonths((m) => ({ ...(m || {}), [g.k]: !open }))}
+                        className="w-full flex items-center gap-2 rounded-xl px-3 py-2 text-left active:opacity-80"
+                        style={{ background: QC.bg, border: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                        <span style={{ color: QC.gold, fontSize: 11 }}>{open ? "▾" : "▸"}</span>
+                        <span className="flex-1 font-extrabold capitalize" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{g.label}</span>
+                        <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 700 }}>{g.items.length}</span>
+                      </button>
+                      {open && g.items.map((it, i) => (
+                        <button key={(it.addr || "") + i} onClick={() => reopenSaved(it)} className="w-full flex items-center gap-2.5 py-2.5 px-1 text-left active:opacity-80"
+                          style={{ background: "none", border: "none", borderBottom: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13 }}>{it.addr || "—"}</span>
+                            <span className="block" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{it.value ? fmt(it.value) : "—"}{it.ts ? ` · ${new Date(it.ts).toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", day: "numeric" })}` : ""}</span>
+                          </span>
+                          <span style={{ color: QC.gold, fontSize: 15 }}>›</span>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                });
+              })()}
             </div>
           )}
 
+          {/* Realtor profile — collapsed by default; tap to edit branding */}
           <div className="rounded-2xl p-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Perfil del agente" : "Realtor profile"}</p>
-            <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 17 }}>{lang === "es" ? "Marca de tus informes" : "Client report branding"}</p>
+            <button onClick={() => setProfileOpen((o) => !o)} className="w-full flex items-center gap-3 text-left active:opacity-80"
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+              <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 38, height: 38, background: QC.headGrad, color: QC.goldHi, fontSize: 16 }}>{(userName || "R")[0].toUpperCase()}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block" style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Perfil del agente" : "Realtor profile"}</span>
+                <span className="block font-extrabold truncate" style={{ color: QC.navyDeep, fontSize: 14 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}{bizName ? ` · ${bizName}` : ""}</span>
+              </span>
+              <span style={{ color: QC.gold, fontSize: 14 }}>{profileOpen ? "▾" : "▸"}</span>
+            </button>
+            {profileOpen && (<div className="mt-3">
             <div className="flex items-center gap-2 rounded-xl px-3 py-2.5 mb-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
               <span style={{ color: QC.gold }}>✦</span>
               <span style={{ color: QC.body, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Marca personal activa — tus informes la usan." : "Personal branding is active — reports use it."}</span>
-            </div>
-            <div className="rounded-2xl p-3.5 mb-3 flex items-center gap-3" style={{ background: QC.headGrad }}>
-              <span className="shrink-0 flex items-center justify-center rounded-xl font-extrabold" style={{ width: 40, height: 40, background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.18)", color: QC.goldHi, fontSize: 17 }}>{(userName || "R")[0].toUpperCase()}</span>
-              <span className="min-w-0">
-                <span className="block" style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</span>
-                <span className="block font-extrabold text-white truncate" style={{ fontSize: 15 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}{bizName ? ` · ${bizName}` : ""}</span>
-                {bizEmail && <span className="block truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizEmail}</span>}
-              </span>
             </div>
             <div className="flex items-center gap-2 mb-3">
               <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>{lang === "es" ? "Idioma" : "Language"}</span>
@@ -1858,6 +2274,15 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={market} onChange={(e) => { setMarket(e.target.value); saveProfile({ market: e.target.value }); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
               className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Color de tu marca — tus informes lo usan" : "Your brand color — your reports use it"}</p>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <input type="color" value={brand} onChange={(e) => { setBrandColor(e.target.value); saveProfile({ brandColor: e.target.value }); }}
+                style={{ width: 46, height: 36, border: `1.5px solid ${QC.line}`, borderRadius: 10, background: "#fff", padding: 3, cursor: "pointer" }} />
+              {["#1B2A5C", "#7A1F2B", "#14532D", "#3B2E7E", "#0F766E", "#111111"].map((c) => (
+                <button key={c} onClick={() => { setBrandColor(c); saveProfile({ brandColor: c }); }} title={c}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: c, border: brand === c ? `2.5px solid ${QC.goldLine}` : "2px solid #fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", cursor: "pointer" }} />
+              ))}
+            </div>
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional)" : "Logo or headshot (optional)"}</p>
             {logo
               ? (<div className="flex items-center gap-3">
@@ -1869,7 +2294,195 @@ export default function TradeTechPro() {
                   {lang === "es" ? "＋ Subir imagen" : "＋ Upload image"}
                   <input type="file" accept="image/*" onChange={(e) => onLogoFile(e.target.files?.[0])} style={{ display: "none" }} />
                 </label>)}
+            {/* Live preview — an exact replica of the document masthead, updating
+                as the realtor edits their color, logo, and identity above */}
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, margin: "14px 0 6px" }}>{lang === "es" ? "Vista previa — así abren tus informes" : "Preview — how your reports open"}</p>
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${QC.line}`, boxShadow: "0 4px 14px rgba(17,27,66,0.10)" }}>
+              <div className="flex items-center justify-between gap-3 px-4 py-3" style={{ background: brandGrad, borderBottom: `2.5px solid ${brandTint}` }}>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 32, maxWidth: 84, objectFit: "contain", background: "#fff", borderRadius: 7, padding: 3 }} />}
+                  <div className="min-w-0">
+                    <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
+                    <p className="text-white font-extrabold truncate" style={{ fontSize: 13 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}</p>
+                    {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 10.5 }}>{bizName}</p>}
+                    {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
+                    {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9 }}>Lic. {license}</p>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p style={{ color: brandTint, fontSize: 7, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                  <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{lang === "es" ? "Privado y confidencial" : "Private & confidential"}</p>
+                </div>
+              </div>
+              <div className="px-4 py-2.5" style={{ background: "#fff" }}>
+                <p style={{ color: QC.muted2, fontSize: 8, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase" }}>{lang === "es" ? "Valor de mercado estimado" : "Estimated market value"}</p>
+                <p style={{ color: brand, fontFamily: DOC.serif, fontSize: 17, fontWeight: 700 }}>$284,000 – $301,500</p>
+              </div>
+            </div>
+            </div>)}
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* ── 04 · LEADS — the seller-lead inbox + one-tap share of the lead form ── */
+  const Leads = () => {
+    const ago = (x) => {
+      if (!x) return "";
+      const h = (Date.now() - new Date(x).getTime()) / 36e5;
+      if (h < 1) return lang === "es" ? "hace minutos" : "minutes ago";
+      if (h < 24) return lang === "es" ? `hace ${Math.round(h)}h` : `${Math.round(h)}h ago`;
+      return lang === "es" ? `hace ${Math.round(h / 24)}d` : `${Math.round(h / 24)}d ago`;
+    };
+    const digits = (p) => { const d = String(p || "").replace(/\D/g, ""); return d.length === 10 ? "1" + d : d; };
+    const waMsg = (l) => {
+      const first = String(l.name || "").trim().split(/\s+/)[0] || "";
+      const who = [userName, bizName].filter(Boolean).join(" · ");
+      return lang === "es"
+        ? `Hola${first ? " " + first : ""}! Soy ${who || "tu agente"} — vi que checaste el valor de tu casa${l.address ? ` en ${l.address}` : ""}. Te preparo el análisis completo gratis. ¿Cuándo te puedo llamar?`
+        : `Hi${first ? " " + first : ""}! This is ${who || "your agent"} — I saw you checked your home's value${l.address ? ` at ${l.address}` : ""}. I'll put together the full analysis for you, free. When's a good time to call?`;
+    };
+    /* Excel-ready CSV of every lead (BOM so Excel reads accents right). All
+     * client-side — the data is already loaded; nothing extra leaves the phone. */
+    const exportLeadsCsv = () => {
+      const stLbl = lang === "es"
+        ? { "new": "Nuevo", contacted: "Contactado", interested: "Interesado", "not-interested": "No interesado", closed: "Cerrado" }
+        : { "new": "New", contacted: "Contacted", interested: "Interested", "not-interested": "Not interested", closed: "Closed" };
+      const head = lang === "es"
+        ? ["Fecha", "Nombre", "Teléfono", "Dirección", "Valor bajo", "Valor alto", "Estado", "Nota"]
+        : ["Date", "Name", "Phone", "Address", "Value low", "Value high", "Status", "Note"];
+      const rows = [head, ...leads.map((l) => [
+        new Date(l.created_at).toLocaleDateString(lang === "es" ? "es-MX" : "en-US"),
+        l.name || "", l.phone || "", l.address || "",
+        l.info?.low || "", l.info?.high || "",
+        stLbl[l.status || "new"] || l.status || "", l.info?.note || "",
+      ])];
+      const csv = "\uFEFF" + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quickcomp-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+    return (
+      <div className="flex-1 overflow-y-auto pb-10" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          {/* Compact share card — the months below get the screen space */}
+          <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <div className="flex items-center justify-between mb-1">
+              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
+              <span className="flex items-center gap-2">
+                <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
+                {leads.length > 0 && (
+                  <button onClick={exportLeadsCsv} className="active:translate-y-px" title={lang === "es" ? "Descargar Excel" : "Download Excel"}
+                    style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 8, padding: "4px 8px", fontWeight: 800, fontSize: 10.5, cursor: "pointer" }}>⬇️ Excel</button>
+                )}
+              </span>
+            </div>
+            <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600, lineHeight: 1.45 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí sola." : "Send your lead form to a client — their info lands here on its own."}</p>
+            <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-1.5"
+              style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 11, padding: 11, fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>💬 {lang === "es" ? "Mandar mi formulario" : "Send my lead form"}</button>
+            <div className="flex gap-2">
+              <button onClick={() => copyText(leadFormUrl)} className="flex-1 active:translate-y-px transition-transform"
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
+              <a href={leadFormUrl} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center"
+                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
+            </div>
+          </div>
+
+          {/* The buzz — one tap turns on push for this device (ALTO notifyLead pattern) */}
+          {session && PUSH_SUPPORTED && !pushOn && Notification.permission !== "denied" && (
+            <button onClick={enableLeadAlerts} className="w-full flex items-center gap-3 rounded-2xl p-3.5 mb-3 text-left active:scale-[0.99] transition-transform"
+              style={{ background: QC.navy, border: "none", boxShadow: "0 2px 8px rgba(27,42,92,0.18)", cursor: "pointer" }}>
+              <span style={{ fontSize: 20 }}>🔔</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-extrabold" style={{ color: "#fff", fontSize: 13.5 }}>{lang === "es" ? "Activa las alertas de leads" : "Turn on lead alerts"}</span>
+                <span className="block" style={{ color: "#B9C3DC", fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Tu teléfono suena en cuanto un vendedor deja su número." : "Your phone buzzes the moment a seller leaves their number."}</span>
+              </span>
+              <span style={{ color: QC.goldHi, fontSize: 18 }}>›</span>
+            </button>
+          )}
+
+          {leads.length === 0 ? (
+            <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
+              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu formulario y aparecerán aquí solos." : "No leads yet — share your form and they'll show up here on their own."}</p>
+            </div>
+          ) : (() => {
+            // Group by month (leads arrive newest-first); latest month starts open
+            const groups = [];
+            leads.forEach((l) => {
+              const d = new Date(l.created_at);
+              const k = `${d.getFullYear()}-${d.getMonth()}`;
+              const g = groups[groups.length - 1];
+              if (g && g.k === k) g.items.push(l);
+              else groups.push({ k, label: d.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", year: "numeric" }), items: [l] });
+            });
+            return groups.map((g, gi) => {
+              const open = monthsOpen?.[g.k] ?? (gi === 0);
+              const gPending = g.items.filter((l) => (l.status || "new") === "new").length;
+              return (
+                <div key={g.k} className="mb-2.5">
+                  <button onClick={() => setMonthsOpen((m) => ({ ...(m || {}), [g.k]: !open }))}
+                    className="w-full flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-left active:opacity-80"
+                    style={{ background: "#fff", border: `1px solid ${QC.line}`, cursor: "pointer" }}>
+                    <span style={{ color: QC.gold, fontSize: 12 }}>{open ? "▾" : "▸"}</span>
+                    <span className="flex-1 font-extrabold capitalize" style={{ color: QC.navyDeep, fontSize: 13 }}>{g.label}</span>
+                    {gPending > 0 && <span className="shrink-0 rounded-full px-2 py-0.5 font-extrabold" style={{ background: QC.gold, color: QC.navyDeep, fontSize: 10.5 }}>{gPending}</span>}
+                    <span style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 700 }}>{g.items.length} {g.items.length === 1 ? "lead" : "leads"}</span>
+                  </button>
+                  {open && g.items.map((l) => {
+                    const st = l.status || "new";
+                    const isNew = st === "new";
+                    const low = l.info?.low, high = l.info?.high;
+                    return (
+                      <div key={l.id} className="rounded-2xl p-4 mt-2" style={{ background: "#fff", border: isNew ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <span className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 15 }}>{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</span>
+                          {isNew && <span className="shrink-0 rounded-full px-2 py-0.5" style={{ background: "#FDF3D7", border: `1px solid ${QC.goldLine}`, color: "#8A6A00", fontSize: 10, fontWeight: 900, letterSpacing: "0.06em" }}>{lang === "es" ? "NUEVO" : "NEW"}</span>}
+                        </div>
+                        {l.address ? <p style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>📍 {l.address}</p> : null}
+                        <p className="mb-2" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>
+                          {l.phone}{low && high ? ` · ${fmt(low)}–${fmt(high)}` : ""} · {ago(l.created_at)}
+                        </p>
+                        {/* Mini-CRM, 5 stages (ALTO pattern): one tap says where this lead stands */}
+                        <div className="grid grid-cols-2 gap-1.5 mb-2">
+                          {[
+                            ["contacted", lang === "es" ? "Contactado" : "Contacted", "#1E7B3C", "#EAF8EF", "#A7E0BC"],
+                            ["interested", lang === "es" ? "Interesado" : "Interested", "#8A6A00", "#FDF3D7", QC.goldLine],
+                            ["not-interested", lang === "es" ? "No interesado" : "Not interested", "#67718A", "#F2F4F7", "#D5DAE3"],
+                            ["closed", lang === "es" ? "Cerrado 🎉" : "Closed 🎉", "#0E5A8A", "#E4F1FA", "#A9D3EC"],
+                          ].map(([val, lbl, fg, bg, bd]) => {
+                            const on = st === val;
+                            return (
+                              <button key={val} onClick={() => markLead(l.id, val)} className="flex-1 active:translate-y-px"
+                                style={{ background: on ? bg : "#fff", color: on ? fg : QC.muted2, border: `1.5px solid ${on ? bd : QC.line}`, borderRadius: 9, padding: "7px 2px", fontWeight: 800, fontSize: 10.5, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                {on ? "✓ " : ""}{lbl}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="flex gap-2">
+                          <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
+                            onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                            style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>💬 WhatsApp</a>
+                          <a href={`tel:+${digits(l.phone)}`} onClick={() => isNew && markLead(l.id, "contacted")} className="flex-1 text-center"
+                            style={{ background: QC.navy, color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>📞 {lang === "es" ? "Llamar" : "Call"}</a>
+                        </div>
+                        {/* Optional one-liner note */}
+                        {l.info?.note
+                          ? <button onClick={() => { const n = window.prompt(lang === "es" ? "Nota del lead" : "Lead note", l.info.note); if (n !== null) noteLead(l.id, n.slice(0, 300)); }}
+                              className="w-full text-left mt-2 active:opacity-80" style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 9, padding: "8px 10px", color: QC.body, fontSize: 11.5, fontWeight: 600, cursor: "pointer", lineHeight: 1.45 }}>📝 {l.info.note}</button>
+                          : <button onClick={() => { const n = window.prompt(lang === "es" ? "Nota del lead" : "Lead note", ""); if (n !== null && n.trim()) noteLead(l.id, n.slice(0, 300)); }}
+                              className="w-full mt-2 active:opacity-80" style={{ background: "none", border: "none", color: QC.muted2, fontSize: 11, fontWeight: 700, cursor: "pointer", padding: "4px 0 0" }}>📝 {lang === "es" ? "＋ Agregar nota" : "＋ Add note"}</button>}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            });
+          })()}
         </div>
       </div>
     );
@@ -1906,7 +2519,7 @@ export default function TradeTechPro() {
         ...(Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1 ? { dr: R.marketDriftMo } : {}),
         s: { bd: subj.beds, ba: subj.baths, sf: subj.sqft, yr: subj.yearBuilt },
         c: comps.map((c) => [c.address, c.soldPrice]),
-        g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, ...(lg ? { lg } : {}) },
+        g: { n: userName, b: bizName, p: digits, e: bizEmail, lic: license, bc: brand, ...(lg ? { lg } : {}) },
         ...(netInclude ? { ns: { cm: netCommPct, cl: netClosePct, po: payoffN, net: Math.round(netAmt) } } : {}),
         ...(payInclude ? { pay: { mo: payEst.monthly, dp: lendDownPct, rt: lendRate, yr: lendTerm, tp: payEst.typeLabel } } : {}),
       };
@@ -1920,81 +2533,110 @@ export default function TradeTechPro() {
       } catch { try { await navigator.clipboard.writeText(url); copied(); } catch { /* ignore */ } }
     };
     return (
-      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+      <div className="print-flow flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          {/* The report document */}
-          <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
-            {(subj.latitude ?? R.lat) != null && (
-              <img src={`/api/streetview?lat=${subj.latitude ?? R.lat}&lng=${subj.longitude ?? R.lng}`} alt=""
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
-                style={{ width: "100%", height: 160, objectFit: "cover", display: "block", background: QC.bg }} />
-            )}
-            {/* Branded header band */}
-            <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
+          {/* The report document — consulting-grade: serif display, hairline
+              rules, numbered sections, a stat band, and a real comps table */}
+          <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+            {/* Cover — the house itself, address set over the photo */}
+            <DocCover grad={brandGrad} tint={brandTint}
+              ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
+              kicker={lang === "es" ? "Análisis comparativo de mercado" : "Comparative Market Analysis"}
+              title={subj.address || R.addr} />
+            {/* Masthead */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: brandGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${brandTint}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
-                  <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
+                  <p style={{ color: brandTint, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Presentado por" : "Presented by"}</p>
                   <p className="text-white font-extrabold truncate" style={{ fontSize: 14 }}>{userName || (lang === "es" ? "Tu nombre" : "Your name")}</p>
                   {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizName}</p>}
                   {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10.5 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
                   {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9.5 }}>{lang === "es" ? "Lic. " : "Lic. "}{license}</p>}
                 </div>
               </div>
-              <p className="text-white font-extrabold shrink-0" style={{ fontSize: 13, letterSpacing: "0.03em" }}>{lang === "es" ? "Informe CMA" : "Client CMA Report"}</p>
+              <div className="text-right shrink-0">
+                <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{lang === "es" ? "Privado y confidencial" : "Private & confidential"}</p>
+              </div>
             </div>
             {/* Body */}
-            <div className="px-4 py-4">
-              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{t.cmpValue}</p>
-              <p style={{ color: QC.navyDeep, fontSize: 36, fontWeight: 900, lineHeight: 1, margin: "6px 0" }}>{fmt(R.value)}</p>
-              {hasRange && <p style={{ color: QC.muted2, fontSize: 13, fontWeight: 600 }}>{fmt(R.low)} – {fmt(R.high)} {lang === "es" ? "rango sugerido" : "suggested range"}</p>}
-              <p className="font-bold mt-1.5" style={{ color: QC.navy, fontSize: 13 }}>{subj.address || R.addr}</p>
-
-              {/* Sold comparable support */}
-              <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em", marginBottom: 8 }}>{lang === "es" ? "Apoyo de ventas comparables" : "Sold Comparable Support"}</p>
-                {comps.length === 0 && <p style={{ color: QC.muted, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Sin comparables disponibles." : "No comparables available."}</p>}
-                {comps.map((c, i) => (
-                  <div key={i} className="flex items-center justify-between gap-3 py-1.5" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                    <span className="truncate" style={{ color: QC.body, fontSize: 12.5, fontWeight: 600 }}>{i + 1}. {c.address}</span>
-                    <span className="shrink-0 font-extrabold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{fmt(c.soldPrice)}</span>
-                  </div>
-                ))}
+            <div className="px-5 py-5">
+              {/* Stat band */}
+              <div className="doc-band flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
+                <DocStat first big label={t.cmpValue} value={fmt(R.value)} />
+                {hasRange && <DocStat label={lang === "es" ? "Rango sugerido" : "Suggested range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
+                {R.avgPpsf ? <DocStat label={lang === "es" ? "$/pie²" : "$/sq ft"} value={fmt(R.avgPpsf)} /> : null}
+                <DocStat label={lang === "es" ? "Ventas" : "Comp sales"} value={String(n)} />
               </div>
-
-              {/* AI-assisted summary */}
-              <div className="rounded-xl mt-3 px-4 py-3.5" style={{ background: QC.cardGrad, border: `1px solid ${QC.gold}55` }}>
-                <p style={{ color: QC.goldHi, fontSize: 9, fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", marginBottom: 6 }}>{lang === "es" ? "Resumen asistido por IA" : "AI-Assisted Summary"}</p>
-                <p className="text-white" style={{ fontSize: 12.5, lineHeight: 1.6, fontWeight: 500 }}>{narrative}</p>
-              </div>
-
-              {payInclude && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                  <div className="flex justify-between" style={{ fontSize: 13, fontWeight: 900, color: QC.navyDeep }}>
-                    <span>💳 {lang === "es" ? "Pago mensual estimado" : "Est. monthly payment"}</span>
-                    <span>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
-                  </div>
-                  <p style={{ color: QC.muted2, fontSize: 10, fontWeight: 600, marginTop: 3 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"} — {lang === "es" ? "incluye impuestos, seguro y seguro hipotecario (est.)" : "incl. taxes, insurance & MI (est.)"}</p>
+              {/* 01 · Executive summary */}
+              <DocSect accent={brand} n="01" title={lang === "es" ? "Resumen ejecutivo" : "Executive summary"}>
+                <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
+              </DocSect>
+              {/* 02 · Subject property */}
+              <DocSect accent={brand} n="02" title={lang === "es" ? "La propiedad" : "Subject property"}>
+                <div className="flex">
+                  <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
+                  <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
+                  <DocStat label={t.cmpSqft} value={subj.sqft ? Number(subj.sqft).toLocaleString("en-US") : "—"} />
+                  <DocStat label={t.builtIn} value={String(subj.yearBuilt ?? "—")} />
                 </div>
+              </DocSect>
+              {/* 03 · Market evidence */}
+              <DocSect accent={brand} n="03" title={lang === "es" ? "Evidencia de mercado — ventas cerradas" : "Market evidence — closed sales"}>
+                {comps.length === 0 && <p style={{ color: DOC.mut, fontSize: 12, fontWeight: 600 }}>{lang === "es" ? "Sin comparables disponibles." : "No comparables available."}</p>}
+                {comps.length > 0 && (
+                  <div>
+                    <div className="flex gap-2 pb-1.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                      <span style={{ width: 16, color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.1em" }}>#</span>
+                      <span className="flex-1" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{lang === "es" ? "Dirección · vendida" : "Address · sold"}</span>
+                      <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{lang === "es" ? "Precio" : "Sold price"}</span>
+                    </div>
+                    {comps.map((c, i) => {
+                      const dt = c.soldDate ? new Date(c.soldDate) : null;
+                      const when = dt && !Number.isNaN(dt.getTime()) ? dt.toLocaleDateString(lang === "es" ? "es-MX" : "en-US", { month: "short", year: "numeric" }) : "";
+                      return (
+                        <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                          <span style={{ width: 16, color: brand, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
+                            <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[when, c.sqft ? `${Number(c.sqft).toLocaleString("en-US")} ${t.cmpSqft}` : null, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null].filter(Boolean).join(" · ")}</span>
+                          </span>
+                          <span className="shrink-0" style={{ color: DOC.ink, fontSize: 13.5, fontFamily: DOC.serif }}>{fmt(c.soldPrice)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </DocSect>
+              {payInclude && (
+                <DocSect accent={brand} n="04" title={lang === "es" ? "Pago mensual estimado" : "Financing snapshot"}>
+                  <div className="flex justify-between items-baseline">
+                    <span style={{ color: DOC.body, fontSize: 12, fontWeight: 600 }}>{payEst.typeLabel} · {lendDownPct}% {lang === "es" ? "enganche" : "down"} · {lendRate.toFixed(2)}% · {lendTerm} {lang === "es" ? "años" : "yr"}</span>
+                    <span style={{ color: DOC.ink, fontSize: 16, fontFamily: DOC.serif }}>{fmt(payEst.monthly)}/{lang === "es" ? "mes" : "mo"}</span>
+                  </div>
+                  <p style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600, marginTop: 3 }}>{lang === "es" ? "Incluye impuestos, seguro y seguro hipotecario (est.)" : "Includes taxes, insurance & mortgage insurance (est.)"}</p>
+                </DocSect>
               )}
               {netInclude && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                  <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, marginBottom: 6 }}>💰 {lang === "es" ? "Hoja neta del vendedor" : "Seller Net Sheet"}</p>
+                <DocSect accent={brand} n={payInclude ? "05" : "04"} title={lang === "es" ? "Neto estimado del vendedor" : "Estimated seller proceeds"}>
                   {[[lang === "es" ? "Precio de venta" : "Sale price", fmt(R.value)],
                     [`${lang === "es" ? "Comisión" : "Commission"} (${netCommPct}%)`, `−${fmt(commAmt)}`],
                     [`${lang === "es" ? "Gastos de cierre" : "Closing costs"} (${netClosePct}%)`, `−${fmt(closeAmt)}`],
                     ...(payoffN ? [[lang === "es" ? "Saldo de hipoteca" : "Mortgage payoff", `−${fmt(payoffN)}`]] : [])].map(([k, x], i) => (
-                    <div key={k} className="flex justify-between py-1" style={{ borderTop: i ? `1px solid ${QC.goldLine}44` : "none", fontSize: 12, fontWeight: 600, color: QC.body }}>
-                      <span>{k}</span><span style={{ fontWeight: 800, color: QC.navyDeep }}>{x}</span>
+                    <div key={k} className="flex justify-between py-1.5" style={{ borderBottom: `1px solid ${DOC.hair}`, fontSize: 12, fontWeight: 600, color: DOC.body }}>
+                      <span>{k}</span><span style={{ fontFamily: DOC.serif, color: DOC.ink }}>{x}</span>
                     </div>
                   ))}
-                  <div className="flex justify-between pt-2 mt-1" style={{ borderTop: `2px solid ${QC.goldLine}`, fontSize: 14, fontWeight: 900, color: QC.navyDeep }}>
-                    <span>{lang === "es" ? "NETO ESTIMADO" : "ESTIMATED NET"}</span><span>{fmt(netAmt)}</span>
+                  <div className="flex justify-between pt-2" style={{ fontSize: 13, fontWeight: 800, color: DOC.ink }}>
+                    <span style={{ letterSpacing: "0.1em", textTransform: "uppercase", fontSize: 10.5 }}>{lang === "es" ? "Neto estimado" : "Estimated net"}</span>
+                    <span style={{ fontFamily: DOC.serif, fontSize: 16 }}>{fmt(netAmt)}</span>
                   </div>
-                </div>
+                </DocSect>
               )}
-              <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {t.cmpDisc}</p>
+              <p className="mt-4" style={{ color: DOC.mut, fontSize: 9, fontWeight: 500, lineHeight: 1.6, borderTop: `1px solid ${DOC.hair}`, paddingTop: 8 }}>¹ {t.cmpDisc}</p>
             </div>
+            <DocFoot left={[bizName || userName, lang === "es" ? "Análisis comparativo de mercado" : "Comparative market analysis"].filter(Boolean).join(" · ")} right={lang === "es" ? "Confidencial" : "Confidential"} />
           </div>
 
           {/* Seller net sheet — the realtor's tool; shared only when included */}
@@ -2107,6 +2749,15 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
             <input value={market} onChange={(e) => { setMarket(e.target.value); }} placeholder={lang === "es" ? "Tu mercado (ej. McAllen, TX)" : "Your market (e.g. McAllen, TX)"}
               className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 }} />
+            <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Color de tu marca — tus informes lo usan" : "Your brand color — your reports use it"}</p>
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <input type="color" value={brand} onChange={(e) => { setBrandColor(e.target.value); saveProfile({ brandColor: e.target.value }); }}
+                style={{ width: 46, height: 36, border: `1.5px solid ${QC.line}`, borderRadius: 10, background: "#fff", padding: 3, cursor: "pointer" }} />
+              {["#1B2A5C", "#7A1F2B", "#14532D", "#3B2E7E", "#0F766E", "#111111"].map((c) => (
+                <button key={c} onClick={() => { setBrandColor(c); saveProfile({ brandColor: c }); }} title={c}
+                  style={{ width: 28, height: 28, borderRadius: 8, background: c, border: brand === c ? `2.5px solid ${QC.goldLine}` : "2px solid #fff", boxShadow: "0 1px 4px rgba(0,0,0,0.25)", cursor: "pointer" }} />
+              ))}
+            </div>
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{lang === "es" ? "Logo o foto (opcional — sale en tus informes)" : "Logo or headshot (optional — shows on your reports)"}</p>
             {logo
               ? (<div className="flex items-center gap-3">
@@ -2162,12 +2813,20 @@ export default function TradeTechPro() {
               <input value={d.baths} onChange={set("baths")} placeholder={t.baths} inputMode="decimal"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
             </div>
-            <div className="flex gap-2 mb-3">
+            <div className="flex gap-2 mb-2">
               <input value={d.sqft} onChange={set("sqft")} placeholder="Sq ft" inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
               <input value={d.year} onChange={set("year")} placeholder={es ? "Año de construcción" : "Year built"} inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
             </div>
+            <div className="flex gap-2 mb-2">
+              <input value={d.type} onChange={set("type")} placeholder={es ? "Tipo (ej. Single Family)" : "Type (e.g. Single Family)"}
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <input value={d.lot} onChange={set("lot")} placeholder={es ? "Terreno (pie²)" : "Lot (sq ft)"} inputMode="numeric"
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+            </div>
+            <input value={d.schools} onChange={set("schools")} placeholder={es ? "Escuelas (ej. Memorial High…)" : "Schools (e.g. Memorial High…)"}
+              className="w-full rounded-xl px-3.5 py-3 mb-3 font-semibold outline-none" style={inputStyle} />
             <p style={{ color: QC.muted2, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{es ? "Lo que la hace especial (opcional — tú la conoces mejor)" : "What makes it special (optional — you know it best)"}</p>
             <div className="flex items-start gap-2 rounded-xl px-3 py-1 mb-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
               <textarea rows={3} value={d.highlights} onChange={set("highlights")}
@@ -2204,6 +2863,89 @@ export default function TradeTechPro() {
                   <p style={{ color: QC.body, fontSize: 13.5, lineHeight: 1.65, fontWeight: 500, whiteSpace: "pre-wrap" }}>{listingOut.social}</p>
                 </div>
               )}
+              <p style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Revisa antes de publicar — tú eres responsable del texto final. Escrito con reglas de Vivienda Justa (solo describe la propiedad, nunca al comprador)." : "Review before you publish — you own the final text. Written under Fair Housing rules (describes the property, never the buyer)."}</p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Social media writer — type an address, the server pulls the property
+   * facts and writes the post. The result is a live textarea: edit, copy, share. ── */
+  const SocialWriter = () => {
+    const es = lang === "es";
+    const d = socialDraft;
+    const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
+    const KINDS = [
+      ["listed", es ? "Nuevo listing" : "Just listed"],
+      ["open", "Open house"],
+      ["price", es ? "Nuevo precio" : "Price drop"],
+      ["sold", es ? "Vendida" : "Just sold"],
+    ];
+    const F = socialOut?.facts;
+    const factBits = F ? [
+      F.beds && `${F.beds} ${es ? "rec" : "bd"}`,
+      F.baths && `${F.baths} ${es ? "baños" : "ba"}`,
+      F.sqft && `${Number(F.sqft).toLocaleString("en-US")} ${es ? "pie²" : "sq ft"}`,
+      F.yearBuilt && (es ? `del ${F.yearBuilt}` : `built ${F.yearBuilt}`),
+    ].filter(Boolean).join(" · ") : "";
+    return (
+      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <div className="rounded-2xl p-5 mb-3" style={{ background: QC.cardGrad, boxShadow: "0 18px 38px rgba(17,27,66,0.18)" }}>
+            <p style={{ color: QC.goldHi, fontSize: 11, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Redactor para redes" : "Social media writer"}</p>
+            <p className="text-white font-extrabold" style={{ fontSize: 20, margin: "4px 0 6px" }}>{es ? "De dirección a post en segundos" : "From address to post in seconds"}</p>
+            <p style={{ color: "rgba(255,255,255,0.76)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>{es ? "Pon la dirección — buscamos los datos de la propiedad y escribimos el post. Edítalo a tu gusto antes de publicar." : "Type the address — we pull the property facts and write the post. Edit it your way before you publish."}</p>
+          </div>
+
+          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{es ? "¿Qué anunciamos?" : "What are we announcing?"}</p>
+            <div className="flex gap-1.5 mb-3 flex-wrap">
+              {KINDS.map(([k, label]) => {
+                const on = d.kind === k;
+                return (
+                  <button key={k} onClick={() => setSocialDraft((f) => ({ ...f, kind: k }))}
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 20, padding: "7px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>
+                );
+              })}
+            </div>
+            <input value={d.address} onChange={(e) => setSocialDraft((f) => ({ ...f, address: e.target.value }))} placeholder={es ? "Dirección de la propiedad" : "Property address"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={inputStyle} />
+            <div className="flex items-start gap-2 rounded-xl px-3 py-1 mb-3" style={{ background: QC.bg, border: `1.5px solid ${QC.line}` }}>
+              <textarea rows={2} value={d.notes} onChange={(e) => setSocialDraft((f) => ({ ...f, notes: e.target.value }))}
+                placeholder={es ? "Opcional: precio, hora del open house, lo especial…" : "Optional: price, open-house time, what's special…"}
+                className="flex-1 py-2 font-semibold outline-none bg-transparent resize-none" style={{ color: QC.navy, fontSize: 13, lineHeight: 1.5 }} />
+              {hasVoice && (
+                <button onClick={() => startVoice((txt) => setSocialDraft((f) => ({ ...f, notes: (f.notes ? f.notes.trim() + " " : "") + txt })))}
+                  className="text-xl mt-2 active:scale-90 transition-transform" style={{ background: "none", border: "none", opacity: listening ? 1 : 0.6 }}>{listening ? "🔴" : "🎤"}</button>
+              )}
+            </div>
+            <button onClick={generateSocial} disabled={socialBusy} className="w-full active:translate-y-px transition-transform"
+              style={{ background: socialBusy ? QC.line : `linear-gradient(135deg,${QC.gold},#BD8426)`, color: QC.navyDeep, border: "none", borderRadius: 12, padding: 15, fontSize: 16, fontWeight: 800, boxShadow: socialBusy ? "none" : "0 4px 14px rgba(189,132,38,0.35)" }}>
+              {socialBusy ? (es ? "Escribiendo…" : "Writing…") : "📲 " + (es ? "Escribir el post" : "Write the post")}
+            </button>
+          </div>
+
+          {socialOut && (
+            <>
+              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>📲 {es ? "Tu post — edítalo aquí mismo" : "Your post — edit it right here"}</p>
+                </div>
+                {factBits && (
+                  <p className="mb-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 700 }}>✓ {es ? "Datos encontrados" : "Facts pulled"}: {factBits}</p>
+                )}
+                <textarea rows={9} value={socialOut.post} onChange={(e) => setSocialOut((o) => ({ ...o, post: e.target.value }))}
+                  className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none resize-none"
+                  style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.body, fontSize: 13.5, lineHeight: 1.6 }} />
+                <div className="flex gap-2">
+                  <button onClick={() => copyText(socialOut.post)} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 10, padding: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {es ? "Copiar" : "Copy"}</button>
+                  <button onClick={() => shareSocial(socialOut.post)} className="flex-1 active:translate-y-px transition-transform"
+                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 12, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>↗ {es ? "Compartir" : "Share"}</button>
+                </div>
+              </div>
               <p style={{ color: "#66759D", fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Revisa antes de publicar — tú eres responsable del texto final. Escrito con reglas de Vivienda Justa (solo describe la propiedad, nunca al comprador)." : "Review before you publish — you own the final text. Written under Fair Housing rules (describes the property, never the buyer)."}</p>
             </>
           )}
@@ -2274,7 +3016,7 @@ export default function TradeTechPro() {
     const hasDrift = Number.isFinite(R.marketDriftMo) && Math.abs(R.marketDriftMo * 1200) >= 1;
     const inputStyle = { background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14 };
     return (
-      <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
+      <div className="print-flow flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
           {/* Controls — never printed */}
           <div className="no-print rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
@@ -2303,79 +3045,89 @@ export default function TradeTechPro() {
               className="w-full rounded-xl px-3.5 py-3 font-semibold outline-none resize-none" style={{ ...inputStyle, fontSize: 13, lineHeight: 1.5 }} />
           </div>
 
-          {/* The packet document (this part prints) */}
-          <div id="qc-report" className="rounded-2xl overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
-            <div className="flex items-center justify-between gap-3 px-4 py-3.5" style={{ background: QC.headGrad }}>
+          {/* The packet document (this part prints) — same consulting-grade
+              language as the CMA report: serif display, hairlines, sections */}
+          <div id="qc-report" className="overflow-hidden" style={{ background: "#fff", border: `1px solid ${QC.line}`, borderRadius: 18, boxShadow: "0 18px 38px rgba(17,27,66,0.12)" }}>
+            {/* Cover — the subject property, address set over the photo */}
+            <DocCover grad={brandGrad} tint={brandTint}
+              ll={(subj.latitude ?? R.lat) != null ? { lat: subj.latitude ?? R.lat, lng: subj.longitude ?? R.lng } : null}
+              kicker={es ? "Apoyo de ventas comparables" : "Comparable Sales Support"}
+              title={addr} />
+            <div className="flex items-center justify-between gap-3 px-5 py-3" style={{ background: brandGrad, borderTop: "1px solid rgba(255,255,255,0.14)", borderBottom: `2.5px solid ${brandTint}` }}>
               <div className="flex items-center gap-3 min-w-0">
                 {logo && <img src={logo} alt="" className="shrink-0" style={{ height: 38, maxWidth: 96, objectFit: "contain", background: "#fff", borderRadius: 8, padding: 3 }} />}
                 <div className="min-w-0">
-                  <p style={{ color: QC.goldHi, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Preparado por" : "Prepared by"}</p>
+                  <p style={{ color: brandTint, fontSize: 8, fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase" }}>{es ? "Preparado por" : "Prepared by"}</p>
                   <p className="text-white font-extrabold truncate" style={{ fontSize: 14 }}>{userName || (es ? "Tu nombre" : "Your name")}</p>
                   {bizName && <p className="truncate" style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>{bizName}</p>}
                   {(userPhone || bizEmail) && <p className="truncate" style={{ color: "rgba(255,255,255,0.62)", fontSize: 10.5 }}>{[userPhone, bizEmail].filter(Boolean).join(" · ")}</p>}
                   {license && <p className="truncate" style={{ color: "rgba(255,255,255,0.5)", fontSize: 9.5 }}>{es ? "Lic. " : "Lic. "}{license}</p>}
                 </div>
               </div>
-              <p className="text-white font-extrabold shrink-0 text-right" style={{ fontSize: 13, letterSpacing: "0.03em" }}>{es ? "Apoyo de comparables" : "Comparable Sales Support"}</p>
+              <div className="text-right shrink-0">
+                <p style={{ color: brandTint, fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase" }}>{new Date().toLocaleDateString(es ? "es-MX" : "en-US", { month: "long", day: "numeric", year: "numeric" })}</p>
+                <p style={{ color: "rgba(255,255,255,0.72)", fontSize: 7.5, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginTop: 2 }}>{es ? "Para el valuador asignado" : "For the assigned appraiser"}</p>
+              </div>
             </div>
-            <div className="px-4 py-4">
-              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.16em", textTransform: "uppercase" }}>{es ? "Propiedad en operación" : "Subject property"}</p>
-              <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 18, lineHeight: 1.3, margin: "5px 0 10px" }}>{addr}</p>
-              <div className="grid grid-cols-4 gap-2 mb-3">
-                {[["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]].map(([icon, v, label]) => (
-                  <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "9px 5px", textAlign: "center" }}>
-                    <p className="font-extrabold" style={{ color: QC.navy, fontSize: 14 }}>{v}</p>
-                    <p style={{ color: QC.muted, fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 3 }}>{icon} {label}</p>
-                  </div>
-                ))}
+            <div className="px-5 py-5">
+              {/* Stat band */}
+              <div className="doc-band flex" style={{ borderBottom: `1px solid ${DOC.hair}`, paddingBottom: 12 }}>
+                {contractN > 0 && <DocStat first big label={es ? "Precio de contrato" : "Contract price"} value={fmt(contractN)} />}
+                <DocStat first={!contractN} big={!contractN} label={es ? "Valor indicado" : "Indicated value"} value={fmt(R.value)} />
+                {hasRange && <DocStat label={es ? "Rango" : "Range"} value={`${fmt(R.low)} – ${fmt(R.high)}`} />}
+                <DocStat label={es ? "Ventas" : "Closed sales"} value={String(n)} />
               </div>
-              <div className="flex gap-2 mb-3">
-                {contractN > 0 && (
-                  <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: "#FDF9EF", border: `2px solid ${QC.goldLine}` }}>
-                    <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Precio de contrato" : "Contract price"}</p>
-                    <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(contractN)}</p>
-                  </div>
+              {/* 01 · Purpose & summary */}
+              <DocSect accent={brand} n="01" title={es ? "Propósito y resumen" : "Purpose & summary"}>
+                <p style={{ color: DOC.body, fontSize: 12.5, lineHeight: 1.75, fontWeight: 500 }}>{narrative}</p>
+                {hasDrift && (
+                  <p className="mt-2" style={{ color: DOC.mut, fontSize: 10.5, fontWeight: 600, lineHeight: 1.6 }}>
+                    {es ? "Tendencia del mercado derivada del conjunto de comparables" : "Market trend derived from the comp set"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{es ? "año" : "yr"} — {es ? "base de los ajustes por fecha de venta" : "the basis for the sale-date adjustments"}.
+                  </p>
                 )}
-                <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                  <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>{es ? "Valor indicado" : "Indicated value"}</p>
-                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 19 }}>{fmt(R.value)}</p>
-                  {hasRange && <p style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{fmt(R.low)} – {fmt(R.high)}</p>}
+              </DocSect>
+              {/* 02 · Subject property */}
+              <DocSect accent={brand} n="02" title={es ? "La propiedad" : "Subject property"}>
+                <div className="flex">
+                  <DocStat first label={t.beds} value={String(subj.beds ?? "—")} />
+                  <DocStat label={t.baths} value={String(subj.baths ?? "—")} />
+                  <DocStat label={t.cmpSqft} value={subj.sqft ? num(subj.sqft) : "—"} />
+                  <DocStat label={t.builtIn} value={String(subj.yearBuilt ?? "—")} />
                 </div>
-              </div>
-              <p style={{ color: QC.body, fontSize: 12.5, lineHeight: 1.65, fontWeight: 500 }}>{narrative}</p>
-              {hasDrift && (
-                <p className="mt-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>
-                  📈 {es ? "Tendencia del mercado derivada del conjunto de comparables" : "Market trend derived from the comp set"}: {R.marketDriftMo > 0 ? "↑" : "↓"} ~{Math.abs(R.marketDriftMo * 1200).toFixed(1)}%/{es ? "año" : "yr"} — {es ? "base de los ajustes por fecha de venta" : "the basis for the sale-date adjustments"}.
-                </p>
-              )}
-              <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: QC.bg, border: `1px solid ${QC.line}` }}>
-                <p style={{ color: QC.navy, fontSize: 12, fontWeight: 800, letterSpacing: "0.02em", marginBottom: 6 }}>{es ? "Ventas cerradas comparables" : "Closed Comparable Sales"}</p>
+              </DocSect>
+              {/* 03 · Closed comparable sales */}
+              <DocSect accent={brand} n="03" title={es ? "Ventas cerradas comparables" : "Closed comparable sales"}>
+                <div className="flex gap-2 pb-1.5" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                  <span style={{ width: 16, color: DOC.mut, fontSize: 8, fontWeight: 800 }}>#</span>
+                  <span className="flex-1" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{es ? "Dirección · detalles" : "Address · details"}</span>
+                  <span className="shrink-0" style={{ color: DOC.mut, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase" }}>{es ? "Precio · ajustado" : "Sold · adjusted"}</span>
+                </div>
                 {comps.map((c, i) => {
                   const ppsf = c.ppsf || (c.soldPrice && c.sqft ? Math.round(c.soldPrice / c.sqft) : null);
                   return (
-                    <div key={i} className="py-2" style={{ borderTop: i ? `1px solid ${QC.line}` : "none" }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate font-bold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{i + 1}. {c.address}</span>
-                        <span className="shrink-0 font-extrabold" style={{ color: QC.navyDeep, fontSize: 12.5 }}>{fmt(c.soldPrice)}</span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3" style={{ marginTop: 2 }}>
-                        <span style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>
-                          {t.cmpSold} {soldDate(c.soldDate)}{c.distance != null ? ` · ${Number(c.distance).toFixed(2)} mi` : ""}{c.sqft ? ` · ${num(c.sqft)} ${t.cmpSqft}` : ""}{ppsf ? ` · ${fmt(ppsf)}${t.cmpPerSqft}` : ""}
-                        </span>
-                        {c.adjValue ? <span className="shrink-0" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 700 }}>{es ? "ajustado" : "adjusted"} {fmt(c.adjValue)}</span> : null}
-                      </div>
+                    <div key={i} className="doc-row flex items-center gap-2 py-2" style={{ borderBottom: `1px solid ${DOC.hair}` }}>
+                      <span style={{ width: 16, color: brand, fontSize: 10.5, fontWeight: 700, fontFamily: DOC.serif }}>{i + 1}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate" style={{ color: DOC.ink, fontSize: 12, fontWeight: 700 }}>{c.address}</span>
+                        <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{[`${t.cmpSold} ${soldDate(c.soldDate)}`, c.distance != null ? `${Number(c.distance).toFixed(2)} mi` : null, c.sqft ? `${num(c.sqft)} ${t.cmpSqft}` : null, ppsf ? `${fmt(ppsf)}${t.cmpPerSqft}` : null].filter(Boolean).join(" · ")}</span>
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block" style={{ color: DOC.ink, fontSize: 13.5, fontFamily: DOC.serif }}>{fmt(c.soldPrice)}</span>
+                        {c.adjValue ? <span className="block" style={{ color: DOC.mut, fontSize: 9.5, fontWeight: 600 }}>{es ? "aj." : "adj."} {fmt(c.adjValue)}</span> : null}
+                      </span>
                     </div>
                   );
                 })}
-              </div>
+              </DocSect>
+              {/* 04 · Agent notes */}
               {apprNote.trim() && (
-                <div className="rounded-xl mt-3 px-3.5 py-3" style={{ background: "#FDF9EF", border: `1px solid ${QC.goldLine}` }}>
-                  <p style={{ color: "#8A6A00", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{es ? "Notas del agente" : "Agent notes"}</p>
-                  <p style={{ color: QC.body, fontSize: 12, lineHeight: 1.6, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
-                </div>
+                <DocSect accent={brand} n="04" title={es ? "Notas del agente" : "Agent notes"}>
+                  <p style={{ color: DOC.body, fontSize: 12, lineHeight: 1.7, fontWeight: 500, whiteSpace: "pre-wrap" }}>{apprNote.trim()}</p>
+                </DocSect>
               )}
-              <p className="mt-3" style={{ color: QC.muted, fontSize: 9.5, fontWeight: 600, lineHeight: 1.5 }}>⚠️ {es ? "Datos de mercado presentados para su consideración — no es un avalúo. La conclusión de valor pertenece al valuador." : "Market data provided for consideration — not an appraisal. The value conclusion remains the appraiser's."}</p>
+              <p className="mt-4" style={{ color: DOC.mut, fontSize: 9, fontWeight: 500, lineHeight: 1.6, borderTop: `1px solid ${DOC.hair}`, paddingTop: 8 }}>¹ {es ? "Datos de mercado presentados para su consideración — no es un avalúo. La conclusión de valor pertenece al valuador." : "Market data provided for consideration — not an appraisal. The value conclusion remains the appraiser's."}</p>
             </div>
+            <DocFoot left={[bizName || userName, es ? "Apoyo de comparables" : "Comparable sales support"].filter(Boolean).join(" · ")} right={es ? "Confidencial" : "Confidential"} />
           </div>
 
           <button onClick={() => window.print()} className="no-print w-full active:translate-y-px transition-transform mt-3"
@@ -2392,33 +3144,48 @@ export default function TradeTechPro() {
   const titles = {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
     listing: "✨ " + (lang === "es" ? "Redactor de listing" : "Listing writer"),
+    social: "📲 " + (lang === "es" ? "Redactor para redes" : "Social media writer"),
     appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
+    leads: "📥 Leads",
   };
   const backMap = {
     report: "comps",
     listing: "comps",
+    social: "workspace",
     appraisal: "workspace",
+    leads: "comps",
   };
   const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
 
   return (
-    <div className="min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
+    <div className="app-outer min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
         * { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         input::placeholder { color: #A7AEBE; }
         @keyframes ttpPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: .65; } }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+        @page { margin: 0.45in; }
         @media print {
           body { background: #fff !important; }
           .no-print { display: none !important; }
+          /* The phone-shaped shell must become a plain, full-width page flow:
+             without this the document prints as a 448px strip clipped to one
+             screen — the "PDF looks terrible" bug. */
+          .app-outer { background: #fff !important; display: block !important; }
+          .app-shell { height: auto !important; overflow: visible !important; max-width: none !important; }
+          .print-flow { overflow: visible !important; height: auto !important; background: #fff !important; }
+          .print-flow > div { padding: 0 !important; }
           /* Force backgrounds to print: without this Chrome/Safari drop the navy
              header band and gold labels, so "Presented by / agent / brokerage /
              license" prints as white-on-white — the report comes out anonymous. */
           #qc-report, #qc-report * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          #qc-report { box-shadow: none !important; border: 1px solid #d9e1ef !important; }
-          /* the fixed-height app shell would otherwise clip a long report */
-          .app-shell { height: auto !important; overflow: visible !important; }
+          #qc-report { box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+          /* Paper typography: paginate cleanly — never split a comp row or a
+             stat band, never leave a section header orphaned at a page break. */
+          #qc-report .doc-band, #qc-report .doc-row { break-inside: avoid; }
+          #qc-report .doc-h { break-after: avoid; }
+          #qc-report .doc-cover { padding-top: 170px !important; }
         }`}</style>
       <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
@@ -2438,15 +3205,98 @@ export default function TradeTechPro() {
           {screen === "lending" && Lending()}
           {screen === "tax" && Tax()}
           {screen === "workspace" && Workspace()}
+          {screen === "leads" && Leads()}
           {screen === "report" && Report()}
           {screen === "listing" && ListingWriter()}
+          {screen === "social" && SocialWriter()}
           {screen === "appraisal" && AppraisalPacket()}
         </div>
         {/* Pinned bottom tabs */}
         {withNav.includes(screen) && <div className="shrink-0"><BottomNav /></div>}
         {toast && (
-          <div className="absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
+          <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
+          </div>
+        )}
+        {/* Install guide overlay — iOS steps, Chrome-menu steps, or the
+            escape-WhatsApp warning. Closes on the ✕ or the backdrop. */}
+        {installGuide && (
+          <div className="no-print absolute inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(7,12,28,0.72)" }} onClick={() => setInstallGuide(null)}>
+            <div className="w-full rounded-t-3xl p-6 pb-8" style={{ background: "#fff", maxWidth: 448 }} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-3">
+                <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 17 }}>
+                  {installGuide === "inapp"
+                    ? (lang === "es" ? "Primero sal de este navegador" : "First, leave this in-app browser")
+                    : (lang === "es" ? "Instala Quick Comp 📲" : "Install Quick Comp 📲")}
+                </p>
+                <button onClick={() => setInstallGuide(null)} style={{ background: "none", border: "none", color: QC.muted2, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>✕</button>
+              </div>
+              {installGuide === "inapp" && (
+                <div>
+                  <p className="mb-3" style={{ color: QC.body, fontSize: 13.5, fontWeight: 600, lineHeight: 1.55 }}>
+                    {lang === "es"
+                      ? "Estás dentro del navegador de WhatsApp/Instagram y ahí no se puede instalar la app."
+                      : "You're inside WhatsApp/Instagram's built-in browser, and apps can't be installed from there."}
+                  </p>
+                  {[[
+                    "1", lang === "es" ? "Toca los tres puntos (⋯ o ⋮) arriba a la derecha" : "Tap the three dots (⋯ or ⋮) in the top corner",
+                  ], [
+                    "2", IS_IOS ? (lang === "es" ? "Elige “Abrir en Safari”" : "Choose “Open in Safari”") : (lang === "es" ? "Elige “Abrir en Chrome” (o “Abrir en el navegador”)" : "Choose “Open in Chrome” (or “Open in browser”)"),
+                  ], [
+                    "3", lang === "es" ? "Ya en el navegador, vuelve a tocar “Instalar la app”" : "Once in the browser, tap “Install the app” again",
+                  ]].map(([n, txt]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{txt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {installGuide === "ios" && (
+                <div>
+                  {[[
+                    "1", lang === "es" ? "Toca el botón Compartir" : "Tap the Share button", "⬆️",
+                    lang === "es" ? "(el cuadrito con flecha, abajo en Safari)" : "(the square with the arrow, at the bottom of Safari)",
+                  ], [
+                    "2", lang === "es" ? "Baja y elige “Agregar a inicio”" : "Scroll down and choose “Add to Home Screen”", "➕", "",
+                  ], [
+                    "3", lang === "es" ? "Toca “Agregar” — y listo" : "Tap “Add” — done", "✅", "",
+                  ]].map(([n, txt, ico, sub]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{ico} {txt}{sub ? <span style={{ display: "block", color: QC.muted2, fontSize: 11.5, fontWeight: 600 }}>{sub}</span> : null}</span>
+                    </div>
+                  ))}
+                  <p className="mt-3" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600, lineHeight: 1.5 }}>
+                    {lang === "es" ? "El ícono de Quick Comp queda en tu inicio, como cualquier app." : "The Quick Comp icon lands on your home screen, like any app."}
+                  </p>
+                </div>
+              )}
+              {installGuide === "android" && (
+                <div>
+                  {[[
+                    "1", lang === "es" ? "Toca el menú (⋮) arriba a la derecha de Chrome" : "Tap the menu (⋮) in Chrome's top corner",
+                  ], [
+                    "2", lang === "es" ? "Elige “Agregar a la pantalla principal” o “Instalar app”" : "Choose “Add to Home screen” or “Install app”",
+                  ], [
+                    "3", lang === "es" ? "Confirma — y listo" : "Confirm — done",
+                  ]].map(([n, txt]) => (
+                    <div key={n} className="flex items-start gap-3 mb-2.5">
+                      <span className="shrink-0 rounded-full flex items-center justify-center font-extrabold" style={{ width: 26, height: 26, background: "#FDF3D7", color: "#8A6A00", fontSize: 13 }}>{n}</span>
+                      <span style={{ color: QC.navyDeep, fontSize: 13.5, fontWeight: 700, lineHeight: 1.45, paddingTop: 3 }}>{txt}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Full-screen property photo — tap anywhere to close */}
+        {photoView && (
+          <div className="no-print absolute inset-0 z-50 flex flex-col items-center justify-center px-4" style={{ background: "rgba(7,12,28,0.9)" }} onClick={() => setPhotoView(null)}>
+            <img src={photoView.src} alt="" className="w-full rounded-2xl" style={{ maxHeight: "68vh", objectFit: "contain", boxShadow: "0 30px 80px rgba(0,0,0,.55)" }} />
+            {photoView.label && <p className="text-center mt-3 font-bold text-white px-4" style={{ fontSize: 13.5 }}>📍 {photoView.label}</p>}
+            <p className="text-center mt-1" style={{ color: "rgba(255,255,255,.55)", fontSize: 11, fontWeight: 700 }}>{lang === "es" ? "Toca para cerrar" : "Tap to close"}</p>
           </div>
         )}
       </div>

@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node --env-file-if-exists=server/.env server/index.mjs",
-    "test": "node scripts/valuation-test.mjs && node scripts/smoke.mjs"
+    "test": "node scripts/valuation-test.mjs && node scripts/smoke.mjs && node scripts/ports-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
@@ -17,7 +17,8 @@
     "pg": "^8.21.0",
     "proj4": "^2.20.9",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

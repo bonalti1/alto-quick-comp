@@ -13,6 +13,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
+import webpush from "web-push";
 import { fromArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import * as db from "./db.mjs";
@@ -26,6 +27,9 @@ const REGRID_KEY = process.env.REGRID_API_KEY || "";
 const ADMIN_KEY = process.env.ADMIN_KEY || "";
 const CLOSER_KEY = process.env.CLOSER_KEY || "";
 const CS_KEY = process.env.CS_KEY || "";
+// Staff demo pass (ALTO pattern): ?pass=<DEMO_PASS> makes a device unlimited
+// so a live sales call never dies at the anonymous-demo cap. Unset = off.
+const DEMO_PASS = process.env.DEMO_PASS || "";
 const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
 // Cloudflare for SaaS (custom client domains). Off until configured.
 const CF_API_TOKEN = process.env.CF_API_TOKEN || "";
@@ -567,6 +571,15 @@ async function rcFetchJson(url, options = {}) {
   return data;
 }
 
+/* Full county property record (owner, multi-year taxes, assessments, last
+ * sale) — the AVM response doesn't carry these, the /properties endpoint does. */
+async function fetchRentcastRecord(address) {
+  const endpoint = new URL("https://api.rentcast.io/v1/properties");
+  endpoint.searchParams.set("address", address);
+  const j = await rcFetchJson(endpoint, { headers: { "X-Api-Key": RENTCAST_KEY } });
+  return Array.isArray(j) ? j[0] || null : (j && typeof j === "object" && (j.id || j.formattedAddress) ? j : null);
+}
+
 async function fetchRentcastValue({ address, radius, compCount, daysOld }) {
   const endpoint = new URL("https://api.rentcast.io/v1/avm/value");
   endpoint.searchParams.set("address", address);
@@ -594,8 +607,17 @@ function latestYearVal(obj, pick) {
 function normalizeSubjectProperty(p, fallbackAddress) {
   if (!p || typeof p !== "object") return { address: fallbackAddress || "" };
   const assess = latestYearVal(p.taxAssessments, (a) => a?.value ?? a?.total ?? null);
+  const assessLand = latestYearVal(p.taxAssessments, (a) => a?.land ?? null);
+  const assessImp = latestYearVal(p.taxAssessments, (a) => a?.improvements ?? null);
   const tax = latestYearVal(p.propertyTaxes, (a) => a?.total ?? a?.amount ?? null);
   const ownerNames = Array.isArray(p.owner?.names) ? p.owner.names.join(", ") : (p.owner?.name || p.ownerName || null);
+  // Multi-year tax history (newest first, up to 4) — the realtor's "what did
+  // they pay" answer at a glance
+  const taxHistory = p.propertyTaxes && typeof p.propertyTaxes === "object"
+    ? Object.keys(p.propertyTaxes).filter((k) => /^\d{4}$/.test(k)).sort().reverse().slice(0, 4)
+        .map((y) => ({ year: Number(y), total: p.propertyTaxes[y]?.total ?? p.propertyTaxes[y]?.amount ?? null }))
+        .filter((r) => r.total != null)
+    : [];
   return {
     address: p.formattedAddress || p.address || [p.addressLine1, p.city, p.state, p.zipCode].filter(Boolean).join(", ") || fallbackAddress || "",
     propertyType: p.propertyType || p.propertyUse || p.type || null,
@@ -608,10 +630,19 @@ function normalizeSubjectProperty(p, fallbackAddress) {
     longitude: p.longitude || p.location?.longitude || null,
     // ownership + tax (present on RentCast property records; optional)
     owner: ownerNames,
+    ownerOccupied: typeof p.ownerOccupied === "boolean" ? p.ownerOccupied : null,
     assessedValue: assess?.value ?? null,
     assessedYear: assess?.year ?? null,
+    assessedLand: assessLand?.value ?? null,
+    assessedImprovements: assessImp?.value ?? null,
     annualTax: tax?.value ?? null,
     taxYear: tax?.year ?? assess?.year ?? null,
+    taxHistory,
+    county: p.county || null,
+    subdivision: p.subdivision || null,
+    zoning: p.zoning || null,
+    lastSalePrice: p.lastSalePrice ?? null,
+    lastSaleDate: p.lastSaleDate || null,
   };
 }
 
@@ -658,7 +689,12 @@ async function rentcastLookup(address, opts = {}) {
   }
   if (!data) throw lastError || new Error("No comparable sales found");
 
-  const subject = normalizeSubjectProperty(data.subjectProperty || data.property || null, address);
+  // With lookupSubjectAttributes=true, RentCast's AVM returns the subject's
+  // attributes at the TOP LEVEL of the response (not nested) — without this
+  // fallback the app showed "—" for beds/baths on every live search.
+  const subjSrc = data.subjectProperty || data.property
+    || ((data.bedrooms != null || data.squareFootage != null || data.yearBuilt != null || data.propertyType) ? data : null);
+  const subject = normalizeSubjectProperty(subjSrc, address);
   const rawComps = normalizeRentcastComps(data);
   const quick = calculateQuickCompValue({
     subject,
@@ -785,12 +821,16 @@ app.post("/api/lookup", async (req, res) => {
   // wowed, not enough to freeload. Clients get a high anti-runaway ceiling.
   const me = await auth(req).catch(() => null);
   const lkIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
-  if (!me) {
+  // Staff pass: valid ?pass= (stored by the app, sent with each lookup) lifts
+  // the anonymous caps so live sales demos never stall. Wrong/absent pass
+  // falls through to the normal demo allowance.
+  const passOk = DEMO_PASS && String(req.body?.pass || req.get("x-demo-pass") || "") === DEMO_PASS;
+  if (!me && !passOk) {
     if (overQuota(`lk:${lkIp}`, 6)) return res.status(429).json({ error: "demo_limit" });
     // lifetime allowance per connection — survives incognito and browser wipes
     const lifetime = await db.incrCounter(`demolk:${lkIp}`).catch(() => 0);
     if (lifetime > 10) return res.status(429).json({ error: "demo_limit" });
-  } else if (overQuota(`lkc:${me.id}`, 40)) { // per-account daily measure cap — low enough that a shared link is useless as a free tool
+  } else if (me && overQuota(`lkc:${me.id}`, 40)) { // per-account daily measure cap — low enough that a shared link is useless as a free tool
     return res.status(429).json({ error: "quota" });
   }
   const address = String(req.body?.address || "").trim();
@@ -827,17 +867,29 @@ app.post("/api/lookup", async (req, res) => {
     if (!comp || !comp.value) {
       return res.json({ found: false, source: "live", addr: (geo && geo.formatted) || address, lat: geo?.lat ?? null, lng: geo?.lng ?? null });
     }
+    // Enrich the subject with the full county record (owner, tax history,
+    // last sale) — what a realtor actually needs on the tax screen. Best
+    // effort: a missing record never blocks the valuation.
+    let subject = comp.subject || {};
+    try {
+      const rec = await fetchRentcastRecord(subject.address || lookupAddr);
+      if (rec) {
+        const full = normalizeSubjectProperty(rec, lookupAddr);
+        const avmKnown = Object.fromEntries(Object.entries(subject).filter(([, v]) => v != null && !(Array.isArray(v) && !v.length)));
+        subject = { ...full, ...avmKnown };
+      }
+    } catch (e) { console.error("property record:", e.message); }
     return res.json({
       found: true,
       source: "live",
-      addr: comp.subject?.address || (geo && geo.formatted) || address,
-      lat: geo?.lat ?? comp.subject?.latitude ?? null,
-      lng: geo?.lng ?? comp.subject?.longitude ?? null,
+      addr: subject.address || (geo && geo.formatted) || address,
+      lat: geo?.lat ?? subject.latitude ?? null,
+      lng: geo?.lng ?? subject.longitude ?? null,
       value: comp.value,
       valueRange: { low: comp.low, high: comp.high },
       confidence: comp.confidence,
       method: comp.method,
-      subject: comp.subject,
+      subject,
       comps: comp.comps,
       compsUsed: comp.usedCompCount,
       excludedOutliers: comp.excludedOutliers,
@@ -926,11 +978,16 @@ app.get("/api/roofimg", async (req, res) => {
  * Google has coverage, otherwise a top-down satellite frame. Proxied so the
  * Maps key stays server-side. Demo mode (no key) returns 404 → UI hides it. */
 app.get("/api/streetview", async (req, res) => {
-  const { lat, lng } = req.query;
-  if (!GOOGLE_KEY || !lat || !lng) return res.status(404).end();
+  const { lat, lng, address } = req.query;
+  // Accept either lat/lng (used for real searches, where we already geocoded
+  // the address) or a free-text address — Google's Street View/Static Map
+  // APIs geocode a `location`/`center` string themselves, which is more
+  // reliable than us guessing coordinates (used for the fixed demo example).
+  const hasCoords = lat && lng;
+  if (!GOOGLE_KEY || (!hasCoords && !address)) return res.status(404).end();
   const svIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
   if (overQuota(`sv:${svIp}`, 120)) return res.status(429).end();
-  const loc = `${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+  const loc = hasCoords ? `${encodeURIComponent(lat)},${encodeURIComponent(lng)}` : encodeURIComponent(String(address).slice(0, 200));
   try {
     // Prefer a street-level photo of the house; check coverage first.
     let hasStreet = false;
@@ -1178,6 +1235,40 @@ app.post("/api/admin/status", async (req, res) => {
   if (!paused && data.payStatus === "pending") data.payStatus = "ok"; // manual activation (cash/Zelle deals)
   await db.saveContractorData(c.id, data);
   res.json({ ok: true, status: paused ? "paused" : "active" });
+});
+
+/* Admin: one-click full data backup (ALTO ownership pattern) — everything the
+ * business can't rebuild, in one dated JSON: clients with their app state and
+ * leads, plus meetings and tasks. Session tokens and invite links are excluded
+ * on purpose: a leaked backup file must never grant access to anything. */
+app.get("/api/admin/backup", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
+  try {
+    const contractors = await db.listContractors();
+    const clients = [];
+    for (const c of contractors) {
+      const [state, leads] = await Promise.all([
+        db.getState(c.id).catch(() => null),
+        db.listLeads(c.id).catch(() => []),
+      ]);
+      clients.push({ id: c.id, slug: c.slug, name: c.name, phone: c.phone, created_at: c.created_at, data: c.data || {}, state, leads });
+    }
+    const backup = {
+      product: "quick-comp",
+      exportedAt: new Date().toISOString(),
+      counts: { clients: clients.length, leads: clients.reduce((n, c) => n + (c.leads?.length || 0), 0) },
+      clients,
+      meetings: await db.listMeetings(5000).catch(() => []),
+      tasks: await db.listTasks(5000).catch(() => []),
+    };
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="quickcomp-backup-${stamp}.json"`);
+    res.send(JSON.stringify(backup, null, 1));
+  } catch (e) {
+    console.error("backup failed:", e.message);
+    res.status(500).json({ error: "backup_failed" });
+  }
 });
 
 // Operations dashboard: KPIs, funnel, clients with lead activity, latest leads
@@ -1459,6 +1550,12 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
 </div>
 
 <div class="panel">
+  <h2>⚙️ Mantenimiento</h2>
+  <a href="/api/admin/backup?key=${KEY}" download style="display:inline-block;background:#101B30;color:#fff;border-radius:12px;padding:13px 20px;font-weight:800;text-decoration:none;font-size:14px">⬇️ Descargar respaldo (todos los datos)</a>
+  <p class="legend">Respaldo mensual con 1 clic: agentes (con su app y sus leads), reuniones y tareas en un JSON con fecha. Sin tokens de sesión ni links de acceso — un respaldo filtrado nunca abre nada. Guárdalo junto al clon local del código (playbook/06-backup).</p>
+</div>
+
+<div class="panel">
   <h2>➕ Nuevo agente</h2>
   <form class="newform" method="post" action="/api/admin/contractors?html=1&key=${KEY}">
     <input name="name" placeholder="Nombre del agente o inmobiliaria" required>
@@ -1482,7 +1579,7 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
     const pay = c.data && c.data.payStatus;
     const payTag = pay === "failed" ? ' <span class="pill warn">💳 falló</span>'
       : pay === "canceled" ? ' <span class="pill dim">canceló</span>'
-      : pay === "pending" ? ' <span class="pill gold" title="Clic en «activo» para activar tras confirmar el pago">💳 pendiente</span>' : "";
+      : pay === "pending" ? ` <a href="#" onclick="activatePending('${c.id}','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill gold" title="Pagó por otro medio (cash/Zelle)? Clic para activar su cuenta ahora.">💳 pendiente — clic para activar</span></a>` : "";
     const dev = devCounts[String(c.id)] || 0;
     const devTag = (!isB && dev >= 4) ? ` <span class="pill warn" title="${dev} dispositivos/aperturas — posible link compartido. Ofrécele cuentas para su equipo.">📱 ${dev}</span>` : "";
     // Paid on the website with no human on the call — until someone sends
@@ -1541,6 +1638,11 @@ function setStatus(id, status, name){
     : '¿Reactivar a ' + name + '? Su valuador vuelve a recibir leads al instante.';
   if (!confirm(q)) return;
   fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=' + status, {method:'POST'})
+    .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
+}
+function activatePending(id, name){
+  if (!confirm('¿Confirmas que ' + name + ' ya pagó (efectivo, Zelle u otro medio)? Esto activa su cuenta ahora mismo.')) return;
+  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=active', {method:'POST'})
     .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
 }
 function setHook(id, name){
@@ -1840,6 +1942,9 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   ${isPaused
     ? `<button class="b-gold" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=active','¿Reactivar?')">▶ Reactivar</button>`
     : `<button class="b-red" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=paused','¿Pausar? Su sitio y valuador dejan de recibir leads.')">⏸ Pausar</button>`}
+  ${(!isPaused && pay === "pending")
+    ? `<button class="b-gold" onclick="act('/api/admin/status?key=${KEY}&id=${c.id}&status=active','¿Confirmas que ya pagó (efectivo, Zelle u otro medio)? Esto activa su cuenta ahora mismo.')">✓ Activar (pago manual)</button>`
+    : ""}
   <button class="b-dark" onclick="pub(${st.published ? "false" : "true"})">${st.published ? "Ocultar página" : "🚀 Publicar página"}</button>
   <a class="b-line" href="/onboarding?key=${KEY}&slug=${c.slug}">🎨 Onboarding</a>
   <a class="b-line" href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 Link de acceso</a>
@@ -1969,9 +2074,58 @@ function forwardLead(c, lead) {
   fetchT(hook, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source: "alto-pro", contractor: c.slug, ...lead }),
+    body: JSON.stringify({ source: "quick-comp", contractor: c.slug, ...lead }),
   }, 6000).catch((e) => console.error(`webhook ${c.slug} failed:`, e.message));
 }
+
+/* ── Web push (the buzz): a new lead pings the realtor's phone ──
+ * Dormant until VAPID keys exist (generate once: npx web-push
+ * generate-vapid-keys → VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY in Render).
+ * Subscriptions live in the account's data.push — capped at 5 devices,
+ * dead endpoints pruned on every send. See playbook/05-env.md. */
+const VAPID_PUB = process.env.VAPID_PUBLIC_KEY || "";
+const VAPID_PRIV = process.env.VAPID_PRIVATE_KEY || "";
+const pushLive = !!(VAPID_PUB && VAPID_PRIV);
+if (pushLive) webpush.setVapidDetails(process.env.VAPID_SUBJECT || "mailto:hello@getquickcomp.com", VAPID_PUB, VAPID_PRIV);
+
+async function notifyLead(c, lead) {
+  if (!pushLive) return;
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (!subs.length) return;
+  const es = (c.data?.profile?.lang || "") === "es";
+  const payload = JSON.stringify({
+    title: es ? "📥 ¡Nuevo lead de venta!" : "📥 New seller lead!",
+    body: [lead.name, lead.address].filter(Boolean).join(" · ") || String(lead.phone || ""),
+    url: "/?open=leads",
+    tag: "qc-lead",
+  });
+  const dead = [];
+  await Promise.all(subs.map((s) => webpush.sendNotification(s, payload).catch((e) => {
+    if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint); // device gone — prune
+    else console.error("push failed:", e.statusCode || e.message);
+  })));
+  if (dead.length) {
+    const keep = subs.filter((s) => !dead.includes(s.endpoint));
+    await db.saveContractorData(c.id, { ...(c.data || {}), push: keep }).catch(() => {});
+  }
+}
+
+// The app asks for the public key before subscribing (404 = push not configured)
+app.get("/api/push/key", (req, res) => (pushLive ? res.json({ key: VAPID_PUB }) : res.status(404).json({ error: "push_off" })));
+
+// Signed-in realtor registers this device for the lead buzz
+app.post("/api/push/subscribe", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  const sub = req.body?.subscription;
+  if (!sub?.endpoint || !/^https:\/\//.test(String(sub.endpoint)) || !sub.keys?.p256dh || !sub.keys?.auth) {
+    return res.status(400).json({ error: "bad subscription" });
+  }
+  const subs = (Array.isArray(c.data?.push) ? c.data.push : []).filter((s) => s.endpoint !== sub.endpoint);
+  subs.unshift({ endpoint: String(sub.endpoint), keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) } });
+  await db.saveContractorData(c.id, { ...(c.data || {}), push: subs.slice(0, 5) }); // newest 5 devices win
+  res.json({ ok: true, devices: Math.min(subs.length, 5) });
+});
 
 /* Ping the team the moment something needs a human — a payment (send their
  * access link!) or a new sales lead. Fire-and-forget to STAFF_WEBHOOK_URL
@@ -2006,6 +2160,7 @@ app.post("/api/widget/lead", async (req, res) => {
   if (!phone) return res.status(400).json({ error: "phone required" });
   const id = await db.addLead(c.id, { name, phone, address, info });
   forwardLead(c, { id, name, phone, address, ...info });
+  notifyLead(c, { name, phone, address }).catch(() => {}); // buzz the realtor's phone
   // A lead on the sales/demo account is a PROSPECT AGENT (the /ventas quiz) —
   // queue a call task in /cs and ping the team; the quiz promised them a call today.
   if (c.slug === "alto-ventas" || c.slug === "alto-demo") {
@@ -2025,8 +2180,17 @@ app.get("/api/leads", async (req, res) => {
 app.post("/api/leads/:id", async (req, res) => {
   const c = await auth(req);
   if (!c) return res.status(401).json({ error: "no session" });
-  const status = String(req.body?.status || "contacted").slice(0, 20);
-  await db.updateLeadStatus(c.id, String(req.params.id), status);
+  // A mini-CRM, deliberately tiny (ALTO's 5-stage pipeline): a lead is
+  // new/contacted/interested/closed (won) or not-interested (out), plus one
+  // optional free-text note. Either field may be sent alone.
+  const ALLOWED = ["new", "contacted", "interested", "not-interested", "closed"];
+  if (req.body?.status !== undefined) {
+    const status = String(req.body.status).slice(0, 20);
+    await db.updateLeadStatus(c.id, String(req.params.id), ALLOWED.includes(status) ? status : "contacted");
+  }
+  if (req.body?.note !== undefined) {
+    await db.updateLeadNote(c.id, String(req.params.id), String(req.body.note).slice(0, 300));
+  }
   res.json({ ok: true });
 });
 
@@ -2134,6 +2298,8 @@ app.post("/api/widget/quote", async (req, res) => {
           lng: geo?.lng ?? comp.subject?.longitude ?? null,
           value: comp.value, low: comp.low, high: comp.high,
           confidence: comp.confidence, compsUsed: comp.usedCompCount,
+          beds: comp.subject?.bedrooms ?? null, baths: comp.subject?.bathrooms ?? null,
+          sqft: comp.subject?.squareFootage ?? null, built: comp.subject?.yearBuilt ?? null,
         };
         quoteCache.set(ck, { at: Date.now(), data: m });
         if (quoteCache.size > 500) quoteCache.delete(quoteCache.keys().next().value);
@@ -2157,8 +2323,9 @@ app.post("/api/widget/quote", async (req, res) => {
     address: String(m?.addr || address).slice(0, 160),
     value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null,
   });
+  notifyLead(c, { name, phone: digits, address: m?.addr || address }).catch(() => {}); // buzz the realtor's phone
 
-  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null });
+  res.json({ ok: true, id: leadId, addr: m?.addr || address, measured: !!quote, value: quote?.value ?? null, low: quote?.low ?? null, high: quote?.high ?? null, lat: m?.lat ?? null, lng: m?.lng ?? null, comps: m?.compsUsed ?? null, beds: m?.beds ?? null, baths: m?.baths ?? null, sqft: m?.sqft ?? null, built: m?.built ?? null });
 });
 
 app.get("/w/:slug", async (req, res) => {
@@ -2187,16 +2354,22 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   const bizPhone = String(prof.phone || c.phone || "").replace(/\D/g, "");
   const logo = /^data:image\/(png|jpeg);base64,[A-Za-z0-9+/=]+$/.test(String(prof.logo || "")) ? prof.logo : null;
   const es = (req.query.lang || prof.lang || "es") !== "en";
+  // ?showcase=1 (used on the sample website): opens straight on a populated
+  // example result instead of the blank address bar, so a prospect sees the
+  // full lead-capture experience at a glance. A ghost link lets them reset
+  // to the real, blank flow if they want to try their own address.
+  const showcase = req.query.showcase != null;
   const L = es ? {
     title: `¿Cuánto vale tu casa hoy?`,
-    sub: "Un estimado real basado en ventas cercanas — en 60 segundos.",
-    chips: ["🏡 Ventas reales", "🔒 100% gratis", "⚡ 60 segundos"],
+    sub: "Un estimado real basado en ventas cercanas — en 10 segundos.",
+    chips: ["🏡 Ventas reales", "🔒 100% gratis", "⚡ 10 segundos"],
     addr: "Dirección de tu casa", cont: "VER MI VALOR →",
     gate: "Estás a un paso 🎉", gateSub: "¿A dónde mandamos tu estimado?", name: "Tu nombre", phone: "Tu teléfono (celular)",
     smsNote: "🔒 Te mandamos tu estimado por mensaje a este número.",
     see: "VER MI VALOR AHORA →", back: "← Cambiar dirección",
     m1: "Encontramos tu propiedad", m2: "Buscando ventas recientes cercanas", m3: "Calculando tu valor…",
     range: "VALOR ESTIMADO DE TU CASA", yourHome: "TU CASA",
+    bedsLbl: "Recámaras", bathsLbl: "Baños", sqftLbl: "Pie²", builtLbl: "Construida",
     basedOn: (n) => n ? `Basado en ${n} ventas recientes de casas similares cerca de ti.` : "Basado en ventas recientes de casas similares cerca de ti.",
     rangeSub: "Estimado automático — no es un avalúo.",
     exact: "¿Quieres el número exacto?", exactSub: (b) => `${b} puede sacar las comparables reales y darte un valor preciso — gratis.`,
@@ -2206,14 +2379,15 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     err: "Algo falló — intenta otra vez o llámanos.",
   } : {
     title: "What's your home worth today?",
-    sub: "A real estimate from nearby sales — in 60 seconds.",
-    chips: ["🏡 Real sales", "🔒 100% free", "⚡ 60 seconds"],
+    sub: "A real estimate from nearby sales — in 10 seconds.",
+    chips: ["🏡 Real sales", "🔒 100% free", "⚡ 10 seconds"],
     addr: "Your home address", cont: "SEE MY VALUE →",
     gate: "You're one step away 🎉", gateSub: "Where should we send your estimate?", name: "Your name", phone: "Your phone (mobile)",
     smsNote: "🔒 We'll text your estimate to this number.",
     see: "SEE MY VALUE NOW →", back: "← Change address",
     m1: "Found your property", m2: "Pulling recent nearby sales", m3: "Calculating your value…",
     range: "YOUR HOME'S ESTIMATED VALUE", yourHome: "YOUR HOME",
+    bedsLbl: "Beds", bathsLbl: "Baths", sqftLbl: "Sq Ft", builtLbl: "Built",
     basedOn: (n) => n ? `Based on ${n} recent sales of similar homes near you.` : "Based on recent sales of similar homes near you.",
     rangeSub: "Automated estimate — not an appraisal.",
     exact: "Want the exact number?", exactSub: (b) => `${b} can pull the real comparables and give you a precise value — free.`,
@@ -2222,12 +2396,36 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
     callBtn: "📞 CALL", textBtn: "💬 TEXT", phoneErr: "Enter a 10-digit phone", addrErr: "Enter your home address",
     err: "Something went wrong — try again or call us.",
   };
+  // Synthetic example result for showcase mode — same numbers used elsewhere
+  // in the demo materials, so the story is consistent across touchpoints.
+  const fmtN = (n) => "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const scLow = 299000, scHigh = 337000, scAddress = "9803 Sagemark Dr, Houston, TX 77089";
+  const scMid = fmtN(Math.round((scLow + scHigh) / 2 / 1000) * 1000);
+  const scManual = c.slug === "alto-demo" ? (es
+    ? "👆 Este es el imán de leads. En tu app Quick Comp generas el CMA completo con comparables y lo compartes con tu cliente — para captar y cerrar con confianza."
+    : "👆 This is the lead magnet. In your Quick Comp app you build the full CMA with comparables and share it with your client — to capture and close with confidence.") : null;
+  const showcaseHtml = showcase ? `
+    <img class="photo" src="/api/streetview?address=${encodeURIComponent(scAddress)}" alt="" onerror="this.style.display='none'">
+    <p class="addrline">📍 ${scAddress}</p>
+    <div class="specs">
+      <div class="spec"><b>4</b><span>${L.bedsLbl}</span></div>
+      <div class="spec"><b>3</b><span>${L.bathsLbl}</span></div>
+      <div class="spec"><b>2,340</b><span>${L.sqftLbl}</span></div>
+      <div class="spec"><b>2019</b><span>${L.builtLbl}</span></div>
+    </div>
+    <div class="range"><div class="lbl">${L.range}</div><div class="val">${fmtN(scLow)} – ${fmtN(scHigh)}</div><div class="mid">~${scMid}</div></div>
+    <p class="based">${L.basedOn(6)}</p>
+    <p class="note">${L.rangeSub}</p>
+    <div class="ok">${L.sent(prof.biz || c.name)}</div>
+    ${bizPhone ? `<div class="cta"><div class="h">${L.exact}</div><div class="x">${L.exactSub(prof.biz || c.name)}</div><div class="row"><a class="call" href="tel:+1${bizPhone}">${L.callBtn}</a><a class="text" href="sms:+1${bizPhone}">${L.textBtn}</a></div></div>` : ""}
+    ${scManual ? `<div class="manual">${scManual}</div>` : ""}
+    <button class="ghost" onclick="tryOwn()" style="margin-top:6px">${es ? "🔍 Prueba tu propia dirección" : "🔍 Try your own address"}</button>` : "";
   const wBase = `${req.protocol}://${req.get("host")}`;
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${biz}</title>
-<meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 60 segundos" : "Your home's value in 60 seconds"}">
+<meta property="og:title" content="${biz} — ${es ? "El valor de tu casa en 10 segundos" : "Your home's value in 10 seconds"}">
 <meta property="og:description" content="${es ? "Pon tu dirección y mira el valor estimado de tu casa, basado en ventas reales cercanas. Gratis, sin compromiso." : "Type your address and see your home's estimated value from real nearby sales. Free, no obligation."}">
-<meta property="og:image" content="${wBase}/landing/og.png">
+<meta property="og:image" content="${wBase}/landing/og-widget.png">
 <meta name="twitter:card" content="summary_large_image">
 <style>
 *{box-sizing:border-box;font-family:Inter,-apple-system,BlinkMacSystemFont,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
@@ -2264,7 +2462,16 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
 @keyframes pls{50%{transform:scale(1.12)}}
 .reveal{animation:rv .6s cubic-bezier(.2,.7,.2,1)}
 @keyframes rv{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.photo{width:100%;height:150px;object-fit:cover;border-radius:14px;display:block;margin-bottom:14px;background:#EEF0F5}
+.reveal-big{animation:rvb .75s cubic-bezier(.16,.8,.3,1.12)}
+@keyframes rvb{from{opacity:0;transform:translateY(30px) scale(.95)}to{opacity:1;transform:none}}
+.range.glow{animation:rgw 1.5s ease .4s 2}
+@keyframes rgw{0%,100%{box-shadow:0 16px 40px rgba(12,22,49,.28)}50%{box-shadow:0 16px 40px rgba(12,22,49,.28),0 0 0 8px rgba(230,191,106,.30)}}
+.photo{width:100%;height:190px;object-fit:cover;border-radius:14px;display:block;margin-bottom:12px;background:#EEF0F5}
+.addrline{font-weight:800;font-size:14.5px;color:#101B30;text-align:center;margin:0 0 12px}
+.specs{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px}
+.spec{background:#F5F7FB;border:1px solid #E8EBF1;border-radius:12px;padding:9px 4px;text-align:center}
+.spec b{display:block;font-size:15px;font-weight:900;color:#101B30;line-height:1.2}
+.spec span{display:block;font-size:9px;font-weight:800;color:#8A94A8;text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
 .range{background:radial-gradient(120% 130% at 80% 0%,#233A6B 0%,#15224C 55%,#0C1631 100%);border-radius:18px;padding:22px 18px;text-align:center;margin-bottom:14px;box-shadow:0 16px 40px rgba(12,22,49,.28)}
 .range .lbl{color:#E6BF6A;font-size:10.5px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
 .range .val{color:#fff;font-size:34px;font-weight:900;margin-top:7px;letter-spacing:-.02em;line-height:1}
@@ -2318,13 +2525,14 @@ input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.14);backg
     <div class="lstep" id="ls1"><span class="dot">2</span><span>${L.m2}</span></div>
     <div class="lstep" id="ls2"><span class="dot">3</span><span>${L.m3}</span></div>
   </div>
-  <div id="s4" style="display:none"></div>
+  <div id="s4" style="display:none">${showcaseHtml}</div>
 </div>
 <div class="ft">⚡ Powered by Quick Comp</div>
 </div>
 <script>
 var SLUG=${JSON.stringify(c.slug)},BIZ=${JSON.stringify(prof.biz || c.name)},BPH=${JSON.stringify(bizPhone)};
 var L=${JSON.stringify({ range: L.range, yourHome: L.yourHome, rangeSub: L.rangeSub, based0: L.basedOn(null),
+  bedsLbl: L.bedsLbl, bathsLbl: L.bathsLbl, sqftLbl: L.sqftLbl, builtLbl: L.builtLbl,
   sent: L.sent(prof.biz || c.name), nores: L.nores, noresSub: L.noresSub(prof.biz || c.name),
   exact: L.exact, exactSub: L.exactSub(prof.biz || c.name), callBtn: L.callBtn, textBtn: L.textBtn, err: L.err,
   basedPre: es ? "Basado en " : "Based on ", basedPost: es ? " ventas recientes de casas similares cerca de ti." : " recent sales of similar homes near you.",
@@ -2349,6 +2557,7 @@ function toStep2(){if(addr.value.trim().length<6){document.getElementById('e1').
   document.getElementById('e1').style.display='none';sug.style.display='none';
   document.getElementById('addrEcho').innerHTML='📍 '+addr.value.trim().replace(/</g,'&lt;');show('s2');document.getElementById('nm').focus()}
 function back1(){show('s1')}
+function tryOwn(){addr.value='';sug.style.display='none';show('s1');addr.focus()}
 function fmt(n){return '$'+Number(n).toLocaleString('en-US',{maximumFractionDigits:0})}
 function submit(){
   var ph=document.getElementById('ph').value.replace(/\\D/g,'');
@@ -2370,6 +2579,15 @@ function render(j){track('w_result');if(window.parent!==window){try{window.paren
   if(!j){s4.innerHTML='<p class="err">'+L.err+'</p>';show('s4');return}
   if(j.measured){
     if(j.lat!=null&&j.lng!=null)h+='<img class="photo" src="/api/streetview?lat='+j.lat+'&lng='+j.lng+'" alt="" onerror="this.style.display=\\'none\\'">';
+    if(j.addr)h+='<p class="addrline">📍 '+String(j.addr).replace(/</g,'&lt;')+'</p>';
+    if(j.beds||j.baths||j.sqft||j.built){
+      h+='<div class="specs">';
+      h+='<div class="spec"><b>'+(j.beds||'—')+'</b><span>'+L.bedsLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.baths||'—')+'</b><span>'+L.bathsLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.sqft?Number(j.sqft).toLocaleString('en-US'):'—')+'</b><span>'+L.sqftLbl+'</span></div>';
+      h+='<div class="spec"><b>'+(j.built||'—')+'</b><span>'+L.builtLbl+'</span></div>';
+      h+='</div>';
+    }
     var mid=fmt(Math.round((j.low+j.high)/2/1000)*1000);
     h+='<div class="range"><div class="lbl">'+L.range+'</div><div class="val">'+fmt(j.low)+' – '+fmt(j.high)+'</div><div class="mid">~'+mid+'</div></div>';
     h+='<p class="based">'+(L.basedPre+(j.comps?j.comps:'')+L.basedPost).replace('  ',' ')+'</p>';
@@ -2384,6 +2602,76 @@ function render(j){track('w_result');if(window.parent!==window){try{window.paren
     +'<a class="text" href="sms:+1'+BPH+'">'+L.textBtn+'</a></div></div>';}
   if(L.manual)h+='<div class="manual">'+L.manual+'</div>';
   s4.innerHTML=h;s4.className='reveal';show('s4')}
+${showcase ? `
+/* SHOWCASE: auto-play the whole flow (address types itself → lead gate fills →
+ * analyzing steps → result reveals with a count-up) the moment the widget
+ * scrolls into view, so the demo sells the experience by itself. Tapping
+ * anywhere skips straight to the finished result; reduced-motion visitors
+ * get the finished result immediately. */
+(function(){
+  var SC_ADDR=${JSON.stringify(scAddress)},SC_LOW=${scLow},SC_HIGH=${scHigh};
+  var timers=[],playing=false,done=false;
+  var noMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function later(fn,ms){timers.push(setTimeout(fn,ms))}
+  function typeInto(el,txt,speed,then){
+    var i=0,iv=setInterval(function(){
+      i++;el.value=txt.slice(0,i)+(i<txt.length?'|':'');
+      if(i>=txt.length){clearInterval(iv);later(then,340)}
+    },speed);timers.push(iv);
+  }
+  function countUp(){
+    var el=document.querySelector('#s4 .range .val'),mid=document.querySelector('#s4 .range .mid');
+    if(!el)return;
+    if(mid)mid.style.opacity='0';
+    var t0=null;
+    function fr(ts){
+      if(!t0)t0=ts;var p=Math.min(1,(ts-t0)/900);p=1-Math.pow(1-p,3);
+      el.textContent=fmt(Math.round(SC_LOW*p/1000)*1000)+' – '+fmt(Math.round(SC_HIGH*p/1000)*1000);
+      if(p<1)requestAnimationFrame(fr);
+      else if(mid){mid.style.transition='opacity .4s';mid.style.opacity='1'}
+    }
+    requestAnimationFrame(fr);
+  }
+  function finish(instant){
+    if(done)return;done=true;
+    timers.forEach(function(t){clearTimeout(t);clearInterval(t)});
+    ['addr','nm','ph'].forEach(function(id){var el=document.getElementById(id);if(el)el.value=''});
+    ['e1','e2'].forEach(function(id){var el=document.getElementById(id);if(el)el.style.display='none'});
+    show('s4');
+    if(!instant){
+      var s4=document.getElementById('s4');s4.className='reveal-big';
+      var r=s4.querySelector('.range');if(r)r.classList.add('glow');
+      countUp();
+    }
+  }
+  function playLoading(){
+    show('s3');
+    var fill=document.getElementById('pfill');
+    function mark(i){['ls0','ls1','ls2'].forEach(function(id,k){var el=document.getElementById(id);el.className='lstep'+(k<i?' on':k===i?' doing':'');if(k<i)el.querySelector('.dot').textContent='✓'})}
+    mark(0);fill.style.width='34%';
+    later(function(){mark(1);fill.style.width='68%'},1100);
+    later(function(){mark(2);fill.style.width='92%'},2200);
+    later(function(){mark(3);fill.style.width='100%';finish()},3100);
+  }
+  function playGate(){
+    document.getElementById('addrEcho').innerHTML='📍 '+SC_ADDR;
+    show('s2');
+    typeInto(document.getElementById('nm'),${JSON.stringify(es ? "María González" : "Sarah Mitchell")},36,function(){
+      typeInto(document.getElementById('ph'),'(956) 555-0143',36,function(){later(playLoading,550)});
+    });
+  }
+  function play(){
+    if(playing||done)return;playing=true;
+    typeInto(addr,SC_ADDR,40,function(){later(playGate,420)});
+  }
+  document.getElementById('card').addEventListener('pointerdown',function(){if(playing&&!done)finish()});
+  if(noMotion){finish(true);return}
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){io.disconnect();later(play,350)}})},{threshold:.35});
+    io.observe(document.getElementById('card'));
+  }else later(play,600);
+})();
+` : ""}
 </script></body></html>`);
 });
 
@@ -2415,9 +2703,9 @@ function landingPage(req) {
     lang: "en", langBtn: "🇲🇽 Español", langHref: "/?lang=es",
     title: "Quick Comp — Your website finds you sellers by itself",
     desc: "Website + instant home-value tool + app. Homeowners leave their phone to see their home's value and you get them as seller leads. Built for realtors.",
-    ogTitle: "Quick Comp — Your website finds you sellers by itself",
-    ogDesc: "The homeowner types their address, sees their home's value from real comps, and their phone number lands in your phone. Try it live.",
-    h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>60 SECONDS</em>",
+    ogTitle: "Quick Comp — The Perfect Realtor Tool: Comps in 10 Seconds",
+    ogDesc: "Instant comps, CMAs, lending & tax — plus a website that finds you sellers 24/7. Try it live.",
+    h1: "WIN MORE LISTINGS.<br>VALUE ANY HOME IN <em>10 SECONDS</em>",
     sub: "The all-in-one tool for realtors — instant comps, CMAs, lending & tax, right from your phone. Walk into any listing appointment knowing the number. <b>Plus a website that captures sellers while you sleep.</b>",
     cta1: "SEE THE LIVE DEMO ↓", cta2: "See pricing",
     chips: ["🇺🇸 Bilingual", "🏡 Built for realtors", "📲 No App Store"],
@@ -2430,11 +2718,13 @@ function landingPage(req) {
     s2t: "They leave their phone to see the value", s2x: `<b style="color:#B07A00">No name and phone, no value.</b> The engine pulls recent comparable sales and calculates a value range for their home — instantly, branded as you.`,
     s3t: "The seller lead hits your phone", s3x: "Name, address, phone and the value they saw — instantly, in your app. One button and you're already writing them on WhatsApp with the message pre-written.",
     leadsT: "SELLERS LAND<br><em>ON YOUR PHONE</em>",
-    leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 60 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
+    leads: ["<b>📥</b> Every seller lead buzzes in your pocket instantly", "<b>💰</b> Real comp-based values — credible, not a guess", "<b>💬</b> WhatsApp message pre-written — one tap and you reply", "<b>🛰️</b> Instant home values in 10 seconds", "<b>🧾</b> Professional CMA reports with your logo"],
     pNew: "1 NEW", pNew2: "NEW",
+    duoH: "What's my home worth?", duoBrand: "CASA BELLA REALTY", duoName: "Your name", duoPhone: "Your phone", duoBtn: "SEE MY HOME'S VALUE", duoNotif: "<b>New seller lead</b> · just now", duoEmpty: "Your seller leads land here…",
+    duoKick: "FREE HOME VALUATION", duoSub: "See what your home is worth from real recent sales — in seconds.", duoNav: ["Home", "Listings", "Sell", "Contact"],
+    duoValLab: "Your home's estimated value", duoValSub: "From recent comparable sales nearby", pNewTwo: "2 NEW",
     appT: "AND ON YOUR PHONE, <em>THE APP</em>",
     appSub: `You're at an open house and a neighbor asks "what's mine worth?" — you type their address (or use your GPS), pull the comps, and send a polished CMA right there.`,
-    cap1: "Valued from comps<br>in 60 seconds", cap2: "Want to be sure?<br>Pick your own comparables", cap3: "Professional CMA with your<br>brand, ready to send",
     appTryT: "TRY THE APP <em>YOURSELF</em>",
     appTrySub: "This is the real tool — type any address and watch it price the home from real comps in seconds. It's yours from $67/mo.",
     phT: "Try it on your phone 📲", phSub: "It's built for your phone. Drop your number and get your trial link — no App Store needed.",
@@ -2466,9 +2756,9 @@ function landingPage(req) {
     lang: "es", langBtn: "🇺🇸 English", langHref: "/?lang=en",
     title: "Quick Comp — Tu página web te consigue vendedores sola",
     desc: "Página web + valuador de casas instantáneo + app. Los dueños dejan su teléfono para ver el valor de su casa y tú los recibes como leads de venta. Para agentes de bienes raíces.",
-    ogTitle: "Quick Comp — Tu página web te consigue vendedores sola",
-    ogDesc: "El dueño pone su dirección, ve el valor de su casa con ventas reales, y su teléfono te llega a tu celular. Pruébalo en vivo.",
-    h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>60 SEGUNDOS</em>",
+    ogTitle: "Quick Comp — La Herramienta Perfecta: Comparables en 10 Segundos",
+    ogDesc: "Comparables, CMAs, crédito e impuestos al instante — más una página que te consigue vendedores 24/7. Pruébalo en vivo.",
+    h1: "GANA MÁS LISTINGS.<br>VALÚA CUALQUIER CASA EN <em>10 SEGUNDOS</em>",
     sub: "La herramienta todo-en-uno para agentes — comparables, CMAs, crédito e impuestos al instante, desde tu teléfono. Llega a cualquier cita de listing sabiendo el número. <b>Y una página que captura vendedores mientras duermes.</b>",
     cta1: "VER DEMO EN VIVO ↓", cta2: "Ver precio",
     chips: ["🇺🇸 En español", "🏡 Hecho para agentes", "📲 Sin App Store"],
@@ -2481,8 +2771,11 @@ function landingPage(req) {
     s2t: "Deja su teléfono para ver el valor", s2x: `<b style="color:#B07A00">Sin nombre y teléfono, no hay valor.</b> El motor saca ventas comparables recientes y calcula un rango de valor para su casa — al instante, con tu marca.`,
     s3t: "El lead de venta te llega a tu teléfono", s3x: "Nombre, dirección, teléfono y el valor que vio — al instante, en tu app. Un botón y ya le estás escribiendo por WhatsApp con el mensaje listo.",
     leadsT: "LOS VENDEDORES LLEGAN<br><em>A TU TELÉFONO</em>",
-    leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 60 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
+    leads: ["<b>📥</b> Cada lead de venta suena en tu bolsillo al instante", "<b>💰</b> Valores con ventas reales — creíbles, no un estimado al azar", "<b>💬</b> Mensaje de WhatsApp ya escrito — un tap y contestas", "<b>🛰️</b> Valores de casas al instante en 10 segundos", "<b>🧾</b> Reportes CMA profesionales con tu logo"],
     pNew: "1 NUEVO", pNew2: "NUEVO",
+    duoH: "¿Cuánto vale mi casa?", duoBrand: "CASA BELLA REALTY", duoName: "Tu nombre", duoPhone: "Tu teléfono", duoBtn: "VER EL VALOR DE MI CASA", duoNotif: "<b>¡Nuevo lead de venta!</b> · ahora mismo", duoEmpty: "Tus leads de venta llegan aquí…",
+    duoKick: "VALUACIÓN GRATIS DE TU CASA", duoSub: "Mira cuánto vale tu casa con ventas recientes reales — en segundos.", duoNav: ["Inicio", "Propiedades", "Vender", "Contacto"],
+    duoValLab: "El valor estimado de tu casa", duoValSub: "Con ventas comparables recientes de tu zona", pNewTwo: "2 NUEVOS",
     appT: "Y EN TU TELÉFONO, <em>LA APP</em>",
     appSub: `Estás en un open house y el vecino te pregunta "¿cuánto vale la mía?" — pones su dirección (o usas tu GPS), sacas las comparables, y le mandas un CMA profesional ahí mismo.`,
     appTryT: "PRUEBA LA APP <em>TÚ MISMO</em>",
@@ -2490,7 +2783,6 @@ function landingPage(req) {
     phT: "Pruébala en tu teléfono 📲", phSub: "Está hecha para tu teléfono. Deja tu número y recibe tu link de prueba — sin App Store.",
     phName: "Tu nombre", phPhone: "Tu teléfono (celular)", phBtn: "QUIERO MI LINK →", phErr: "Pon un teléfono de 10 dígitos",
     phOk: "✓ Aquí está tu prueba — toca para abrir Quick Comp en tu teléfono:", phTry: "Abrir Quick Comp →",
-    cap1: "Valuado con comparables<br>en 60 segundos", cap2: "¿Quieres estar seguro?<br>Escoge tú mismo las comparables", cap3: "CMA profesional con tu<br>marca, listo para mandar",
     priceT: "ELIGE TU <em>PLAN</em>", priceSub: "Sin letras chiquitas. Sin contratos largos. Cancelas cuando quieras.",
     mo: "/mes", buyNow: "Comenzar ahora →", orBook: "¿No sabes cuál? Agenda una llamada — te decimos con honestidad.",
     popTag: "MÁS POPULAR", noSetup: "sin costo de inicio",
@@ -2551,7 +2843,7 @@ section{padding:64px 0}
 .sec-sub{color:#5A6478;text-align:center;font-weight:600;margin:12px auto 34px;max-width:600px;font-size:15px;line-height:1.6}
 .dark .sec-sub{color:#9DA8C4}
 .demo-frame{background:#fff;border:1px solid #E6EBF3;border-radius:26px;padding:10px;max-width:460px;margin:0 auto;box-shadow:0 26px 70px rgba(16,27,48,.13)}
-.demo-frame iframe{width:100%;height:540px;border:0;border-radius:18px;display:block}
+.demo-frame iframe{width:100%;height:900px;border:0;border-radius:18px;display:block}
 .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}
 .step{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;box-shadow:0 10px 30px rgba(16,27,48,.05)}
 .step .n{font-family:'Barlow Condensed',sans-serif;color:#C9973A;font-size:44px;font-weight:800}
@@ -2567,16 +2859,63 @@ section{padding:64px 0}
 .pnew{background:#C9973A;color:#fff;border-radius:99px;font-size:10px;font-weight:800;padding:2px 8px}
 .gold{color:#B07A00;font-weight:800}
 .pwa{background:#25D366;color:#fff;border-radius:10px;text-align:center;font-weight:800;font-size:13px;padding:9px;margin-top:10px}
+/* Website (laptop) → phone lead animation */
+.lead-duo{display:flex;align-items:center;justify-content:center;gap:34px;position:relative;flex-wrap:wrap}
+.duo-phone{width:252px}
+.laptop{width:min(520px,92vw);flex-shrink:0}
+.lap-screen{background:#fff;border:11px solid #1E2A45;border-bottom:none;border-radius:16px 16px 0 0;overflow:hidden;box-shadow:0 36px 90px rgba(0,0,0,.5)}
+.lap-base{height:15px;background:linear-gradient(#33415F,#1E2A45);border-radius:2px 2px 14px 14px;box-shadow:0 28px 60px rgba(0,0,0,.45);display:flex;justify-content:center}
+.lap-grip{width:88px;height:5px;background:#0E1730;border-radius:0 0 8px 8px;opacity:.85}
+.site-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;background:#fff;border-bottom:1px solid #ECEFF5}
+.sn-logo{font-size:11px;font-weight:800;letter-spacing:.14em;color:#101B30;white-space:nowrap}
+.sn-logo b{color:#B07A00}
+.sn-links{display:flex;gap:13px}
+.sn-links i{font-style:normal;font-size:10px;font-weight:700;color:#7A8398;white-space:nowrap}
+.site-hero{background:linear-gradient(135deg,#101B30 0%,#1B2A5C 58%,#2A3E7C 100%);padding:20px 20px 22px;color:#fff}
+.sh-kick{font-size:9px;font-weight:800;letter-spacing:.24em;color:#EFC36A}
+.sh-h{font-size:22px;font-weight:800;margin:5px 0 4px}
+.sh-sub{font-size:11.5px;font-weight:600;color:rgba(255,255,255,.72);margin-bottom:13px}
+.widget-card{background:#fff;border-radius:13px;padding:13px;color:#101B30;box-shadow:0 16px 38px rgba(0,0,0,.38)}
+.wc-row{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+/* Server-rendered finished state: the client already saw their value */
+.wc-form{display:none}
+.wv-lab{font-size:9px;font-weight:800;letter-spacing:.18em;color:#5A6478;text-transform:uppercase}
+.wv-num{font-size:25px;font-weight:800;color:#B07A00;margin:4px 0 3px}
+.wv-sub{font-size:10.5px;font-weight:600;color:#7A8398}
+@keyframes valpop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+.wc-val.pop{animation:valpop .5s ease}
+.ms-bar{background:#E8ECF3;display:flex;align-items:center;gap:5px;padding:8px 10px}
+.ms-dot{width:9px;height:9px;border-radius:5px;background:#C6CEDC}
+.ms-url{background:#fff;border-radius:7px;font-size:10px;font-weight:700;color:#5A6478;padding:3px 10px;margin-left:6px;flex:1;text-align:center}
+.ms-addr{background:#F4F6FA;border:1px solid #E2E7F0;border-radius:8px;font-size:11.5px;font-weight:700;padding:7px 9px;margin-bottom:9px}
+.papp-top{background:#101B30;color:#EFC36A;font-size:9px;font-weight:800;letter-spacing:.2em;text-align:center;padding:7px;margin:-12px -12px 10px;border-radius:16px 16px 0 0}
+.ms-lab{font-size:9px;font-weight:800;letter-spacing:.1em;color:#5A6478;text-transform:uppercase;margin-bottom:3px}
+.ms-in{background:#F4F6FA;border:1.5px solid #E2E7F0;border-radius:8px;min-height:31px;font-size:12.5px;font-weight:700;padding:6px 9px;margin-bottom:8px;display:flex;align-items:center}
+.ms-caret{display:inline-block;width:1.5px;height:14px;background:#101B30;margin-left:1px;opacity:0}
+.ms-in.typing{border-color:#C9973A}
+.ms-in.typing .ms-caret{opacity:1;animation:msblink .8s steps(1) infinite}
+@keyframes msblink{50%{opacity:0}}
+.ms-btn{background:linear-gradient(135deg,#C9973A,#A87A24);color:#fff;border-radius:9px;text-align:center;font-weight:800;font-size:11.5px;letter-spacing:.04em;padding:11px;transition:transform .15s,background .2s}
+.ms-btn.press{transform:scale(.93)}
+.ms-btn.sent{background:#1C8C4E}
+.duo-fly{position:absolute;left:0;top:0;font-size:26px;opacity:0;pointer-events:none;z-index:3}
+.pnotif{background:#101B30;color:#fff;border-radius:11px;font-size:11px;font-weight:600;padding:8px 11px;margin-bottom:9px;box-shadow:0 8px 20px rgba(0,0,0,.35)}
+.pnotif b{color:#EFC36A}
+.pempty{display:none;color:#8A93A8;font-size:12px;font-weight:600;text-align:center;padding:30px 8px;border:1.5px dashed #C6CEDC;border-radius:14px}
+@keyframes duobuzz{0%,100%{transform:none}20%{transform:translateX(-3px) rotate(-.5deg)}40%{transform:translateX(3px) rotate(.5deg)}60%{transform:translateX(-2px)}80%{transform:translateX(2px)}}
+.duo-phone.buzz{animation:duobuzz .5s}
+@keyframes leadin{from{opacity:0;transform:translateY(-10px) scale(.97)}to{opacity:1;transform:none}}
+.plead.in{animation:leadin .45s ease}
 .ben{max-width:430px}
 .ben li{list-style:none;padding:11px 0;font-weight:600;font-size:16px;color:#E7ECF6;border-bottom:1px solid rgba(255,255,255,.09)}
 .ben li b{color:#C9973A}
-.shots{display:flex;gap:28px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
-.shot img{width:240px;border-radius:26px;border:1px solid #E6EBF3;display:block;box-shadow:0 22px 56px rgba(16,27,48,.14)}
-.shot p{text-align:center;color:#5A6478;font-size:13px;font-weight:700;margin-top:13px;line-height:1.45}
 .apptry{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:44px}
 .phone2{width:300px;flex-shrink:0;background:#0B1226;border:11px solid #1E2A45;border-radius:44px;padding:12px 10px;box-shadow:0 40px 96px rgba(0,0,0,.42)}
 .phone2 .notch{width:120px;height:24px;background:#1E2A45;border-radius:0 0 15px 15px;margin:-12px auto 10px}
 .phone2 iframe{width:100%;height:560px;border:0;border-radius:28px;display:block;background:#F1F4FA}
+.ptrywrap{position:relative;width:100%;height:560px;border-radius:28px;overflow:hidden;background:#0B1226}
+.ptrywrap iframe{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+.ptrywrap video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;background:#0B1226;pointer-events:none}
 .trybox{background:#fff;border:1px solid #E8ECF3;border-radius:22px;padding:28px;max-width:400px;box-shadow:0 18px 50px rgba(16,27,48,.10)}
 .trybox .tbh{font-weight:900;font-size:21px;line-height:1.2}
 .trybox .tbs{color:#5A6478;font-weight:600;font-size:14px;line-height:1.55;margin:8px 0 18px}
@@ -2630,49 +2969,14 @@ footer a{color:#8A94A8}
 </div>
 </div>
 
-<div class="band"><div class="wrap"><section id="demo" style="padding-bottom:70px">
-  <h2 class="sec-t">${L.tryT}</h2>
-  <p class="sec-sub">${L.trySub}</p>
-  <div class="demo-frame"><iframe src="/w/alto-demo${en ? "?lang=en" : ""}" loading="lazy" title="Demo"></iframe></div>
-  <div style="text-align:center;margin-top:38px">
-    <p style="font-weight:800;font-size:17px;margin-bottom:4px">${L.fullQ}</p>
-    <p class="sec-sub" style="margin-bottom:18px">${L.fullSub}</p>
-    <a class="cta" href="/ejemplo" target="_blank">${L.fullBtn}</a>
-  </div>
-</section></div></div>
-
-<div class="wrap"><section>
-  <h2 class="sec-t">${L.howT}</h2>
-  <div class="steps" style="margin-top:34px">
-    <div class="step"><div class="n">1</div><h3>${L.s1t}</h3><p>${L.s1x}</p></div>
-    <div class="step"><div class="n">2</div><h3>${L.s2t}</h3><p>${L.s2x}</p></div>
-    <div class="step"><div class="n">3</div><h3>${L.s3t}</h3><p>${L.s3x}</p></div>
-  </div>
-</section></div>
-
-<div class="dark"><div class="wrap"><section>
-  <div class="phone-sec">
-    <div class="phone"><div class="notch"></div>
-      <div class="papp">
-        <div class="phead">📥 Leads <span class="pbadge">${L.pNew}</span></div>
-        <div class="plead"><b>Carlos Pérez</b> <span class="pnew">${L.pNew2}</span><br>📍 502 Britton Ave<br>(956) 555-0188 · <span class="gold">$385,000–$412,000</span>
-          <div class="pwa">💬 WhatsApp</div>
-        </div>
-      </div>
-    </div>
-    <div class="ben">
-      <h2 class="sec-t" style="text-align:left">${L.leadsT}</h2>
-      <ul style="margin-top:20px;padding:0">${L.leads.map((x) => `<li>${x}</li>`).join("")}</ul>
-    </div>
-  </div>
-</section></div></div>
-
 <div class="wrap"><section>
   <h2 class="sec-t">${L.appTryT}</h2>
   <p class="sec-sub">${L.appTrySub}</p>
   <div class="apptry">
     <div class="phone2"><div class="notch"></div>
-      <iframe src="${appLiveUrl}${en ? "&lang=en" : ""}" loading="lazy" title="Quick Comp"></iframe>
+      <div class="ptrywrap">
+        <video id="ptryvid" src="/landing/app-trial-demo.mp4" autoplay muted playsinline loop></video>
+      </div>
     </div>
     <div class="trybox">
       <p class="tbh">${L.phT}</p>
@@ -2689,12 +2993,84 @@ footer a{color:#8A94A8}
       </div>
     </div>
   </div>
-  <div class="shots" style="margin-top:48px">
-    <div class="shot"><img src="/landing/app-measure.png" alt="" loading="lazy"><p>${L.cap1}</p></div>
-    <div class="shot"><img src="/landing/app-trace.png" alt="" loading="lazy"><p>${L.cap2}</p></div>
-    <div class="shot"><img src="/landing/app-quote.png" alt="" loading="lazy"><p>${L.cap3}</p></div>
+</section></div>
+
+<div class="band"><div class="wrap"><section id="demo" style="padding-bottom:70px">
+  <h2 class="sec-t">${L.tryT}</h2>
+  <p class="sec-sub">${L.trySub}</p>
+  <div class="demo-frame"><iframe src="/w/alto-demo?showcase=1${en ? "&lang=en" : ""}" loading="lazy" title="Demo"></iframe></div>
+  <div style="text-align:center;margin-top:38px">
+    <p style="font-weight:800;font-size:17px;margin-bottom:4px">${L.fullQ}</p>
+    <p class="sec-sub" style="margin-bottom:18px">${L.fullSub}</p>
+    <a class="cta" href="/ejemplo${en ? "?lang=en" : "?lang=es"}" target="_blank">${L.fullBtn}</a>
+  </div>
+</section></div></div>
+
+<div class="wrap"><section>
+  <h2 class="sec-t">${L.howT}</h2>
+  <div class="steps" style="margin-top:34px">
+    <div class="step"><div class="n">1</div><h3>${L.s1t}</h3><p>${L.s1x}</p></div>
+    <div class="step"><div class="n">2</div><h3>${L.s2t}</h3><p>${L.s2x}</p></div>
+    <div class="step"><div class="n">3</div><h3>${L.s3t}</h3><p>${L.s3x}</p></div>
   </div>
 </section></div>
+
+<div class="dark"><div class="wrap"><section>
+  <div class="phone-sec">
+    <!-- Cause and effect, animated on a loop: the homeowner fills the form on
+         the realtor's WEBSITE (left) and the lead lands on the PHONE (right).
+         Server-rendered in the finished state so no-JS / reduced-motion still
+         shows a complete story. -->
+    <div class="lead-duo" id="lduo">
+      <div class="laptop">
+        <div class="lap-screen">
+          <div class="ms-bar"><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-dot"></span><span class="ms-url">maria-realty.com</span></div>
+          <div class="site-nav"><span class="sn-logo">CASA BELLA <b>REALTY</b></span><span class="sn-links">${L.duoNav.map((x) => `<i>${x}</i>`).join("")}</span></div>
+          <div class="site-hero">
+            <div class="sh-kick">${L.duoKick}</div>
+            <div class="sh-h">${L.duoH}</div>
+            <div class="sh-sub">${L.duoSub}</div>
+            <div class="widget-card">
+              <div class="ms-addr" id="msAddr">📍 1214 Fresno Ave</div>
+              <div class="wc-form" id="wcForm">
+                <div class="wc-row">
+                  <div><div class="ms-lab">${L.duoName}</div><div class="ms-in"><span id="msName">Ana García</span><span class="ms-caret"></span></div></div>
+                  <div><div class="ms-lab">${L.duoPhone}</div><div class="ms-in"><span id="msPhone">(956) 555-0121</span><span class="ms-caret"></span></div></div>
+                </div>
+                <div class="ms-btn" id="msBtn">${L.duoBtn}</div>
+              </div>
+              <div class="wc-val" id="wcVal">
+                <div class="wv-lab">${L.duoValLab}</div>
+                <div class="wv-num" id="wvNum">$268,000 – $285,000</div>
+                <div class="wv-sub">${L.duoValSub}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="lap-base"><span class="lap-grip"></span></div>
+      </div>
+      <div class="duo-fly" id="duoFly">📥</div>
+      <div class="phone duo-phone" id="duoPhone"><div class="notch"></div>
+        <div class="papp">
+          <div class="papp-top">⚡ QUICK COMP</div>
+          <div class="pnotif" id="pnotif">📥 ${L.duoNotif}</div>
+          <div class="phead">📥 Leads <span class="pbadge" id="pbadge" data-n1="${L.pNew}" data-n2="${L.pNewTwo}">${L.pNewTwo}</span></div>
+          <div class="pempty" id="pempty">${L.duoEmpty}</div>
+          <div class="plead" id="plead2" style="margin-bottom:9px"><b>Ana García</b> <span class="pnew">${L.pNew2}</span><br>📍 1214 Fresno Ave<br>(956) 555-0121 · <span class="gold">$268,000–$285,000</span>
+            <div class="pwa">💬 WhatsApp</div>
+          </div>
+          <div class="plead" id="plead"><b>Carlos Pérez</b> <span class="pnew">${L.pNew2}</span><br>📍 502 Britton Ave<br>(956) 555-0188 · <span class="gold">$385,000–$412,000</span>
+            <div class="pwa">💬 WhatsApp</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="ben">
+      <h2 class="sec-t" style="text-align:left">${L.leadsT}</h2>
+      <ul style="margin-top:20px;padding:0">${L.leads.map((x) => `<li>${x}</li>`).join("")}</ul>
+    </div>
+  </div>
+</section></div></div>
 
 <div class="band"><div class="wrap"><section id="precio">
   <h2 class="sec-t">${L.priceT}</h2>
@@ -2763,6 +3139,119 @@ function qShow(i){
 }
 function qPick(key,val){qAns[key]=val;track('quiz_'+key);qShow(qCur+1)}
 function qBack(){qShow(qCur-1)}
+// The phone mockup plays the scripted walkthrough on a LOOP — the raw
+// embedded app (demo banner, cramped layout) must never appear here. It
+// starts from the top when scrolled into view (autoplay-on-load would finish
+// before anyone scrolls down) and pauses off-screen. Only if the file
+// genuinely can't play do we swap in the live app, so the phone is never
+// an empty box.
+(function(){
+  var v=document.getElementById('ptryvid');
+  if(!v)return;
+  function fallback(){
+    if(!v.parentNode)return;
+    var f=document.createElement('iframe');
+    f.src=${JSON.stringify(`${appLiveUrl}${en ? "&lang=en" : ""}`)};f.title='Quick Comp';
+    v.parentNode.appendChild(f);v.remove();
+  }
+  if(v.error)fallback();else v.addEventListener('error',fallback);
+  if('IntersectionObserver' in window){
+    var started=false;
+    new IntersectionObserver(function(es){es.forEach(function(e){
+      if(!v.parentNode)return;
+      if(e.isIntersecting){
+        if(!started){started=true;try{v.currentTime=0}catch(x){}}
+        var p=v.play();if(p&&p.catch)p.catch(function(){});
+      }else v.pause();
+    })},{threshold:.3}).observe(v);
+  }
+})();
+// Lead duo: two homeowners in a row "type" into the website form on the
+// laptop, the site reveals their home's VALUE (what the client sees), and
+// each lead flies into the phone — notification, buzz, badge counting up,
+// cards stacking in the inbox. Loops while in view. The page is
+// server-rendered in the finished state (value shown, 2 leads landed), so
+// no-JS and reduced-motion visitors still see the complete story.
+(function(){
+  var duo=document.getElementById('lduo');if(!duo)return;
+  if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  var nameEl=document.getElementById('msName'),phEl=document.getElementById('msPhone');
+  var in1=nameEl.parentNode,in2=phEl.parentNode;
+  var btn=document.getElementById('msBtn'),fly=document.getElementById('duoFly');
+  var phone=document.getElementById('duoPhone'),notif=document.getElementById('pnotif');
+  var badge=document.getElementById('pbadge'),empty=document.getElementById('pempty');
+  var addr=document.getElementById('msAddr'),wcForm=document.getElementById('wcForm');
+  var wcVal=document.getElementById('wcVal'),wvNum=document.getElementById('wvNum');
+  var BTN=btn.textContent,N1=badge.getAttribute('data-n1'),N2=badge.getAttribute('data-n2');
+  var PEOPLE=[
+    {name:'Carlos Pérez',ph:'(956) 555-0188',addr:'📍 502 Britton Ave',val:'$385,000 – $412,000',card:document.getElementById('plead')},
+    {name:'Ana García',ph:'(956) 555-0121',addr:'📍 1214 Fresno Ave',val:'$268,000 – $285,000',card:document.getElementById('plead2')}
+  ];
+  var playing=false;
+  function type(el,box,txt,done){
+    box.classList.add('typing');var i=0;
+    (function tick(){
+      if(i<=txt.length){el.textContent=txt.slice(0,i);i++;setTimeout(tick,50)}
+      else{box.classList.remove('typing');done&&done()}
+    })();
+  }
+  function formReset(p){
+    addr.textContent=p.addr;nameEl.textContent='';phEl.textContent='';
+    btn.classList.remove('press','sent');btn.textContent=BTN;
+    wcVal.style.display='none';wcVal.classList.remove('pop');wcForm.style.display='block';
+    phone.classList.remove('buzz');fly.style.opacity='0';fly.style.transition='none';fly.style.transform='none';
+  }
+  function phoneReset(){
+    notif.style.visibility='hidden';badge.style.visibility='hidden';badge.textContent=N1;
+    PEOPLE.forEach(function(p){p.card.style.display='none';p.card.classList.remove('in')});
+    empty.style.display='block';
+  }
+  function send(i,p){
+    setTimeout(function(){btn.classList.add('press')},250);
+    setTimeout(function(){btn.classList.remove('press');btn.classList.add('sent');btn.textContent='✓'},450);
+    // the client sees the value on the website...
+    setTimeout(function(){
+      wvNum.textContent=p.val;wcForm.style.display='none';
+      wcVal.style.display='block';wcVal.classList.add('pop');
+    },1000);
+    // ...and the lead flies to the realtor's phone
+    setTimeout(function(){
+      var a=wcVal.getBoundingClientRect(),b=phone.getBoundingClientRect(),d=duo.getBoundingClientRect();
+      fly.style.left=(a.left-d.left+a.width/2-13)+'px';
+      fly.style.top=(a.top-d.top+a.height/2-13)+'px';
+      fly.style.opacity='1';
+      requestAnimationFrame(function(){requestAnimationFrame(function(){
+        fly.style.transition='transform .7s cubic-bezier(.5,-.15,.6,1),opacity .7s';
+        fly.style.transform='translate('+(b.left+b.width/2-a.left-a.width/2)+'px,'+(b.top+b.height/2-a.top-a.height/2)+'px) scale(.4)';
+        fly.style.opacity='0';
+      })});
+    },1500);
+    setTimeout(function(){land(i,p)},2200);
+  }
+  function land(i,p){
+    phone.classList.add('buzz');
+    notif.style.visibility='visible';empty.style.display='none';
+    badge.style.visibility='visible';badge.textContent=(i===0?N1:N2);
+    p.card.style.display='block';p.card.classList.add('in');
+    if(i===0){setTimeout(function(){cycle(1)},4200)}
+    else{setTimeout(function(){playing=false;play()},5600)}
+  }
+  function cycle(i){
+    var p=PEOPLE[i];
+    formReset(p);
+    setTimeout(function(){
+      type(nameEl,in1,p.name,function(){
+        setTimeout(function(){type(phEl,in2,p.ph,function(){send(i,p)})},320);
+      });
+    },500);
+  }
+  function play(){
+    if(playing)return;playing=true;phoneReset();cycle(0);
+  }
+  if('IntersectionObserver' in window){
+    new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)play()})},{threshold:.35}).observe(duo);
+  }else play();
+})();
 // "Try it on your phone" — captures the prospect as a sales lead, then reveals
 // the trial link so they can open the app on their phone right away.
 function sendTrial(){
@@ -2802,9 +3291,78 @@ app.get("/ventas", (req, res) => res.send(landingPage(req)));
 app.get("/ejemplo", (req, res) => {
   // ?embed=1 (deck mockups): hide the ALTO ribbon and the back button
   const embed = req.query.embed != null;
-  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8">
+  // English by default — this sample site is shown to prospects off the
+  // (default English) sales page; ?lang=es keeps the Spanish version reachable.
+  const en = req.query.lang !== "es";
+  const langHref = `?${embed ? "embed=1&" : ""}lang=${en ? "es" : "en"}`;
+  const T = en ? {
+    title: "Casa Bella Realty — Quick Comp Example",
+    ribbon: "📋 SAMPLE PAGE — imagine YOUR logo and YOUR name here. This is what your site would look like with Quick Comp.",
+    langBtn: "🇲🇽 Español",
+    hours: "Mon–Sat · 7am–7pm",
+    kicker: "REAL ESTATE · YOUR CITY, TX",
+    h1a: "Sell your home for", h1b: "what it's really worth",
+    heroSub: "Find out your home's value instantly, from real nearby sales — free, with no one visiting your home.",
+    ctaValue: "VALUE YOUR HOME IN 10 SECONDS", ctaCall: "Call us",
+    statYears: "years", statSold: "homes sold", statDedication: "dedication",
+    qEyebrow: "Instant valuation", qH: ["The value of your home, ", "no waiting"],
+    qTitle: "Type your address.<br>Real sales do the rest.", qDesc: "Our system analyzes recent comparable sales and gives you an instant estimated value — free, no obligation.",
+    qLi: ["The real value of YOUR home", "Estimated in 10 seconds", "Full CMA report, free"],
+    svcEyebrow: "Services", svcH: ["What we do ", "well"],
+    svc: [
+      ["Sell your home", "We price it right from day one, with a marketing plan that brings real buyers."],
+      ["Buy a home", "We represent you as the buyer — we search, negotiate, and handle every detail through closing."],
+      ["Free valuation / CMA", "A comparative market analysis using real nearby sales, so you know what your home is worth today."],
+      ["Market guidance", "We tell you the truth about the market — when to sell, when to wait — even if it's not today."],
+    ],
+    soldEyebrow: "Recent sales", soldH: ["Homes sold ", "at the best price"],
+    soldSub: "Every sale starts with the right price, backed by real comparable sales — so we sell fast without leaving money on the table.",
+    sold: [["Sold in 9 days", "3 bd · 2 ba · over asking"], ["Sold in 14 days", "4 bd · 3 ba · at asking"], ["Buyer represented", "Closed $12k under asking"]],
+    procEyebrow: "Our process", procH: ["Simple, ", "start to finish"],
+    steps: [["Valuation", "We analyze real comparable sales to know exactly what your home is worth today. Free."], ["Pricing strategy", "A clear, written price and marketing plan to sell fast and for the most money."], ["Closing", "We negotiate on your behalf and handle every detail of the paperwork until you get your check."]],
+    revEyebrow: "Reviews", revH: ["What ", "our clients say"],
+    revBody: "Your real Google reviews go here.<br>(We don't invent testimonials on this sample page.)",
+    ctaH: ["Ready to sell for", "the best price?"], ctaSub: "Value your home in 10 seconds or send us a WhatsApp message.",
+    ctaValueBtn: "VALUE NOW", ctaWa: "💬 WhatsApp",
+    footBiz: "Casa Bella Realty", footLine: "Your City, TX · Lic. #00000 · Mon–Sat 9am–7pm",
+    footMade: "Sample page built with ⚡ Quick Comp — ", footMadeLink: "yours could look like this",
+    back: "← Back to ", backB: "QUICK COMP",
+  } : {
+    title: "Casa Bella Realty — Ejemplo Quick Comp",
+    ribbon: "📋 PÁGINA DE EJEMPLO — imagina TU logo y TU nombre aquí. Así se vería tu página con Quick Comp.",
+    langBtn: "🇺🇸 English",
+    hours: "Lun–Sáb · 7am–7pm",
+    kicker: "BIENES RAÍCES · TU CIUDAD, TX",
+    h1a: "Vende tu casa por", h1b: "lo que de verdad vale",
+    heroSub: "Descubre el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.",
+    ctaValue: "VALÚA TU CASA EN 10 SEGUNDOS", ctaCall: "Llámanos",
+    statYears: "años", statSold: "casas vendidas", statDedication: "dedicación",
+    qEyebrow: "Valuación instantánea", qH: ["El valor de tu casa, ", "sin esperar"],
+    qTitle: "Escribe tu dirección.<br>Las ventas reales hacen el resto.", qDesc: "Nuestro sistema analiza ventas comparables recientes y te da el valor estimado al instante — gratis y sin compromiso.",
+    qLi: ["Valor real de TU casa", "Estimado en 10 segundos", "Análisis completo (CMA) gratis"],
+    svcEyebrow: "Servicios", svcH: ["Lo que hacemos ", "bien"],
+    svc: [
+      ["Vende tu casa", "Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales."],
+      ["Compra tu casa", "Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves."],
+      ["Valuación / CMA gratis", "Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy."],
+      ["Asesoría de mercado", "Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy."],
+    ],
+    soldEyebrow: "Ventas recientes", soldH: ["Casas vendidas ", "al mejor precio"],
+    soldSub: "Cada venta empieza con un precio correcto, basado en ventas comparables reales — así vendemos rápido y sin dejar dinero en la mesa.",
+    sold: [["Vendida en 9 días", "3 rec · 2 baños · sobre el precio de lista"], ["Vendida en 14 días", "4 rec · 3 baños · al precio de lista"], ["Comprador representado", "Cerró $12k bajo el precio de lista"]],
+    procEyebrow: "Nuestro proceso", procH: ["Simple, ", "de principio a fin"],
+    steps: [["Valuación", "Analizamos ventas comparables reales para saber exactamente qué vale tu casa hoy. Gratis."], ["Estrategia de precio", "Un plan claro de precio y marketing por escrito para vender rápido y al mejor valor."], ["Cierre", "Negociamos por ti y cuidamos cada detalle del papeleo hasta que recibes tu cheque."]],
+    revEyebrow: "Reseñas", revH: ["Lo que dicen ", "nuestros clientes"],
+    revBody: "Aquí van las reseñas reales de TUS clientes de Google.<br>(En esta página de ejemplo no inventamos testimonios.)",
+    ctaH: ["¿Listo para vender", "al mejor precio?"], ctaSub: "Valúa tu casa en 10 segundos o mándanos un WhatsApp.",
+    ctaValueBtn: "VALÚA AHORA", ctaWa: "💬 WhatsApp",
+    footBiz: "Casa Bella Realty", footLine: "Tu Ciudad, TX · Lic. #00000 · Lun–Sáb 9am–7pm",
+    footMade: "Página de ejemplo hecha con ⚡ Quick Comp — ", footMadeLink: "así puede ser la tuya",
+    back: "← Volver a ", backB: "QUICK COMP",
+  };
+  res.send(`<!doctype html><html lang="${en ? "en" : "es"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Casa Bella Realty — Ejemplo Quick Comp</title>
+<title>${T.title}</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
@@ -2820,6 +3378,7 @@ header{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.82);backdro
 .hcall small{font-weight:700;color:var(--mut);font-size:12px;display:none}
 @media(min-width:640px){.hcall small{display:block}}
 .callbtn{background:var(--red);color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 20px;border-radius:10px;box-shadow:0 8px 22px rgba(179,15,36,.28)}
+.langpill{background:#fff;border:1.5px solid var(--line);color:var(--ink);text-decoration:none;font-weight:700;font-size:13px;padding:11px 16px;border-radius:10px;white-space:nowrap}
 .hero{position:relative;color:#fff;overflow:hidden;background:#1A0509}
 .hero .bgimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;filter:saturate(.7) contrast(1.05)}
 .hero .veil{position:absolute;inset:0;background:linear-gradient(165deg,rgba(20,3,6,.92) 0%,rgba(90,8,20,.78) 60%,rgba(179,15,36,.55) 100%)}
@@ -2848,7 +3407,7 @@ section{padding:84px 0}
 .qcopy li{padding:9px 0;font-weight:600;font-size:15px;display:flex;gap:10px;align-items:baseline}
 .qcopy li::before{content:"—";color:var(--red);font-weight:800}
 .qframe{background:#fff;border:1px solid var(--line);border-radius:26px;padding:10px;box-shadow:0 34px 90px rgba(15,18,22,.14)}
-.qframe iframe{width:100%;height:530px;border:0;border-radius:18px;display:block}
+.qframe iframe{width:100%;height:900px;border:0;border-radius:18px;display:block}
 .svc{display:grid;grid-template-columns:54px 1fr auto;gap:18px;align-items:baseline;padding:30px 6px;border-bottom:1px solid var(--line)}
 .svc:first-of-type{border-top:1px solid var(--line)}
 .svc .no{font-family:'Fraunces',Georgia,serif;color:#C9CDD6;font-size:20px;font-weight:700}
@@ -2891,81 +3450,78 @@ footer a{color:#9AA0AC}
 .fade.on{opacity:1;transform:none}
 @media (prefers-reduced-motion: reduce){.fade{opacity:1;transform:none;transition:none}}
 </style></head><body>
-${embed ? "" : `<div class="ribbon">📋 PÁGINA DE EJEMPLO — imagina TU logo y TU nombre aquí. Así se vería tu página con Quick Comp.</div>`}
+${embed ? "" : `<div class="ribbon">${T.ribbon}</div>`}
 <header><div class="wrap hrow">
-  <span class="logo-ph">TU LOGO</span>
-  <span class="hcall"><small>Lun–Sáb · 7am–7pm</small><a class="callbtn" href="tel:+19565550100">📞 (956) 555-0100</a></span>
+  <span class="logo-ph">${en ? "YOUR LOGO" : "TU LOGO"}</span>
+  <span class="hcall"><small>${T.hours}</small><a class="callbtn" href="tel:+19565550100">📞 (956) 555-0100</a>${embed ? "" : `<a class="langpill" href="${langHref}">${T.langBtn}</a>`}</span>
 </div></header>
 
 <div class="hero">
   <img class="bgimg" src="/api/roofimg?lat=26.3828&lng=-98.8198&zoom=18" alt="">
   <div class="veil"></div>
   <div class="wrap in">
-    <span class="kick">BIENES RAÍCES · TU CIUDAD, TX</span>
-    <h1>Vende tu casa por<br>lo que <em>de verdad vale</em></h1>
-    <p>Descubre el valor de tu casa al instante, con ventas reales cercanas — gratis y sin que nadie te visite.</p>
-    <a class="cta" href="#cotiza">VALÚA TU CASA EN 60 SEGUNDOS</a><a class="cta ghost" href="tel:+19565550100">Llámanos</a>
+    <span class="kick">${T.kicker}</span>
+    <h1>${T.h1a}<br><em>${T.h1b}</em></h1>
+    <p>${T.heroSub}</p>
+    <a class="cta" href="#cotiza">${T.ctaValue}</a><a class="cta ghost" href="tel:+19565550100">${T.ctaCall}</a>
   </div>
   <div class="wrap stats">
-    <div class="stat"><b>15+</b><span>años</span></div>
-    <div class="stat"><b>300+</b><span>casas vendidas</span></div>
-    <div class="stat"><b>100%</b><span>dedicación</span></div>
+    <div class="stat"><b>15+</b><span>${T.statYears}</span></div>
+    <div class="stat"><b>300+</b><span>${T.statSold}</span></div>
+    <div class="stat"><b>100%</b><span>${T.statDedication}</span></div>
   </div>
 </div>
 
 <div class="wrap"><section id="cotiza">
-  <p class="eyebrow">Valuación instantánea</p>
-  <h2 class="t">El valor de tu casa, <em>sin esperar</em></h2>
+  <p class="eyebrow">${T.qEyebrow}</p>
+  <h2 class="t">${T.qH[0]}<em>${T.qH[1]}</em></h2>
   <div class="qwrap fade">
     <div class="qgrid">
       <div class="qcopy">
-        <h3>Escribe tu dirección.<br>Las ventas reales hacen el resto.</h3>
-        <p>Nuestro sistema analiza ventas comparables recientes y te da el valor estimado al instante — gratis y sin compromiso.</p>
-        <ul><li>Valor real de TU casa</li><li>Estimado en menos de un minuto</li><li>Análisis completo (CMA) gratis</li></ul>
+        <h3>${T.qTitle}</h3>
+        <p>${T.qDesc}</p>
+        <ul>${T.qLi.map((x) => `<li>${x}</li>`).join("")}</ul>
       </div>
-      <div class="qframe"><iframe src="/w/alto-demo" loading="lazy" title="Valuador"></iframe></div>
+      <div class="qframe"><iframe src="/w/alto-demo?showcase=1${en ? "&lang=en" : ""}" loading="lazy" title="${en ? "Valuator" : "Valuador"}"></iframe></div>
     </div>
   </div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:10px">
-  <p class="eyebrow">Servicios</p>
-  <h2 class="t">Lo que hacemos <em>bien</em></h2>
+  <p class="eyebrow">${T.svcEyebrow}</p>
+  <h2 class="t">${T.svcH[0]}<em>${T.svcH[1]}</em></h2>
   <div style="margin-top:44px">
-    <div class="svc fade"><span class="no">01</span><div><h3>Vende tu casa</h3><p>Te ponemos al precio correcto desde el día uno, con un plan de marketing que atrae compradores reales.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">02</span><div><h3>Compra tu casa</h3><p>Te representamos como comprador — buscamos, negociamos y cuidamos cada detalle hasta las llaves.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">03</span><div><h3>Valuación / CMA gratis</h3><p>Un análisis comparativo de mercado con ventas reales cercanas para saber qué vale tu casa hoy.</p></div><span class="arr">→</span></div>
-    <div class="svc fade"><span class="no">04</span><div><h3>Asesoría de mercado</h3><p>Te decimos la verdad del mercado — cuándo vender, cuándo esperar — aunque no sea hoy.</p></div><span class="arr">→</span></div>
+    ${T.svc.map(([h, p], i) => `<div class="svc fade"><span class="no">0${i + 1}</span><div><h3>${h}</h3><p>${p}</p></div><span class="arr">→</span></div>`).join("\n    ")}
   </div>
 </section></div>
 
 <div class="wrap"><section style="padding-top:10px">
-  <p class="eyebrow">Ventas recientes</p>
-  <h2 class="t">Casas vendidas <em>al mejor precio</em></h2>
-  <p class="sub">Cada venta empieza con un precio correcto, basado en ventas comparables reales — así vendemos rápido y sin dejar dinero en la mesa.</p>
+  <p class="eyebrow">${T.soldEyebrow}</p>
+  <h2 class="t">${T.soldH[0]}<em>${T.soldH[1]}</em></h2>
+  <p class="sub">${T.soldSub}</p>
   <div class="projgrid">
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3827418&lng=-98.8196915&zoom=20" alt=""><span class="tag">Vendida en 9 días<small>3 rec · 2 baños · sobre el precio de lista</small></span></div>
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3795779&lng=-98.8186812&zoom=20" alt=""><span class="tag">Vendida en 14 días<small>4 rec · 3 baños · al precio de lista</small></span></div>
-    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3807212&lng=-98.8148616&zoom=20" alt=""><span class="tag">Comprador representado<small>Cerró $12k bajo el precio de lista</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3827418&lng=-98.8196915&zoom=20" alt=""><span class="tag">${T.sold[0][0]}<small>${T.sold[0][1]}</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3795779&lng=-98.8186812&zoom=20" alt=""><span class="tag">${T.sold[1][0]}<small>${T.sold[1][1]}</small></span></div>
+    <div class="proj fade"><img loading="lazy" src="/api/roofimg?lat=26.3807212&lng=-98.8148616&zoom=20" alt=""><span class="tag">${T.sold[2][0]}<small>${T.sold[2][1]}</small></span></div>
   </div>
 </section></div>
 
 <div class="gband"><div class="wrap"><section>
-  <p class="eyebrow">Nuestro proceso</p>
-  <h2 class="t">Simple, <em>de principio a fin</em></h2>
+  <p class="eyebrow">${T.procEyebrow}</p>
+  <h2 class="t">${T.procH[0]}<em>${T.procH[1]}</em></h2>
   <div class="steps">
-    <div class="pstep fade"><div class="pn">1</div><h3>Valuación</h3><p>Analizamos ventas comparables reales para saber exactamente qué vale tu casa hoy. Gratis.</p></div>
-    <div class="pstep fade"><div class="pn">2</div><h3>Estrategia de precio</h3><p>Un plan claro de precio y marketing por escrito para vender rápido y al mejor valor.</p></div>
-    <div class="pstep fade"><div class="pn">3</div><h3>Cierre</h3><p>Negociamos por ti y cuidamos cada detalle del papeleo hasta que recibes tu cheque.</p></div>
+    <div class="pstep fade"><div class="pn">1</div><h3>${T.steps[0][0]}</h3><p>${T.steps[0][1]}</p></div>
+    <div class="pstep fade"><div class="pn">2</div><h3>${T.steps[1][0]}</h3><p>${T.steps[1][1]}</p></div>
+    <div class="pstep fade"><div class="pn">3</div><h3>${T.steps[2][0]}</h3><p>${T.steps[2][1]}</p></div>
   </div>
 </section></div></div>
 
 <div class="wrap"><section>
-  <p class="eyebrow">Reseñas</p>
-  <h2 class="t">Lo que dicen <em>nuestros clientes</em></h2>
+  <p class="eyebrow">${T.revEyebrow}</p>
+  <h2 class="t">${T.revH[0]}<em>${T.revH[1]}</em></h2>
   <div class="rev fade">
     <div class="stars">★★★★★</div>
-    <p>Aquí van las reseñas reales de TUS clientes de Google.<br>(En esta página de ejemplo no inventamos testimonios.)</p>
+    <p>${T.revBody}</p>
   </div>
 </section></div>
 
@@ -2973,13 +3529,13 @@ ${embed ? "" : `<div class="ribbon">📋 PÁGINA DE EJEMPLO — imagina TU logo 
   <img class="bgimg" src="/api/roofimg?lat=26.3828&lng=-98.8198&zoom=17" alt="">
   <div class="veil"></div>
   <div class="in">
-    <h2>¿Listo para vender<br><em>al mejor precio?</em></h2>
-    <p>Valúa tu casa en 60 segundos o mándanos un WhatsApp.</p>
-    <a class="a1" href="#cotiza">VALÚA AHORA</a><a class="a2" href="https://wa.me/19565550100">💬 WhatsApp</a>
+    <h2>${T.ctaH[0]}<br><em>${T.ctaH[1]}</em></h2>
+    <p>${T.ctaSub}</p>
+    <a class="a1" href="#cotiza">${T.ctaValueBtn}</a><a class="a2" href="https://wa.me/19565550100">${T.ctaWa}</a>
   </div>
 </div>
-<footer><b>Casa Bella Realty</b><br>Tu Ciudad, TX · Lic. #00000 · Lun–Sáb 9am–7pm<br>Página de ejemplo hecha con ⚡ Quick Comp — <a href="/ventas">así puede ser la tuya</a></footer>
-${embed ? "" : `<a class="backalto" href="/ventas#precio">← Volver a <span>QUICK COMP</span></a>`}
+<footer><b>${T.footBiz}</b><br>${T.footLine}<br>${T.footMade}<a href="/ventas${en ? "" : "?lang=es"}">${T.footMadeLink}</a></footer>
+${embed ? "" : `<a class="backalto" href="/ventas${en ? "" : "?lang=es"}#precio">${T.back}<span>${T.backB}</span></a>`}
 <script>
 var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target)}})},{threshold:.15});
 document.querySelectorAll('.fade').forEach(function(el){io.observe(el)});
@@ -4120,7 +4676,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <div class="rule"></div>
     <div class="grid">
       <div class="card"><div class="ic">🌐</div><h3>Página web</h3><p>Profesional, con su marca. Lista en 10-14 días.</p></div>
-      <div class="card"><div class="ic">🏡</div><h3>Valuador de casas</h3><p>El dueño pone su dirección y ve el valor de su casa en 60 seg.</p></div>
+      <div class="card"><div class="ic">🏡</div><h3>Valuador de casas</h3><p>El dueño pone su dirección y ve el valor de su casa en 10 seg.</p></div>
       <div class="card"><div class="ic">📲</div><h3>La app Quick Comp</h3><p>Valúa casas, arma el CMA, recibe los leads.</p></div>
       <div class="card"><div class="ic">🤖</div><h3>Secretaria IA</h3><p>Contesta y agenda citas a cualquier hora.</p></div>
     </div>
@@ -4202,7 +4758,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <div class="grid">
       <div class="card"><div class="ic">🎬</div><h3>Anuncios cortos (9:16)</h3><p>15-40 seg para WhatsApp/Reels. Hook fuerte en los primeros 3 seg.</p></div>
       <div class="card"><div class="ic">🎥</div><h3>VSL (1-2 min)</h3><p>Video para la página explicando la oferta — tú a cámara, directo.</p></div>
-      <div class="card"><div class="ic">📱</div><h3>Grabación de pantalla</h3><p>Valuando una casa en 60 seg — el wow en video.</p></div>
+      <div class="card"><div class="ic">📱</div><h3>Grabación de pantalla</h3><p>Valuando una casa en 10 seg — el wow en video.</p></div>
       <div class="card"><div class="ic">📸</div><h3>Fotos del equipo</h3><p>Tú y el equipo con la camisa Quick Comp, profesionales.</p></div>
     </div>
   </div>
@@ -4215,7 +4771,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
     <h1>Lista para <em>grabar ya.</em></h1>
     <ul class="pts">
       <li><b>🎯</b> "¿Cuántos vendedores pierdes porque no saben lo que vale su casa?" — hook de dolor, a cámara</li>
-      <li><b>🏡</b> "Mira cómo valúo una casa en 60 segundos con ventas reales" — grabación de pantalla</li>
+      <li><b>🏡</b> "Mira cómo valúo una casa en 10 segundos con ventas reales" — grabación de pantalla</li>
       <li><b>💬</b> "Tus clientes te llegan directo al WhatsApp" — muestra el lead llegando</li>
       <li><b>🌐</b> "Tu página web vende sola, 24/7" — muestra la página de ejemplo</li>
       <li><b>🤖</b> "Una secretaria con IA que nunca duerme" — muestra el chat contestando</li>
@@ -4297,20 +4853,28 @@ app.post("/api/hl/lead", async (req, res) => {
   const b = req.body || {};
   const name = String(b.name || b.full_name || b.first_name || "").slice(0, 80);
   const phone = String(b.phone || b.phone_number || b.number || "").replace(/\D/g, "").slice(0, 15);
-  const note = String(b.note || b.message || "Vino de WhatsApp").slice(0, 500);
+  // Which GHL channel the lead was born on (whatsapp | instagram | facebook) —
+  // set as custom data on the GHL workflow's webhook action (see playbook/03-ghl).
+  const CHANNELS = { whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Messenger", messenger: "Messenger" };
+  const channel = CHANNELS[String(b.channel || "").toLowerCase()] || "";
+  const note = String(b.note || b.message || (channel ? `Came in via ${channel}` : "Came in via GHL")).slice(0, 500);
   if (!name && !phone) return res.status(400).json({ error: "missing name/phone" });
-  // de-dupe: same phone logged in the last 10 minutes → don't create a twin
+  // de-dupe: same phone (last 10 digits) in the last 24h → don't create a twin.
+  // GHL fires Contact Created + channel events for the same person minutes or
+  // hours apart; 24h is the ALTO-proven window that kills the twins without
+  // ever hiding a genuinely new conversation the next day.
   try {
-    const recent = await db.listMeetings(40);
-    const cutoff = Date.now() - 10 * 60 * 1000;
+    const recent = await db.listMeetings(200);
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    const p10 = phone.slice(-10);
     const dup = recent.find((m) => {
-      const mp = String(m.phone || "").replace(/\D/g, "");
-      return phone && mp === phone && new Date(m.created_at).getTime() > cutoff;
+      const mp = String(m.phone || "").replace(/\D/g, "").slice(-10);
+      return p10 && mp === p10 && new Date(m.created_at).getTime() > cutoff;
     });
     if (dup) return res.json({ ok: true, deduped: true, id: dup.id });
   } catch { /* if the lookup fails, fall through and just create it */ }
-  const id = await db.addMeeting({ name, phone, note });
-  res.json({ ok: true, id });
+  const id = await db.addMeeting({ name, phone, note: channel && !b.note && !b.message ? note : (channel ? `[${channel}] ${note}` : note) });
+  res.json({ ok: true, id, ...(channel ? { channel } : {}) });
 });
 
 app.post("/api/closer/contractors", async (req, res) => {
@@ -4570,8 +5134,8 @@ body{max-width:none;margin:0;padding:0}
 ${periodSeg("/closer", range, en)}
 <div class="toolbar">
   <a class="navbtn primary" href="/demo" target="_blank">🎤 ${en ? "Open presentation" : "Abrir presentación"}</a>
-  <a class="navbtn" href="/w/alto-demo" target="_blank">🏡 ${en ? "Valuator demo" : "Demo del valuador"}</a>
-  <a class="navbtn" href="/ejemplo" target="_blank">🏠 ${en ? "Example site" : "Página de ejemplo"}</a>
+  <a class="navbtn" href="/w/alto-demo${en ? "?lang=en" : ""}" target="_blank">🏡 ${en ? "Valuator demo" : "Demo del valuador"}</a>
+  <a class="navbtn" href="/ejemplo${en ? "?lang=en" : "?lang=es"}" target="_blank">🏠 ${en ? "Example site" : "Página de ejemplo"}</a>
   <a class="navbtn" href="/plantillas" target="_blank">🎨 ${en ? "Templates" : "Las 3 plantillas"}</a>
 </div>
 <div class="panel">
@@ -4810,6 +5374,10 @@ ol li{margin-bottom:10px}small{color:#67718A}
 app.get("/demo", (req, res) => {
   const base = canonBase(req);
   const en = req.query.lang === "en";
+  // Staff (closer/admin key or cookie) get the unlimited pass injected into
+  // the embedded app so the valuation cap never interrupts a sales call.
+  // The public deck stays capped on purpose — that cap is a conversion moment.
+  const appPass = DEMO_PASS && closerOk(req) ? `&pass=${encodeURIComponent(DEMO_PASS)}` : "";
   const wMsg = en
     ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
     : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
@@ -4831,7 +5399,7 @@ app.get("/demo", (req, res) => {
     t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin",
     k1: "QUICK COMP · MARKETING & TECHNOLOGY FOR REALTORS", h1a: "More sellers,", h1b: "without chasing them.",
     b1: "Thanks for booking. In the next 10 minutes you'll see a home valued from real comparable sales — and how your website can bring you sellers 24 hours a day.",
-    g1: "60 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
+    g1: "10 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
     k2: "02 · WHO WE ARE", h2a: "Built by a Texas builder,", h2b: "for realtors.",
     b2: "Rolando, our founder, owns residential construction and technology companies in Texas. Buying and valuing his own properties, he lived how hard it was to get an accurate number fast — so he built this tool for himself. It worked so well he opened it to the public, and today he uses this same system to get leads for his own company.",
     p2a: "Builder-founder: he buys and sells real property, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
@@ -4872,7 +5440,7 @@ app.get("/demo", (req, res) => {
     t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos",
     k1: "QUICK COMP · MARKETING Y TECNOLOGÍA PARA AGENTES", h1a: "Más vendedores,", h1b: "sin perseguirlos.",
     b1: "Gracias por agendar. En los próximos 10 minutos vas a ver una casa valuada con ventas comparables reales — y cómo tu página puede traerte vendedores las 24 horas.",
-    g1: "60 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
+    g1: "10 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
     k2: "02 · QUIÉNES SOMOS", h2a: "Construido por un constructor de Texas,", h2b: "para agentes.",
     b2: "Rolando, nuestro fundador, tiene compañías de construcción residencial y de tecnología en Texas. Comprando y valuando sus propias propiedades vivió lo difícil que era sacar un número correcto rápido — así que construyó esta herramienta para él mismo. Funcionó tan bien que la abrió al público, y hoy usa este mismo sistema para conseguir leads para su propia compañía.",
     p2a: "Fundador constructor: compra y vende propiedades, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",
@@ -5135,7 +5703,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </ul>
         <p class="body" style="margin-top:22px;font-size:14px">${L.live5}</p>
       </div>
-      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app" title="App"></iframe></div></div>
+      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app${appPass}" title="App"></iframe></div></div>
     </div>
   </div>
 </section>
@@ -5356,9 +5924,21 @@ app.get("/r", (req, res) => {
     ? `El conjunto de comparables respalda un valor de mercado cercano a ${fmt(v)}${hasRange ? `, dentro de un rango de ${fmt(lo)}–${fmt(hi)}` : ""}. El mayor respaldo proviene de ${n} ${n === 1 ? "venta cercana" : "ventas cercanas"} de tamaño y condición similares${ppsf ? `, con un promedio de ${fmt(ppsf)} por pie²` : ""}.${d.cu ? " Comparables seleccionadas personalmente por su agente." : ""}`
     : `The comparable set supports an indicated market value near ${fmt(v)}${hasRange ? `, within a ${fmt(lo)}–${fmt(hi)} range` : ""}. The strongest support comes from ${n} nearby ${n === 1 ? "sale" : "sales"} of similar size and condition${ppsf ? `, averaging ${fmt(ppsf)} per square foot` : ""}.${d.cu ? " Comparables hand-selected by your agent." : ""}`;
   const ns = d.ns && N(d.ns.net) != null ? d.ns : null;
+  // The realtor's brand color drives the whole page — the platform's palette
+  // never appears on a client-facing report.
+  const B = /^#[0-9a-fA-F]{6}$/.test(String(g.bc || "")) ? g.bc : "#1B2A5C";
+  const shade = (hex, f) => {
+    const nn = parseInt(hex.slice(1), 16);
+    const t = f < 0 ? 0 : 255, p = Math.abs(f);
+    const r = Math.round(((nn >> 16) & 255) + (t - ((nn >> 16) & 255)) * p);
+    const gg = Math.round(((nn >> 8) & 255) + (t - ((nn >> 8) & 255)) * p);
+    const b = Math.round((nn & 255) + (t - (nn & 255)) * p);
+    return "#" + ((r << 16) | (gg << 8) | b).toString(16).padStart(6, "0");
+  };
+  const Bd = shade(B, -0.38), Bt = shade(B, 0.72);
   const L = es
-    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", trend: "Tendencia del mercado", yr: "año", payT: "PAGO MENSUAL ESTIMADO", payNote: "incluye impuestos, seguro y seguro hipotecario (est.)", down: "de enganche", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: "Hecho con ⚡ Quick Comp", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
-    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", trend: "Market trend", yr: "yr", payT: "ESTIMATED MONTHLY PAYMENT", payNote: "includes taxes, insurance & mortgage insurance (est.)", down: "down", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: "Made with ⚡ Quick Comp", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
+    ? { title: "Informe de valor", pres: "PRESENTADO POR", cma: "Informe CMA", val: "VALOR ESTIMADO DE MERCADO", range: "rango sugerido", sup: "Apoyo de ventas comparables", ai: "RESUMEN ASISTIDO POR IA", disc: "Estimado basado en ventas comparables recientes — no es un avalúo.", nsT: "HOJA NETA DEL VENDEDOR", nsPrice: "Precio de venta", nsComm: "Comisión", nsClose: "Gastos de cierre (est.)", nsPay: "Saldo de hipoteca", nsNet: "TU NETO ESTIMADO", trend: "Tendencia del mercado", yr: "año", payT: "PAGO MENSUAL ESTIMADO", payNote: "incluye impuestos, seguro y seguro hipotecario (est.)", down: "de enganche", call: "📞 Llamar", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Imprimir / Guardar PDF", made: [g.n, g.b].filter(Boolean).map(esc).join(" · ") || "", facts: [["Recámaras", sub.bd], ["Baños", sub.ba], ["Pies²", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Año", sub.yr]] }
+    : { title: "Home value report", pres: "PRESENTED BY", cma: "Client CMA Report", val: "ESTIMATED MARKET VALUE", range: "suggested range", sup: "Sold Comparable Support", ai: "AI-ASSISTED SUMMARY", disc: "Estimate based on recent comparable sales — not an appraisal.", nsT: "SELLER NET SHEET", nsPrice: "Sale price", nsComm: "Commission", nsClose: "Closing costs (est.)", nsPay: "Mortgage payoff", nsNet: "YOUR ESTIMATED NET", trend: "Market trend", yr: "yr", payT: "ESTIMATED MONTHLY PAYMENT", payNote: "includes taxes, insurance & mortgage insurance (est.)", down: "down", call: "📞 Call", wa: "💬 WhatsApp", mail: "✉️ Email", print: "🖨️ Print / Save PDF", made: [g.n, g.b].filter(Boolean).map(esc).join(" · ") || "", facts: [["Bedrooms", sub.bd], ["Baths", sub.ba], ["Sq ft", sub.sf ? Number(sub.sf).toLocaleString("en-US") : null], ["Built", sub.yr]] };
   const base = canonBase(req);
   res.send(`<!doctype html><html lang="${es ? "es" : "en"}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -5372,10 +5952,10 @@ app.get("/r", (req, res) => {
 *{box-sizing:border-box;font-family:Inter,-apple-system,Arial,sans-serif;margin:0}
 body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .doc{max-width:560px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 18px 44px rgba(17,27,66,.14)}
-.head{background:linear-gradient(135deg,#1B2A5C,#101B3C);color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.head{background:linear-gradient(135deg,${B},${Bd});color:#fff;padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .head img{height:40px;max-width:110px;object-fit:contain;background:#fff;border-radius:8px;padding:3px}
 .head .who{min-width:0;flex:1}
-.head .k{color:#E5C066;font-size:8px;font-weight:700;letter-spacing:2px}
+.head .k{color:${Bt};font-size:8px;font-weight:700;letter-spacing:2px}
 .head .nm{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .sub{color:rgba(255,255,255,.72);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .head .cma{font-weight:800;font-size:12px;flex-shrink:0}
@@ -5385,7 +5965,7 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .paytot{display:flex;justify-content:space-between;font-size:14px;font-weight:900;padding-top:4px}
 .paysub{color:#66759D;font-size:10.5px;font-weight:600;margin-top:5px;line-height:1.4}
 .body{padding:18px}
-.klabel{color:#C9973A;font-size:10px;font-weight:900;letter-spacing:2px}
+.klabel{color:${B};font-size:10px;font-weight:900;letter-spacing:2px}
 .val{font-size:38px;font-weight:900;margin:6px 0 2px}
 .rng{color:#66759D;font-size:13px;font-weight:600}
 .addr{font-weight:700;font-size:14px;margin-top:6px}
@@ -5398,16 +5978,16 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
 .row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid #E9EDF5;font-size:12.5px;font-weight:600}
 .row:first-of-type{border-top:none}
 .row b{font-weight:800;white-space:nowrap}
-.ai{background:linear-gradient(135deg,#1B2A5C,#111C3E);color:#fff;border:none}
-.ai h3{color:#E5C066;letter-spacing:2px;font-size:9px}
+.ai{background:linear-gradient(135deg,${B},${Bd});color:#fff;border:none}
+.ai h3{color:${Bt};letter-spacing:2px;font-size:9px}
 .ai p{font-size:12.5px;line-height:1.6;font-weight:500}
-.net{border:2px solid #C9973A;background:#FDF9EF}
-.net .tot{display:flex;justify-content:space-between;border-top:2px solid #C9973A;margin-top:6px;padding-top:9px;font-size:14px;font-weight:900}
+.net{border:2px solid ${B};background:#F8F9FC}
+.net .tot{display:flex;justify-content:space-between;border-top:2px solid ${B};margin-top:6px;padding-top:9px;font-size:14px;font-weight:900}
 .disc{color:#8A94AC;font-size:10px;font-weight:600;margin-top:12px;line-height:1.5}
 .ctas{display:flex;gap:8px;margin-top:16px}
-.ctas a{flex:1;text-align:center;text-decoration:none;font-weight:800;font-size:13px;padding:12px 6px;border-radius:12px;background:#1B2A5C;color:#fff}
+.ctas a{flex:1;text-align:center;text-decoration:none;font-weight:800;font-size:13px;padding:12px 6px;border-radius:12px;background:${B};color:#fff}
 .ctas a.wa{background:#25D366}
-.printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:#1B2A5C;border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
+.printbtn{display:block;width:100%;margin-top:10px;background:#fff;color:${B};border:1.5px solid #D8DFEC;border-radius:12px;padding:12px;font-weight:800;font-size:13px;cursor:pointer}
 .made{text-align:center;color:#9AA3B8;font-size:11px;font-weight:700;margin-top:16px}
 .made a{color:#9AA3B8}
 @media print{body{background:#fff;padding:0}.doc,.doc *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}.doc{box-shadow:none;border-radius:0}.ctas,.printbtn,.made{display:none}}
@@ -5452,7 +6032,7 @@ body{background:#EEF1F7;color:#15244C;padding:18px 14px 40px}
     <button class="printbtn" onclick="window.print()">${L.print}</button>
   </div>
 </div>
-<p class="made">${L.made}</p>
+${L.made ? `<p class="made">${L.made}</p>` : ""}
 ${rid ? `<img src="/api/r/open?rid=${rid}" alt="" width="1" height="1" style="position:absolute;opacity:0" aria-hidden="true">` : ""}
 </body></html>`);
 });
@@ -5491,18 +6071,21 @@ app.post("/api/listing", async (req, res) => {
     baths: Number(b.baths) || null,
     sqft: Number(b.sqft) || null,
     yearBuilt: Number(b.year) || null,
+    lotSizeSqft: Number(b.lot) || null,
+    propertyType: String(b.type || "").slice(0, 60) || null,
+    schools: String(b.schools || "").slice(0, 220) || null,
     agentHighlights: String(b.highlights || "").slice(0, 900),
   };
   if (!facts.address && !facts.agentHighlights) return res.status(400).json({ error: "facts required" });
   if (!aiLive) {
     // Demo fallback so the button always works
     const es = lang === "es";
-    const bits = [facts.beds && `${facts.beds} ${es ? "recámaras" : "bedrooms"}`, facts.baths && `${facts.baths} ${es ? "baños" : "baths"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`, facts.yearBuilt && (es ? `construida en ${facts.yearBuilt}` : `built in ${facts.yearBuilt}`)].filter(Boolean).join(", ");
+    const bits = [facts.beds && `${facts.beds} ${es ? "recámaras" : "bedrooms"}`, facts.baths && `${facts.baths} ${es ? "baños" : "baths"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pies²" : "sq ft"}`, facts.yearBuilt && (es ? `construida en ${facts.yearBuilt}` : `built in ${facts.yearBuilt}`), facts.lotSizeSqft && `${Number(facts.lotSizeSqft).toLocaleString("en-US")} ${es ? "pie² de terreno" : "sq ft lot"}`].filter(Boolean).join(", ");
     return res.json({
       source: "demo",
       mls: es
-        ? `Bienvenido a ${facts.address || "esta propiedad"} — una casa de ${bits}. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
-        : `Welcome to ${facts.address || "this property"} — a ${bits} home. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}Schedule your showing today — homes like this don't last.`,
+        ? `Bienvenido a ${facts.address || "esta propiedad"} — una casa de ${bits}. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}${facts.schools ? `Cerca de: ${facts.schools}. ` : ""}Agenda tu cita hoy: propiedades así no duran en el mercado.`
+        : `Welcome to ${facts.address || "this property"} — a ${bits} home. ${facts.agentHighlights ? facts.agentHighlights + ". " : ""}${facts.schools ? `Zoned to ${facts.schools}. ` : ""}Schedule your showing today — homes like this don't last.`,
       social: es
         ? `🏡 ¡NUEVO LISTING! ${facts.address || ""} · ${bits} ✨ Manda mensaje para verla 📲`
         : `🏡 JUST LISTED! ${facts.address || ""} · ${bits} ✨ DM to see it 📲`,
@@ -5511,7 +6094,7 @@ app.post("/api/listing", async (req, res) => {
   try {
     const raw = await aiChat({
       maxTokens: 700,
-      system: `You are an expert US real-estate listing copywriter. Write in ${lang === "es" ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, schools, or conditions. (3) Weave the agent's highlights in naturally. Respond with ONLY a JSON object: {"mls": "an MLS-ready description, 110-170 words, engaging but professional, no emojis, ending with a showing call-to-action", "social": "a short social-media caption, max 45 words, with tasteful emojis and a DM call-to-action"}. No markdown.`,
+      system: `You are an expert US real-estate listing copywriter. Write in ${lang === "es" ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, schools, or conditions. If schools are provided, mention them factually (school names only, no quality claims). (3) Weave the agent's highlights in naturally. Respond with ONLY a JSON object: {"mls": "an MLS-ready description, 110-170 words, engaging but professional, no emojis, ending with a showing call-to-action", "social": "a short social-media caption, max 45 words, with tasteful emojis and a DM call-to-action"}. No markdown.`,
       messages: [{ role: "user", content: JSON.stringify(facts) }],
     });
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
@@ -5519,6 +6102,64 @@ app.post("/api/listing", async (req, res) => {
     res.json({ source: "live", mls: String(j.mls).slice(0, 1600), social: String(j.social || "").slice(0, 500) });
   } catch (e) {
     console.error("listing writer failed:", e.message);
+    res.status(502).json({ error: "ai_failed" });
+  }
+});
+
+/* ── Social media writer — the agent types ONLY an address; the server pulls
+ * the county property record itself (a /properties call, no AVM spend) and
+ * writes a ready-to-post caption for the chosen announcement type. The client
+ * renders it in a textarea, so the agent edits before publishing. ── */
+app.post("/api/social", async (req, res) => {
+  const me = await auth(req).catch(() => null);
+  const scIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (!me && overQuota(`soc:${scIp}`, 3)) return res.status(429).json({ error: "demo_limit" });
+  if (me && overQuota(`socc:${me.id}`, 30)) return res.status(429).json({ error: "quota" });
+  const b = req.body || {};
+  const lang = b.lang === "es" ? "es" : "en";
+  const kind = ["listed", "sold", "open", "price"].includes(b.kind) ? b.kind : "listed";
+  const address = String(b.address || "").slice(0, 140).trim();
+  const notes = String(b.notes || "").slice(0, 500).trim();
+  if (!address) return res.status(400).json({ error: "address required" });
+  // Best effort: the record fills in beds/baths/size; a miss never blocks the post.
+  let facts = null;
+  if (RENTCAST_KEY) {
+    try {
+      const rec = await fetchRentcastRecord(address);
+      if (rec) {
+        const n = normalizeSubjectProperty(rec, address);
+        facts = { address: n.address, beds: n.bedrooms, baths: n.bathrooms, sqft: n.squareFootage, yearBuilt: n.yearBuilt, propertyType: n.propertyType, lotSize: n.lotSize };
+      }
+    } catch { /* optional */ }
+  }
+  const es = lang === "es";
+  const tag = { listed: es ? "¡NUEVO LISTING!" : "JUST LISTED!", sold: es ? "¡VENDIDA!" : "JUST SOLD!", open: "OPEN HOUSE", price: es ? "¡NUEVO PRECIO!" : "NEW PRICE!" }[kind];
+  if (!aiLive) {
+    // Demo fallback so the button always works
+    const bits = facts ? [facts.beds && `${facts.beds} ${es ? "rec" : "bd"}`, facts.baths && `${facts.baths} ${es ? "baños" : "ba"}`, facts.sqft && `${Number(facts.sqft).toLocaleString("en-US")} ${es ? "pie²" : "sq ft"}`].filter(Boolean).join(" · ") : "";
+    return res.json({
+      source: "demo",
+      facts,
+      post: `🏡 ${tag}\n📍 ${address}${bits ? `\n✨ ${bits}` : ""}${notes ? `\n${notes}` : ""}\n${es ? "Manda DM para más información 📲" : "DM me for details 📲"}\n\n#realestate ${es ? "#bienesraices" : "#realtor"} #home #newlisting`,
+    });
+  }
+  const KIND_ANGLE = {
+    listed: "a JUST LISTED announcement — build excitement about the new listing",
+    sold: "a JUST SOLD celebration — congratulate the (unnamed) clients and invite followers thinking of selling to reach out",
+    open: "an OPEN HOUSE invitation — create urgency to attend; include date/time ONLY if the agent's notes provide one",
+    price: "a NEW PRICE announcement — frame it as a fresh opportunity, never as desperation",
+  };
+  try {
+    const raw = await aiChat({
+      maxTokens: 500,
+      system: `You are an expert real-estate social media copywriter (Instagram/Facebook). Write in ${es ? "natural, native SPANISH" : "natural, native ENGLISH"}. STRICT RULES: (1) Fair Housing — never mention or imply race, religion, national origin, familial status, disability, sex, or describe the "ideal buyer" or neighborhood demographics; describe the PROPERTY only. (2) Use ONLY the facts provided — never invent features, prices, dates, schools, or conditions. (3) Write ${KIND_ANGLE[kind]}. Respond with ONLY a JSON object: {"post": "a ready-to-post caption, 50-100 words, short punchy lines separated by line breaks, tasteful emojis, a clear call-to-action, and 4-6 relevant hashtags at the end"}. No markdown.`,
+      messages: [{ role: "user", content: JSON.stringify({ address, agentNotes: notes || undefined, facts: facts || undefined }) }],
+    });
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    if (!j.post) throw new Error("empty");
+    res.json({ source: "live", facts, post: String(j.post).slice(0, 1200) });
+  } catch (e) {
+    console.error("social writer failed:", e.message);
     res.status(502).json({ error: "ai_failed" });
   }
 });
@@ -5617,7 +6258,7 @@ ${d.k === "est" && !d.paid ? `<div class="sec" style="font-size:12px;color:#6771
   <div style="flex:1;border-top:1.5px solid #101B30;padding-top:5px">${L.sigDate}</div>
 </div></div>` : ""}
 <button class="btn" onclick="window.print()">${L.print}</button>
-<div class="ft">⚡ ${L.made}</div>
+<div class="ft">${esc(d.biz)}</div>
 </div></body></html>`);
 });
 
@@ -5649,10 +6290,16 @@ async function ensureAccount(slug, name, profile) {
     c = await db.createContractor({ name, slug });
     await db.saveContractorData(c.id, { profile });
     console.log(`created built-in account: ${slug}`);
-  } else if (profile.phone && !c.data?.profile?.phone) {
-    // keep the built-in demo's contact info current (adds the demo phone so the
-    // widget's Call/Text CTA shows in the sales demo)
-    await db.saveContractorData(c.id, { ...(c.data || {}), profile: { ...(c.data?.profile || {}), phone: profile.phone } });
+  } else {
+    // Built-in demo accounts are app-owned, not a real client's — keep their
+    // branding synced to the code (e.g. after a product pivot leaves a stale
+    // name/biz in the db) and backfill any missing contact info.
+    const curProfile = c.data?.profile || {};
+    const next = { ...curProfile };
+    let changed = false;
+    if (profile.biz && curProfile.biz !== profile.biz) { next.biz = profile.biz; changed = true; }
+    if (profile.phone && !curProfile.phone) { next.phone = profile.phone; changed = true; }
+    if (changed) await db.saveContractorData(c.id, { ...(c.data || {}), profile: next });
   }
   return c;
 }

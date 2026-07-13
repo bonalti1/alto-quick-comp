@@ -1313,6 +1313,190 @@ function periodSeg(basePath, range, en) {
   </div>`;
 }
 
+/* The three tiers as the admin shows them. The Stripe webhook tags data.plan
+ * from the amount paid; planOf falls back to "complete" for untagged accounts. */
+const PLANS = {
+  pro: { price: 67, name: "Pro · La App" },
+  widget: { price: 197, name: "Widget · Su Página" },
+  complete: { price: 297, name: "Completo · Todo Hecho" },
+};
+const planOf = (c) => (PLANS[c?.data?.plan] ? c.data.plan : "complete");
+
+/* ── Sales-leads inbox (alto-ventas) — the setters' mini-CRM inside /admin ──
+ * Everything captured on getquickcomp.com lands here: the quiz at the bottom
+ * (info.src "landing", carries the 4 quiz answers) and the "Try it on your
+ * phone" trial box (info.src "trial-app"). Channel DMs stay in GHL. */
+function salesLeadsPanel(leads, K, opts = {}) {
+  const esc = (x) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const ago = (iso) => {
+    const m = Math.max(0, Math.round((Date.now() - new Date(iso || 0).getTime()) / 60000));
+    if (m < 60) return `hace ${m} min`;
+    if (m < 1440) return `hace ${Math.round(m / 60)} h`;
+    return `hace ${Math.round(m / 1440)} d`;
+  };
+  const SRC = { "trial-app": ["app", "🧪 Probó la app"], landing: ["quiz", "📋 Quiz anuncios"],
+    whatsapp: ["chat", "💬 WhatsApp"], instagram: ["chat", "📸 Instagram"], facebook: ["chat", "💬 Messenger"], messenger: ["chat", "💬 Messenger"], chat: ["chat", "💬 Chat"] };
+  const QL = { work: "", crew: "licencia: ", revenue: "ventas/año: ", marketing: "marketing: " };
+  const pend = leads.filter((l) => (l.status || "new") === "new").length;
+  const STAGES = [["new", "🔴 Nuevo"], ["contacted", "🟡 Contactado"], ["scheduled", "📅 Agendó"], ["closed", "🎉 Cerró"], ["not_interested", "✕ No interesado"]];
+  const rows = leads.slice(0, 60).map((l, i) => {
+    const [srcKey, srcLabel] = SRC[l.info?.src] || ["otro", "🌐 Otro"];
+    const stage = STAGES.some(([k]) => k === l.status) ? l.status : "new";
+    const st = stage === "new" ? "open" : "done";
+    const digits = String(l.phone || "").replace(/\D/g, "");
+    const wa = digits ? `https://wa.me/${digits.length === 10 ? "1" + digits : digits}?text=${encodeURIComponent(`Hola${l.name ? " " + l.name : ""} 👋 Soy del equipo de Quick Comp — vi que pediste info en nuestra página. ¿Te marco ahorita o prefieres que te mande la info por aquí?`)}` : "";
+    const quiz = ["work", "crew", "revenue", "marketing"].filter((k) => l.info?.[k]).map((k) => `<span class="slq">${QL[k]}${esc(l.info[k])}</span>`).join("");
+    return `<div class="slrow stage-${stage}" data-src="${srcKey}" data-st="${st}">
+      <span class="sln">${i + 1}</span>
+      <div class="slmain">
+        <div><b>${esc(l.name) || "Sin nombre"}</b>${l.info?.biz ? ` <span style="color:#67718A;font-weight:700">· ${esc(l.info.biz)}</span>` : ""} <span class="slsrc ${srcKey}">${srcLabel}</span></div>
+        ${quiz ? `<div class="slqs">${quiz}</div>` : ""}
+        <div class="slsub">${esc(l.phone)} · ${ago(l.created_at)}</div>
+        <div class="slnote" onclick="slNote('${l.id}',this)" title="Click para editar">${l.info?.crm_note ? "📝 " + esc(l.info.crm_note) : '<span style="color:#B6BCC8">📝 agregar nota…</span>'}</div>
+      </div>
+      <div class="slacts">
+        ${wa ? `<a href="${wa}" target="_blank" title="WhatsApp">💬</a><a href="tel:+1${digits.length === 10 ? digits : digits.slice(-10)}" title="Llamar">📞</a>` : ""}
+        <select class="slsel st-${stage}" onchange="slStat('${l.id}',this.value)">
+          ${STAGES.map(([k, lbl]) => `<option value="${k}" ${k === stage ? "selected" : ""}>${lbl}</option>`).join("")}
+        </select>
+      </div>
+    </div>`;
+  }).join("");
+  return `<style>
+.slrow{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid #F0F2F6}
+.slrow.stage-not_interested{opacity:.4}
+.slrow.stage-closed{background:#F6FDF8}
+.slnote{margin-top:4px;font-size:12px;font-weight:600;color:#4A5568;cursor:pointer}
+.slsel{border-radius:10px;font-weight:800;font-size:12px;padding:8px 8px;cursor:pointer;border:1.5px solid #E4E7EC;background:#fff;color:#101B30;max-width:150px}
+.slsel.st-new{background:#FDECEC;border-color:#F5C6C0;color:#9B1C10}
+.slsel.st-contacted{background:#FEF5DC;border-color:#F4DE9A;color:#8A6D00}
+.slsel.st-scheduled{background:#EAF3FE;border-color:#BBD6F7;color:#1A5CB0}
+.slsel.st-closed{background:#EAF8EF;border-color:#BFE6CC;color:#1E7B3C}
+.sln{width:26px;height:26px;border-radius:99px;background:#F0F2F6;color:#67718A;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.slmain{flex:1;min-width:0}.slmain b{font-size:14.5px;color:#101B30}
+.slsrc{font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;margin-left:6px;vertical-align:middle;white-space:nowrap;display:inline-block}
+.slsrc.app{background:#EAF3FE;color:#1A5CB0}.slsrc.quiz{background:#FEF5DC;color:#8A6D00}.slsrc.chat{background:#EAF8EF;color:#1E7B3C}.slsrc.otro{background:#F0F2F6;color:#67718A}
+.slqs{margin-top:4px;display:flex;flex-wrap:wrap;gap:5px}
+.slq{font-size:11px;font-weight:700;background:#F7F9FC;border:1px solid #E4E7EC;border-radius:8px;padding:2px 8px;color:#4A5568}
+.slsub{margin-top:3px;font-size:12px;color:#8A94A8;font-weight:600}
+.slacts{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.slacts a{font-size:18px;text-decoration:none}
+.sltabs{display:flex;gap:8px;margin:4px 0 8px;flex-wrap:wrap}
+.sltab{border:1.5px solid #E4E7EC;background:#fff;border-radius:99px;font-weight:800;font-size:12px;color:#67718A;padding:7px 14px;cursor:pointer}
+.sltab.on{background:#101B30;color:#fff;border-color:#101B30}
+.slempty{color:#8A94A8;font-weight:600;font-size:13.5px;padding:14px 4px}
+</style>
+<div class="sltabs">
+  <button class="sltab on" onclick="slF(this,'all')">Todos (${leads.length})</button>
+  <button class="sltab" onclick="slF(this,'open')">Sin contactar (${pend})</button>
+  <button class="sltab" onclick="slF(this,'app')">🧪 Probó la app</button>
+  <button class="sltab" onclick="slF(this,'quiz')">📋 Quiz</button>
+  <button class="sltab" onclick="slF(this,'chat')">💬 Chats</button>
+  <a class="sltab" style="text-decoration:none" href="/api/sales/leads.csv?key=${K}">⬇️ Excel</a>
+</div>
+${rows || `<p class="slempty">Todavía no hay leads de venta — llegan solos cuando alguien llena el quiz o pide su link de prueba en getquickcomp.com.</p>`}
+<p class="legend" style="font-size:11.5px;color:#8A94A8;font-weight:600;margin-top:8px">Los DMs de Instagram/Facebook viven en GHL (el bot los atiende) — aquí llega todo lo que entra por getquickcomp.com.</p>
+<script>
+function slF(btn,f){document.querySelectorAll(".sltab").forEach(b=>b.classList.remove("on"));btn.classList.add("on");
+  document.querySelectorAll(".slrow").forEach(r=>{
+    var show = f==="all" || (f==="open" ? r.dataset.st==="open" : r.dataset.src===f);
+    r.style.display = show ? "" : "none";
+  });}
+function slNote(id,el){var cur=el.innerText.indexOf("📝 agregar")>=0?"":el.innerText.replace(/^📝 /,"");
+  var t=prompt("Nota del lead:",cur);if(t===null)return;
+  fetch("/api/sales/leadnote?key=${K}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,note:t})})
+    .then(r=>r.json()).then(j=>{if(j.ok)location.reload();else alert("Error");}).catch(()=>alert("Error"));}
+function slStat(id,st){fetch("/api/sales/leadstatus?key=${K}",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,status:st})})
+  .then(r=>r.json()).then(j=>{if(j.ok)location.reload();else alert("Error");}).catch(()=>alert("Error"));}
+</script>`;
+}
+
+// Excel-friendly export of the sales leads (CSV with BOM so Excel shows
+// accents right) — for handing the day's list to the closer.
+app.get("/api/sales/leads.csv", async (req, res) => {
+  if (!adminOk(req) && !closerOk(req)) return res.status(403).send("no auth");
+  const av = await db.getContractorBySlug("alto-ventas");
+  const leads = av ? await db.listLeads(av.id).catch(() => []) : [];
+  const SRC = { "trial-app": "Probó la app", landing: "Quiz anuncios", whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Messenger", messenger: "Messenger", chat: "Chat" };
+  const esc = (x) => `"${String(x ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["Nombre", "Teléfono", "Fuente", "Enfoque", "Licencia", "Ventas por año", "Marketing", "Estado", "Nota", "Fecha"],
+    ...leads.map((l) => [
+      l.name, l.phone, SRC[l.info?.src] || l.info?.src || "Otro",
+      l.info?.work || "", l.info?.crew || "", l.info?.revenue || "", l.info?.marketing || "",
+      ({ contacted: "Contactado", scheduled: "Agendó", closed: "Cerró", not_interested: "No interesado" })[l.status] || "Nuevo",
+      l.info?.crm_note || "",
+      new Date(l.created_at).toLocaleString("es-US", { timeZone: "America/Chicago" }),
+    ]),
+  ];
+  const csv = "\\uFEFF" + rows.map((r) => r.map(esc).join(",")).join("\r\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="leads-venta-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+});
+
+// Quick CRM note on a sales lead (admin or closer)
+app.post("/api/sales/leadnote", async (req, res) => {
+  if (!adminOk(req) && !closerOk(req)) return res.status(403).json({ error: "no auth" });
+  const av = await db.getContractorBySlug("alto-ventas");
+  if (!av) return res.status(404).json({ error: "cuenta de ventas no existe" });
+  await db.updateLeadInfo(av.id, String(req.body?.id || ""), { crm_note: String(req.body?.note || "").replace(/\s+/g, " ").trim().slice(0, 200) });
+  res.json({ ok: true });
+});
+
+// Move a sales lead through the mini-pipeline (admin or closer)
+app.post("/api/sales/leadstatus", async (req, res) => {
+  if (!adminOk(req) && !closerOk(req)) return res.status(403).json({ error: "no auth" });
+  const status = String(req.body?.status || "");
+  if (!["new", "contacted", "scheduled", "closed", "not_interested"].includes(status)) return res.status(400).json({ error: "status inválido" });
+  const av = await db.getContractorBySlug("alto-ventas");
+  if (!av) return res.status(404).json({ error: "cuenta de ventas no existe" });
+  await db.updateLeadStatus(av.id, String(req.body?.id || ""), status);
+  res.json({ ok: true });
+});
+
+// Archive ALL sales leads (fresh start before launching ads) — admin only
+app.post("/api/sales/clearleads", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin" });
+  const av = await db.getContractorBySlug("alto-ventas");
+  if (!av) return res.status(404).json({ error: "cuenta de ventas no existe" });
+  const n = await db.clearLeads(av.id);
+  res.json({ ok: true, archived: n });
+});
+
+// Reset all visit/funnel counters (fresh start before launching ads) — admin only
+app.post("/api/sales/clearmetrics", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin" });
+  const n = await db.clearMetrics();
+  res.json({ ok: true, cleared: n });
+});
+
+// Wipe the closer meeting log (fresh start) — admin only
+app.post("/api/admin/clearmeetings", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin" });
+  const n = await db.clearMeetings();
+  res.json({ ok: true, cleared: n });
+});
+
+// Restore a backup file (the /api/admin/backup format) — upsert-only, never deletes
+app.post("/api/admin/restore", express.json({ limit: "25mb" }), async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
+  const body = req.body || {};
+  if (body.confirm !== "RESTAURAR") return res.status(400).json({ error: 'falta la confirmación (escribe "RESTAURAR")' });
+  const dump = body.dump || body.backup || body;
+  if (!dump || typeof dump !== "object" || (!Array.isArray(dump.clients) && !Array.isArray(dump.contractors))) {
+    return res.status(400).json({ error: "el archivo no parece un respaldo de Quick Comp (falta la lista de clientes)" });
+  }
+  try {
+    const counts = await db.importAll(dump);
+    console.log("restore OK:", JSON.stringify(counts));
+    res.json({ ok: true, restored: counts });
+  } catch (e) {
+    console.error("restore failed:", e.message);
+    res.status(500).json({ error: "no se pudo restaurar: " + e.message });
+  }
+});
+
 app.get("/admin", async (req, res) => {
   if (!ADMIN_KEY) return res.status(503).send("Set ADMIN_KEY env var to enable admin.");
   if (req.query.logout != null) { clearKeyCookie(res, "alto_admin"); return res.redirect("/admin"); }
@@ -2222,13 +2406,45 @@ const quoteCache = new Map();
 
 /* Funnel tracking: tiny first-party counters, no cookies, no identities.
  * Only whitelisted event names are accepted. */
-const TRACK_EVENTS = new Set(["visit", "quiz_work", "quiz_crew", "quiz_revenue", "quiz_marketing", "quiz_done", "w_view", "w_result"]);
+const TRACK_EVENTS = new Set(["visit", "quiz_work", "quiz_crew", "quiz_revenue", "quiz_marketing", "quiz_done", "w_view", "w_result", "trial_link"]);
+
+/* Visitor-city analytics (ALTO pattern): each landing visit bumps an aggregate
+ * geo:<City, ST> counter — the admin funnel shows the totals. The IP itself
+ * never lands in the metrics, only city counts. Lookup uses the free no-key
+ * ipwho.is API, hard-capped per day and fire-and-forget: a slow or dead geo
+ * service can never slow down or break the page. Datacenter/proxy networks
+ * (crawlers, iCloud Private Relay) count in their own geo_bot bucket so the
+ * city list only shows real people on real networks. `google(?! fiber)` keeps
+ * Google Fiber customers (a real consumer ISP) human. */
+const HOSTED_ORG = /amazon|aws\b|google(?! fiber)|microsoft|azure|cloudflare|akamai|apple|icloud|digital ?ocean|linode|ovh|hetzner|oracle|vultr|fastly|facebook|meta plat|hosting|data ?cent|leaseweb|choopa|m247|colocat|server|crawl|spider|bot/i;
+async function geoBump(ip) {
+  try {
+    if (!ip || /^(10\.|192\.168\.|127\.|::1|::ffff:127\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip)) return;
+    const ck = `geoip2:${ip}`;
+    let g = await db.kvGet(ck, 30 * 864e5).catch(() => null);
+    if (!g) {
+      if (overQuota("geoipd:all", 800)) return; // stay well under the free tier
+      const r = await fetchT(`https://ipwho.is/${encodeURIComponent(ip)}`, {}, 3500);
+      const j = await r.json().catch(() => null);
+      g = j && j.success !== false && j.city
+        ? { c: String(j.city).slice(0, 40), r: String(j.region_code || j.region || "").slice(0, 20), cc: String(j.country_code || "").slice(0, 2), o: String(j.connection?.org || j.connection?.isp || "").slice(0, 60) }
+        : { fail: 1 }; // cache failures too — don't re-ask for the same IP all day
+      await db.kvSet(ck, g).catch(() => {});
+    }
+    if (g.fail || !g.c) return;
+    if (HOSTED_ORG.test(String(g.o || ""))) { await db.bumpMetric("geo_bot"); return; }
+    const label = g.cc === "US" ? `${g.c}, ${g.r}` : `${g.c}, ${g.cc}`;
+    await db.bumpMetric(`geo:${label}`.slice(0, 60));
+  } catch { /* analytics must never touch the page */ }
+}
+
 app.post("/api/track", (req, res) => {
   const trIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
   if (overQuota(`tr:${trIp}`, 300)) return res.json({ ok: true }); // silently ignore spam
   const event = String(req.body?.event || "");
   if (!TRACK_EVENTS.has(event)) return res.status(400).json({ error: "bad event" });
   db.bumpMetric(event).catch(() => { /* counters must never break the page */ });
+  if (event === "visit") geoBump(trIp); // deliberately not awaited
   res.json({ ok: true });
 });
 
@@ -3259,8 +3475,8 @@ function sendTrial(){
   if(ph.length<10){document.getElementById('terr').style.display='block';return}
   document.getElementById('terr').style.display='none';
   fetch('/api/widget/lead',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({slug:'alto-ventas',name:document.getElementById('tname').value,phone:ph,info:{src:'app-trial'}})}).catch(function(){});
-  track('quiz_done');if(window.fbq)fbq('track','Lead');
+    body:JSON.stringify({slug:'alto-ventas',name:document.getElementById('tname').value,phone:ph,info:{src:'trial-app'}})}).catch(function(){});
+  track('trial_link');if(window.fbq)fbq('track','Lead');
   document.getElementById('tryform').style.display='none';
   document.getElementById('tryok').style.display='block';
 }

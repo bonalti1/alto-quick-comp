@@ -1153,9 +1153,11 @@ ${wrong ? `<p class="err">Clave incorrecta — intenta de nuevo.</p>` : ""}
 // Admin: create a contractor account + invite link (you run this per sale)
 app.post("/api/admin/contractors", async (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
-  const { name, phone, slug } = req.body || {};
+  const { name, phone, slug, plan } = req.body || {};
   if (!name) return res.status(400).json({ error: "name required" });
   const c = await db.createContractor({ name, phone, slug });
+  // Optional plan pre-tag (the Stripe webhook overwrites it with the real one on payment)
+  if (plan && PLANS[plan]) await db.saveContractorData(c.id, { ...(c.data || {}), plan, planAmount: PLANS[plan].price }).catch(() => {});
   const invite = await db.createInvite(c.id);
   const inviteUrl = `${req.protocol}://${req.get("host")}/invite/${invite}`;
   if (req.query.html) {
@@ -1509,34 +1511,48 @@ app.get("/admin", async (req, res) => {
     db.listContractors(),
     db.leadStats().catch(() => []),
     db.recentLeads(12).catch(() => []),
-    db.getMetrics(7).catch(() => []),
+    db.getMetricsBetween(range.from, range.to).catch(() => []),
     db.meetingStats(range).catch(() => ({ total: 0, scheduled: 0, noShow: 0, showed: 0, closed: 0 })),
     db.sessionCounts().catch(() => ({})),
   ]);
   const closeRate = mst.total ? Math.round((mst.closed / mst.total) * 100) : 0;
   const BUILTIN = new Set(["alto-demo", "alto-ventas"]);
   const realClients = list.filter((c) => !BUILTIN.has(c.slug));
-  const statOf = (id) => stats.find((x) => String(x.contractor_id) === String(id)) || { total: 0, last7: 0, last_at: null };
+  const avAcct = list.find((c) => c.slug === "alto-ventas");
+  const salesLeads = avAcct ? await db.listLeads(avAcct.id).catch(() => []) : [];
+  const salesPend = salesLeads.filter((l) => (l.status || "new") === "new").length;
   const tot = (e) => rows.filter((r) => r.event === e).reduce((a, r) => a + Number(r.n), 0);
-  const leads7 = stats.reduce((a, x) => a + Number(x.last7 || 0), 0);
-  // real MRR = only clients confirmed paying (Stripe payment or manual activation)
+  // Visitor cities (geo:* counters bumped by /api/track) — aggregated over the
+  // same date range as the rest of the dashboard, sorted by volume.
+  const geoTop = (() => {
+    const m = {};
+    rows.filter((r) => r.event.startsWith("geo:")).forEach((r) => { const k = r.event.slice(4); m[k] = (m[k] || 0) + Number(r.n); });
+    return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  })();
+  const leadsRange = await db.leadCountInRange(range).catch(() => 0);
+  // real MRR = only clients confirmed paying (Stripe payment or manual
+  // activation), summing each one's actual plan price (legacy/unknown → $297)
   const payCount = (s) => realClients.filter((c) => (c.data?.payStatus || "") === s).length;
   const paying = payCount("ok");
   const pendingPay = payCount("pending");
   const failedPay = payCount("failed");
-  // Real MRR sums each paying client's actual plan price (legacy/unknown → $297).
   const payingClients = realClients.filter((c) => (c.data?.payStatus || "") === "ok");
-  const mrr = payingClients.reduce((sum, c) => sum + (Number(c.data?.planAmount) || 297), 0);
-  const planCount = (p) => payingClients.filter((c) => c.data?.plan === p).length;
-  const proN = planCount("pro"), widgetN = planCount("widget"), completeN = planCount("complete");
-  const unknownPlanN = payingClients.filter((c) => !c.data?.plan).length;
-  // last-7-days series for the chart (visits per day)
-  const days = [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10));
+  const mrr = payingClients.reduce((sum, c) => sum + (Number(c.data?.planAmount) || PLANS[planOf(c)].price), 0);
+  // chart days = the days that actually have data in the selected range
+  // (fallback: last 7 days), newest at the right, capped at 31 columns
+  const dataDays = [...new Set(rows.map((r) => r.day))].sort();
+  const days = dataDays.length ? dataDays.slice(-31)
+    : [...Array(7)].map((_, i) => new Date(Date.now() - (6 - i) * 864e5).toISOString().slice(0, 10));
   const get = (d, e) => Number(rows.find((r) => r.day === d && r.event === e)?.n || 0);
   const maxV = Math.max(1, ...days.map((d) => get(d, "visit")));
-  const fmtD = (x) => (x ? String(x).slice(5, 10) : "—");
   const ago = (x) => { if (!x) return "—"; const h = (Date.now() - new Date(x).getTime()) / 36e5; return h < 1 ? "hace minutos" : h < 24 ? `hace ${Math.round(h)}h` : `hace ${Math.round(h / 24)}d`; };
   const esc = (x) => String(x || "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  // Agent month tabs — "since when they've been there," newest first.
+  // created_at is an ISO string from the JSON store but a Date object from
+  // Postgres; normalize through Date or the tabs read "Invalid Date".
+  const monthKey = (x) => { const d = new Date(x || ""); return isNaN(d) ? "" : d.toISOString().slice(0, 7); };
+  const monthLabel = (mk) => { if (!/^\d{4}-\d{2}$/.test(mk)) return mk; const [y, m] = mk.split("-").map(Number); const s = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("es-MX", { month: "long", year: "numeric" }); return s.charAt(0).toUpperCase() + s.slice(1); };
+  const monthsPresent = [...new Set(list.map((c) => monthKey(c.created_at)).filter(Boolean))].sort().reverse();
   // 🔐 Security panel — reports only WHETHER each piece is configured, never
   // the values, so there's no reason to open (or screenshot) Render's env page.
   const wkReason = weakKeyReason(ADMIN_KEY);
@@ -1546,8 +1562,10 @@ app.get("/admin", async (req, res) => {
     ["Google Maps · servidor", !!GOOGLE_KEY, "crítico"],
     ["Google Maps · navegador", !!process.env.GOOGLE_MAPS_BROWSER_KEY, "recomendado"],
     [`IA${aiLive ? ` · ${anthropic ? "Anthropic" : "OpenAI"}` : ""}`, aiLive, "recomendado"],
-    ["Stripe · link de pago", !!process.env.STRIPE_PAYMENT_LINK, "para vender"],
+    ["Stripe · links de pago", !!process.env.STRIPE_PAYMENT_LINK, "para vender"],
     ["Stripe · webhook", !!STRIPE_WH_SECRET, "para vender"],
+    ["Notificaciones push", pushLive, "recomendado"],
+    ["Pase de demo (DEMO_PASS)", !!DEMO_PASS, "para el equipo"],
     ["Meta Pixel", !!process.env.META_PIXEL_ID, "para anuncios"],
     ["Dominio propio", !!ROOT_DOMAIN, "opcional"],
   ].map(([label, on, need]) => `<span class="pill ${on ? "ok" : (need === "opcional" || need === "recomendado") ? "dim" : "warn"}" title="${need}">${on ? "✓" : "✗"} ${label}${on ? "" : ` · falta (${need})`}</span>`).join(" ");
@@ -1577,15 +1595,13 @@ header .tag a{color:#cdd5e5;text-decoration:none}
 .panel h2{font-size:15.5px;font-weight:700;letter-spacing:-0.015em;margin-bottom:16px}
 .chart{display:flex;align-items:flex-end;gap:10px;height:114px;padding:4px 2px 0}
 .chart .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
-.chart .bar{width:100%;max-width:46px;background:linear-gradient(180deg,#E6BF6A,#C9973A);border-radius:10px 10px 4px 4px;min-height:3px;box-shadow:0 5px 12px rgba(189,132,38,.28);transition:filter .15s}
+.chart .bar{width:100%;max-width:46px;background:linear-gradient(180deg,#E2B65C,#C9973A);border-radius:10px 10px 4px 4px;min-height:3px;box-shadow:0 5px 12px rgba(201,151,58,.28);transition:filter .15s}
 .chart .bar:hover{filter:brightness(1.06)}
 .chart .lbl{font-size:10.5px;color:#9097A3;font-weight:700}
 .chart .num{font-size:11px;font-weight:800;color:#0B1220}
 table{width:100%;border-collapse:collapse;font-size:13.5px}
 th{text-align:left;color:#9097A3;font-size:10.5px;letter-spacing:.7px;text-transform:uppercase;font-weight:700;padding:10px;border-bottom:1px solid #EEF0F4}
 td{padding:14px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B2433;vertical-align:middle}
-tr[data-name]{transition:background .12s}
-tr[data-name]:hover{background:#F8F9FB}
 td a{color:#B07A00;font-weight:700;text-decoration:none}
 td a:hover{text-decoration:underline}
 .pill{display:inline-block;border-radius:99px;padding:4px 11px;font-size:11px;font-weight:700;letter-spacing:.1px;white-space:nowrap}
@@ -1593,7 +1609,23 @@ td .pill{margin:2px 3px 2px 0}
 .pill.ok{background:#E7F7ED;color:#10803C}
 .pill.warn{background:#FDECEC;color:#C5221F}
 .pill.dim{background:#F0F2F6;color:#8A94A8}
-.pill.gold{background:#F7EFD8;color:#8A6A00}
+.pill.gold{background:#F7EFD8;color:#946400}
+/* Agent list — a calm scan, not a wall of pills: bold name, warning pills
+ * ONLY when something needs attention; the whole row opens the agent page. */
+.csum{color:#67718A;font-size:13px;font-weight:700;margin:0 0 12px}
+.csum b{color:#101B30}
+.crow{display:flex;gap:12px;align-items:center;padding:15px 10px;border-bottom:1px solid #F2F4F7;text-decoration:none;color:#101B30;transition:background .12s}
+.crow:last-child{border-bottom:none}
+.crow:hover{background:#F7F9FC}
+.cdot{width:9px;height:9px;border-radius:50%;background:#1E9E5A;flex-shrink:0;box-shadow:0 0 0 3px rgba(30,158,90,.14)}
+.cdot.off{background:#C5221F;box-shadow:0 0 0 3px rgba(197,34,31,.12)}
+.cname{flex:1;min-width:0;font-weight:800;font-size:14.5px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cplan{background:#F7EFD8;color:#946400;border-radius:99px;padding:5px 12px;font-size:11.5px;font-weight:800;letter-spacing:.2px;white-space:nowrap;flex-shrink:0}
+.cplan.dim{background:#F0F2F6;color:#8A94A8}
+.cflag{background:#FDECEC;color:#C5221F;border-radius:99px;padding:5px 10px;font-size:11.5px;font-weight:800;white-space:nowrap;flex-shrink:0}
+.cchev{color:#C3C9D4;font-size:19px;font-weight:700;flex-shrink:0;line-height:1}
+@media(max-width:560px){.cplann{display:none}.cplan{font-size:11px;padding:4px 10px}.crow{gap:9px}}
+.pcount{color:#9097A3;font-weight:600;font-size:13px;margin-left:6px}
 .newform{display:flex;gap:10px;flex-wrap:wrap}
 .newform input{flex:1;min-width:160px;font-family:inherit;padding:13px 15px;border-radius:13px;border:1px solid #E4E7EC;background:#fff;font-size:14.5px;font-weight:500;outline:none;transition:border-color .15s,box-shadow .15s}
 .newform input:focus{border-color:#C9973A;box-shadow:0 0 0 4px rgba(201,151,58,.18)}
@@ -1603,6 +1635,8 @@ td .pill{margin:2px 3px 2px 0}
 .closures{border:1px solid rgba(201,151,58,.28);box-shadow:0 1px 2px rgba(16,27,48,.04),0 12px 32px rgba(201,151,58,.08)}
 .periodbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin:2px 0 18px}
 .segs{display:inline-flex;background:#EEF0F4;border-radius:12px;padding:3px;gap:2px}
+.segcustom{flex-wrap:wrap}
+.segcustom input[type=date]{max-width:146px;min-width:0}
 .seg{padding:8px 15px;border-radius:9px;font-size:13px;font-weight:700;color:#5A6475;text-decoration:none;white-space:nowrap}
 .seg.on{background:#fff;color:#101B30;box-shadow:0 1px 3px rgba(16,27,48,.12)}
 .segcustom{display:inline-flex;gap:7px;align-items:center}
@@ -1617,8 +1651,9 @@ td .pill{margin:2px 3px 2px 0}
 .sub .l{font-size:10.5px;font-weight:700;color:#9097A3;letter-spacing:.5px;text-transform:uppercase;margin-top:5px}
 .sub.gold{background:linear-gradient(155deg,#16243f 0%,#0d1729 100%);border:none}
 .sub.gold .v{color:#C9973A}.sub.gold .l{color:#9DA8C4}
-.grid2{display:grid;gap:18px}
-@media(min-width:900px){.grid2{grid-template-columns:1.1fr 1fr}}
+.grid2{display:grid;gap:18px;grid-template-columns:minmax(0,1fr)}
+.grid2>.panel{min-width:0}
+@media(min-width:900px){.grid2{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .lrow{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #F3F5F9;font-size:13.5px;font-weight:600}
 .lprev{width:134px;height:86px;border-radius:10px;overflow:hidden;border:1px solid #E4E7EC;flex-shrink:0;background:#0B1226;box-shadow:0 4px 12px rgba(16,27,48,.08)}
@@ -1627,38 +1662,37 @@ td .pill{margin:2px 3px 2px 0}
 .lurl{color:#9AA0AC;font-size:12px;word-break:break-all}
 .lbtns{display:flex;gap:6px;flex-shrink:0}
 @media(max-width:620px){.lprev{display:none}}
+/* Collapsible panels — closed by default so they're out of the way until
+ * you actually need them; native <details> handles the show/hide. */
+summary.psum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;font-size:15.5px;font-weight:700;letter-spacing:-0.015em}
+summary.psum::-webkit-details-marker{display:none}
+summary.psum::after{content:"▾";margin-left:auto;color:#9097A3;font-size:13px;transition:transform .15s}
+details[open]>summary.psum::after{transform:rotate(180deg)}
+.pbody{margin-top:16px}
+.mtabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.mtabs a{display:inline-flex;align-items:center;gap:5px;background:#EEF0F4;color:#5A6475;text-decoration:none;font-size:13px;font-weight:700;padding:8px 14px;border-radius:99px;white-space:nowrap}
+.mtabs a b{font-weight:800}
+.mtabs a.on{background:#101B30;color:#fff}
+.mant{border:1.5px solid #F5C6C0;background:#fff;color:#C5221F;border-radius:12px;font-weight:800;font-size:13px;padding:12px 16px;cursor:pointer}
 </style></head><body>
-<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Admin</b><span class="tag"><a href="/admin/economics" style="color:#C9973A">🧮 Calculadora</a> · <a href="/cs" style="color:#9DA8C4">🎧 Servicio</a> · <a href="/admin?logout" style="color:#9DA8C4">salir</a></span></header>
+<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Admin</b><span class="tag"><a href="/admin/economics?key=${KEY}" style="color:#C9973A">🧮 Calculadora</a> · <a href="/cs?key=${KEY}" style="color:#9DA8C4">🎧 Servicio</a> · <a href="/admin?logout" style="color:#9DA8C4">salir</a></span></header>
 <div class="wrap">
-${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D93025;color:#9B1C10;border-radius:14px;padding:13px 16px;font-weight:700;font-size:13.5px;margin-bottom:16px">⚠️ SIN BASE DE DATOS — los datos se guardan en el disco temporal del servidor y <b>se pierden en cada reinicio</b>. Configura DATABASE_URL (Postgres) en Render antes de aceptar clientes reales.</div>` : ""}
+
+${wkReason ? `<div class="panel" style="border:1.5px solid #D93025;margin-top:0"><h2 style="margin-bottom:6px">🔐 Cambia tu llave de admin</h2><p class="legend" style="margin-top:0">Tu llave actual es débil (${esc(wkReason)}). Genera una fuerte (<code>openssl rand -hex 24</code>) y ponla en Render → Environment → ADMIN_KEY.</p></div>` : ""}
+
+${periodSeg("/admin", range, false)}
 <div class="cards">
-  <div class="card gold"><div class="v">$${mrr.toLocaleString("en-US")}</div><div class="l" style="color:#9DA8C4">MRR · clientes pagando</div></div>
-  <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${paying ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${[proN ? `${proN} Pro` : "", widgetN ? `${widgetN} Widget` : "", completeN ? `${completeN} Complete` : "", unknownPlanN ? `${unknownPlanN} s/plan` : ""].filter(Boolean).join(" · ")}</div>` : ""}${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
+  <div class="card gold"><div class="v">$${mrr.toLocaleString("en-US")}</div><div class="l" style="color:#9DA8C4">MRR · agentes pagando</div></div>
+  <div class="card"><div class="v">${paying}</div><div class="l">Pagando</div>${(pendingPay || failedPay) ? `<div style="font-size:11px;font-weight:700;color:#8A94A8;margin-top:4px">${pendingPay ? `${pendingPay} pendiente` : ""}${pendingPay && failedPay ? " · " : ""}${failedPay ? `<span style="color:#C5221F">${failedPay} falló</span>` : ""}</div>` : ""}</div>
   <div class="card"><div class="v">${realClients.length}</div><div class="l">Agentes total</div></div>
-  <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
-  <div class="card"><div class="v">${tot("visit")}</div><div class="l">Visitas · 7 días</div></div>
+  <div class="card"><div class="v">${leadsRange}</div><div class="l">Leads · ${range.label}</div></div>
+  <div class="card"><div class="v">${tot("visit")}</div><div class="l">Visitas · ${range.label}</div></div>
   <div class="card"><div class="v">${tot("quiz_done")}</div><div class="l">Llamadas pedidas</div></div>
 </div>
 
-<div class="panel"${wkReason ? ' style="border:1.5px solid #D93025"' : ""}>
-  <h2>🔐 Seguridad y configuración</h2>
-  ${wkReason ? `<div style="background:#FDECEC;border:1.5px solid #D93025;color:#9B1C10;border-radius:14px;padding:14px 16px;font-weight:600;font-size:13.5px;margin-bottom:14px;line-height:1.55">
-    ⚠️ <b>Tu ADMIN_KEY parece una contraseña personal (${wkReason}).</b> Esta llave abre todas las cuentas y todos los portales. Genera una fuerte y cámbiala:
-    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <button onclick="genKey()" style="background:#101B30;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:800;cursor:pointer;font-size:13px">🎲 Generar llave fuerte</button>
-      <code id="newkey" style="display:none;background:#fff;border:1px solid #E4E7EC;border-radius:10px;padding:9px 12px;font-size:12.5px;word-break:break-all;max-width:100%"></code>
-      <button id="newkeycpy" onclick="cpyKey()" style="display:none;background:#C9973A;color:#101B30;border:none;border-radius:10px;padding:10px 14px;font-weight:800;cursor:pointer;font-size:13px">Copiar</button>
-    </div>
-    <div style="font-weight:500;font-size:12.5px;margin-top:8px;color:#7A2E22">Cópiala → Render → Environment → ADMIN_KEY → pega y guarda. El servicio se reinicia solo y vuelves a entrar con la llave nueva. Se genera en tu navegador — nadie más la ve hasta que tú la pongas en Render.</div>
-  </div>` : ""}
-  <div style="display:flex;flex-wrap:wrap;gap:5px">${secPills}</div>
-  <p class="legend">Esta lista solo dice si cada pieza está configurada — <b>nunca muestra las llaves</b>. Revisa aquí en lugar de abrir (o capturar pantalla de) la página Environment de Render. Si alguna llave llegó a salir en una captura o un mensaje, <b>rótala con su proveedor</b> (RentCast, Google, Stripe): generas una nueva allá, la pegas en Render, y la vieja queda muerta.</p>
-</div>
-
-<div class="panel closures">
-  <h2>💰 Cierres · reuniones del closer</h2>
-  ${periodSeg("/admin", range, false)}
-  <div class="subcards">
+<div class="panel closures"><details data-p="cierres" open>
+  <summary class="psum">💰 Cierres · reuniones del closer <span style="color:#9097A3;font-weight:600;font-size:12.5px">· ${range.label}</span></summary>
+  <div class="subcards" style="margin-top:16px">
     <div class="sub gold"><div class="v">${closeRate}%</div><div class="l">Tasa de cierre</div></div>
     <div class="sub"><div class="v">${mst.total}</div><div class="l">Reuniones</div></div>
     <div class="sub"><div class="v">${mst.showed}</div><div class="l">Asistieron</div></div>
@@ -1666,42 +1700,68 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
     <div class="sub"><div class="v">${mst.closed}</div><div class="l">Cerrados</div></div>
   </div>
   <p class="legend">Lo que registra tu closer en su portal. Las cuentas activadas con pago se ven en <b>MRR</b> arriba.</p>
-</div>
+</details></div>
 
 <div class="grid2">
-<div class="panel">
-  <h2>📈 Visitas a la página · últimos 7 días</h2>
-  <div class="chart">
+<div class="panel"><details data-p="visitas" open>
+  <summary class="psum">📈 Visitas a la página · ${range.label}</summary>
+  <div class="chart" style="margin-top:16px">
     ${days.map((d) => { const v = get(d, "visit"); return `<div class="col"><span class="num">${v || ""}</span><div class="bar" style="height:${Math.round((v / maxV) * 100)}%"></div><span class="lbl">${d.slice(5)}</span></div>`; }).join("")}
   </div>
-</div>
-<div class="panel">
-  <h2>🫙 Embudo · totales 7 días</h2>
+</details></div>
+<div class="panel"><details data-p="embudo" open>
+  <summary class="psum">🫙 Embudo · ${range.label}</summary>
+  <div class="pbody">
   <div class="scroll"><table>
-    <tr><th>Visitas</th><th>Widget visto</th><th>Cotizó</th><th>Quiz inició</th><th>Agendó</th></tr>
-    <tr><td>${tot("visit")}</td><td>${tot("w_view")}</td><td>${tot("w_result")}</td><td>${tot("quiz_work")}</td><td>${tot("quiz_done")}</td></tr>
+    <tr><th>Visitas</th><th>Widget visto</th><th>Valuó</th><th>Prueba app</th><th>Quiz inició</th><th>Agendó</th></tr>
+    <tr><td>${tot("visit")}</td><td>${tot("w_view")}</td><td>${tot("w_result")}</td><td>${tot("trial_link")}</td><td>${tot("quiz_work")}</td><td>${tot("quiz_done")}</td></tr>
   </table></div>
-  <p class="legend">Visitas = página de ventas · Widget visto = abrieron el valuador · Valuó = vieron el valor · Quiz inició = 1ª pregunta · Agendó = dejaron datos.</p>
-</div>
+  ${geoTop.length || tot("geo_bot") ? (() => {
+    const mx = geoTop.length ? geoTop[0][1] : 1;
+    const totalGeo = geoTop.reduce((a, [, n]) => a + n, 0) || 1;
+    const bots = tot("geo_bot");
+    return `<p style="font-size:12px;font-weight:800;letter-spacing:1px;color:#8A94A8;margin:18px 0 8px">🌎 DE DÓNDE NOS VISITAN</p>
+    ${geoTop.map(([city, n]) => `<div style="display:flex;align-items:center;gap:10px;margin:5px 0">
+      <span style="flex:0 0 170px;font-size:13px;font-weight:700;color:#101B30;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(city)}</span>
+      <span style="flex:1;background:#F0F2F6;border-radius:6px;height:14px;overflow:hidden"><span style="display:block;height:100%;width:${Math.max(4, Math.round((n / mx) * 100))}%;background:#C9973A;border-radius:6px"></span></span>
+      <span style="flex:0 0 64px;text-align:right;font-size:12.5px;font-weight:800;color:#5A6478">${n} · ${Math.round((n / totalGeo) * 100)}%</span>
+    </div>`).join("")}
+    ${bots ? `<p style="font-size:12px;color:#9AA3B2;font-weight:600;margin:8px 0 0">🤖 ${bots} visita${bots === 1 ? "" : "s"} de bots o proxies (datacenters, rastreadores de links, iCloud Private Relay) — no cuentan como ciudades.</p>` : ""}`;
+  })() : ""}
+  <p class="legend">Visitas = página de ventas · Widget visto = abrieron el valuador · Valuó = vieron el valor · Prueba app = pidieron su link de prueba · Quiz inició = 1ª pregunta · Agendó = dejaron datos. Las ciudades salen de la IP del visitante (solo totales, nunca guardamos la IP). El filtro de fechas de arriba aplica a todo el tablero.</p>
+  </div>
+</details></div>
 </div>
 
-<div class="panel">
-  <h2>🔗 Tus enlaces</h2>
+<div class="panel"><details data-p="ventas" ${salesPend ? 'open data-force="1"' : ""}>
+  <summary class="psum">📣 Leads de venta ${salesPend ? `· <b style="color:#C5221F">${salesPend} sin contactar</b>` : `(${salesLeads.length})`}</summary>
+  <div class="pbody">${salesLeadsPanel(salesLeads, KEY)}</div>
+</details></div>
+
+<div class="panel" style="border:1.5px solid ${wkReason ? "#D93025" : "rgba(16,27,48,.05)"}"><details data-p="seguridad">
+  <summary class="psum">🔐 Seguridad y configuración</summary>
+  <div class="pbody">${secPills}
+  <p class="legend">Solo muestra si cada pieza está configurada — nunca los valores. Las llaves viven en Render → Environment.</p></div>
+</details></div>
+
+<div class="panel"><details data-p="enlaces">
+  <summary class="psum">🔗 Tus enlaces</summary>
+  <div class="pbody">
   ${[
+    ["⭐ TU DÍA A DÍA — LOS 3 DE SIEMPRE", [
+      ["1️⃣ 🎤 Presentación de ventas (en la llamada)", `${base}/demo`],
+      ["2️⃣ 🎨 Onboarding (armar/editar páginas)", `${base}/onboarding`],
+      ["3️⃣ 🎧 Customer service (tickets y tareas)", `${base}/cs`],
+    ]],
     ["PÚBLICO · VENTAS", [
       ["🌐 Página de ventas", `${base}/ventas`],
       ["🏡 Demo del valuador (mándalo a prospectos)", `${base}/w/alto-demo`],
       ["🏠 Página de ejemplo", `${base}/ejemplo`],
-      ["🎨 Las 3 plantillas", `${base}/plantillas`],
+      ["🎨 Las plantillas", `${base}/plantillas`],
     ]],
     ["EQUIPO · VENTAS (closer)", [
-      ["🎤 Presentación de venta (en la llamada)", `${base}/demo`],
       ["🔒 Portal del closer", `${base}/closer`],
       ["📋 Cierre / objeciones (privado)", `${base}/cierre`],
-    ]],
-    ["EQUIPO · SERVICIO", [
-      ["🎧 Centro de servicio al cliente (tareas)", `${base}/cs`],
-      ["🎨 Onboarding / editar páginas", `${base}/onboarding`],
     ]],
     ["RECLUTAR", [
       ["👤 Presentación del rol (reclutar)", `${base}/equipo`],
@@ -1731,118 +1791,139 @@ ${db.dbKind() === "file" ? `<div style="background:#FDECEC;border:1.5px solid #D
     </div>`; }).join("")}
   `).join("")}
   <p style="color:#9AA0AC;font-size:12px;margin-top:14px">El portal del closer y el onboarding piden clave; los públicos no.</p>
-</div>
+  </div>
+</details></div>
 
-<div class="panel">
-  <h2>⚙️ Mantenimiento</h2>
-  <a href="/api/admin/backup?key=${KEY}" download style="display:inline-block;background:#101B30;color:#fff;border-radius:12px;padding:13px 20px;font-weight:800;text-decoration:none;font-size:14px">⬇️ Descargar respaldo (todos los datos)</a>
-  <p class="legend">Respaldo mensual con 1 clic: agentes (con su app y sus leads), reuniones y tareas en un JSON con fecha. Sin tokens de sesión ni links de acceso — un respaldo filtrado nunca abre nada. Guárdalo junto al clon local del código (playbook/06-backup).</p>
-</div>
-
-<div class="panel">
-  <h2>➕ Nuevo agente</h2>
+<div class="panel"><details data-p="nuevo">
+  <summary class="psum">➕ Nuevo agente</summary>
+  <div class="pbody">
   <form class="newform" method="post" action="/api/admin/contractors?html=1&key=${KEY}">
     <input name="name" placeholder="Nombre del agente o inmobiliaria" required>
     <input name="phone" placeholder="Teléfono">
+    <select name="plan" style="font-family:inherit;padding:12px 14px;border-radius:12px;border:1.5px solid #E4E7EC;font-weight:600;background:#fff;color:#101B30"><option value="">Plan (opcional) — se auto-detecta con el pago</option>${Object.entries(PLANS).map(([k, p]) => `<option value="${k}">${p.name} — $${p.price}/mes</option>`).join("")}</select>
     <button>Crear cuenta</button>
   </form>
   <p class="legend">Crea la cuenta y te dará un enlace de invitación (su llave personal). Compártelo por texto/WhatsApp — no necesita App Store.</p>
-</div>
+  </div>
+</details></div>
 
-<div class="panel">
-  <h2>👥 Agentes</h2>
+<div class="panel"><details data-p="agentes" open>
+  <summary class="psum">👥 Agentes<span class="pcount">(${list.length})</span></summary>
+  <div class="pbody">
+  <p class="csum"><b>${realClients.filter((c) => !(c.data && c.data.status === "paused")).length}</b> activos · <b>${realClients.filter((c) => c.data && c.data.status === "paused").length}</b> pausados · <b>$${mrr.toLocaleString("en-US")}</b> MRR</p>
   <input id="csearch" placeholder="🔍 Buscar agente por nombre…" onkeyup="filterClients()" style="width:100%;padding:14px 16px;border:1px solid #E4E7EC;border-radius:14px;font-size:14.5px;font-weight:500;font-family:inherit;outline:none;margin-bottom:14px;transition:border-color .15s,box-shadow .15s" onfocus="this.style.borderColor='#C9973A';this.style.boxShadow='0 0 0 4px rgba(201,151,58,.18)'" onblur="this.style.borderColor='#E4E7EC';this.style.boxShadow='none'">
-  <div class="scroll"><table>
-  <tr><th>Agente / Inmobiliaria</th><th>Estado</th><th>Leads 7d</th><th>Total</th><th>Último lead</th><th>Widget</th><th>Acceso</th><th>IA / GHL</th><th>Creado</th></tr>
+  <div class="mtabs" id="mtabs">
+    <a href="#" class="on" data-m="all" onclick="filterMonth('all');return false">Todos <b>(${list.length})</b></a>
+    ${monthsPresent.map((mk) => {
+      const count = list.filter((c) => monthKey(c.created_at) === mk).length;
+      return `<a href="#" data-m="${mk}" onclick="filterMonth('${mk}');return false">${monthLabel(mk)} <b>(${count})</b></a>`;
+    }).join("")}
+  </div>
+  <div id="clist">
   ${list.map((c) => {
-    const st = statOf(c.id);
-    const hook = !!(c.data && c.data.webhook);
     const isB = BUILTIN.has(c.slug);
-    const act = st.last7 > 0 ? `<span class="pill ok">${st.last7}</span>` : `<span class="pill dim">0</span>`;
     const isPaused = c.data && c.data.status === "paused";
     const pay = c.data && c.data.payStatus;
-    const payTag = pay === "failed" ? ' <span class="pill warn">💳 falló</span>'
-      : pay === "canceled" ? ' <span class="pill dim">canceló</span>'
-      : pay === "pending" ? ` <a href="#" onclick="activatePending('${c.id}','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill gold" title="Pagó por otro medio (cash/Zelle)? Clic para activar su cuenta ahora.">💳 pendiente — clic para activar</span></a>` : "";
     const dev = devCounts[String(c.id)] || 0;
-    const devTag = (!isB && dev >= 4) ? ` <span class="pill warn" title="${dev} dispositivos/aperturas — posible link compartido. Ofrécele cuentas para su equipo.">📱 ${dev}</span>` : "";
-    // Paid on the website with no human on the call — until someone sends
-    // their access link (and they open it), flag them loudly.
-    const selfServeTag = (c.data?.selfServe && dev === 0)
-      ? ` <a href="/api/admin/invite?key=${KEY}&id=${c.id}"><span class="pill warn" title="Pagó solo en la página — nadie le ha mandado su acceso. Clic para generar su link.">🆕 mandar acceso</span></a>` : "";
-    return `<tr data-name="${esc(c.name).toLowerCase()} ${c.slug}">
-      <td><a href="/admin/c/${c.slug}" style="color:#101B30;font-weight:800">${esc(c.name)}</a>${isB ? ' <span class="pill gold">interno</span>' : ""}</td>
-      <td>${isPaused
-        ? `<a href="#" onclick="setStatus('${c.id}','active','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill warn">⏸ pausado</span></a>`
-        : `<a href="#" onclick="setStatus('${c.id}','paused','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill ok">activo</span></a>`}${payTag}${selfServeTag}${devTag}</td>
-      <td>${act}</td><td>${st.total}</td><td>${ago(st.last_at)}</td>
-      <td><a href="/w/${c.slug}" target="_blank">/w/${c.slug}</a> · <a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/onboarding?key=${KEY}&slug=${c.slug}">🎨</a></td>
-      <td><a href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 link</a></td>
-      <td>${hook ? '<span class="pill ok">✓ conectado</span>' : `<a href="#" onclick="setHook('${c.id}','${esc(c.name).replace(/'/g, "")}');return false"><span class="pill warn">conectar</span></a>`}</td>
-      <td>${fmtD(c.created_at)}</td></tr>`;
+    // The row answers one question at a glance: who is it, what plan, and is
+    // anything on fire. Everything else (actions, links, payments, GHL) lives
+    // on the agent page the whole row links to.
+    const issues = [
+      isPaused ? "pausado" : "",
+      pay === "failed" ? "pago falló" : "",
+      pay === "pending" ? "pago pendiente" : "",
+      pay === "canceled" ? "canceló" : "",
+      (!isB && dev >= 4) ? `${dev} dispositivos — posible link compartido` : "",
+    ].filter(Boolean);
+    return `<a class="crow" href="/admin/c/${c.slug}?key=${KEY}" data-name="${esc(c.name).toLowerCase()} ${c.slug}" data-month="${monthKey(c.created_at)}">
+      <span class="cdot${isPaused ? " off" : ""}" title="${isPaused ? "Pausado" : "Activo"}"></span>
+      <span class="cname">${esc(c.name)}</span>
+      ${issues.length ? `<span class="cflag" title="${esc(issues.join(" · "))}">⚠ ${issues.length}</span>` : ""}
+      ${isB ? '<span class="cplan dim">interno</span>' : `<span class="cplan"><span class="cplann">${PLANS[planOf(c)].name.split(" ·")[0].toUpperCase()} · </span>$${Number(c.data?.planAmount) || PLANS[planOf(c)].price}/mes</span>`}
+      <span class="cchev">›</span>
+    </a>`;
   }).join("")}
-  </table></div>
-</div>
+  </div>
+  </div>
+</details></div>
 
-<div class="panel">
-  <h2>📥 Últimos leads (todos los clientes)</h2>
+<div class="panel"><details data-p="ultimos">
+  <summary class="psum">📥 Últimos leads (todos los agentes)</summary>
+  <div class="pbody">
   <div class="scroll"><table>
-  <tr><th>Cuándo</th><th>Cliente</th><th>Nombre</th><th>Teléfono</th><th>Dirección / datos</th><th>Estimado</th></tr>
-  ${recent.length === 0 ? `<tr><td colspan="6" style="color:#8A94A8">Todavía no hay leads — llegarán aquí en cuanto alguien cotice o llene el quiz.</td></tr>` : recent.map((l) => {
+  <tr><th>Cuándo</th><th>Agente</th><th>Nombre</th><th>Teléfono</th><th>Dirección / datos</th><th>Valor visto</th></tr>
+  ${recent.length === 0 ? `<tr><td colspan="6" style="color:#8A94A8">Todavía no hay leads — llegarán aquí en cuanto alguien valúe su casa o llene el quiz.</td></tr>` : recent.map((l) => {
     const i = l.info || {};
     const extra = i.work ? `${esc(i.work)} · ${esc(i.crew || "")} · ${esc(i.revenue || "")}` : esc(l.address);
     const est = i.low ? `$${Number(i.low).toLocaleString("en-US")}–$${Number(i.high).toLocaleString("en-US")}` : "—";
     return `<tr><td>${ago(l.created_at)}</td><td>${esc(l.contractor_name || l.slug)}</td><td>${esc(l.name)}</td><td>${esc(l.phone)}</td><td>${extra}</td><td>${est}</td></tr>`;
   }).join("")}
   </table></div>
-</div>
+  </div>
+</details></div>
+
+<div class="panel"><details data-p="mant">
+  <summary class="psum">⚙️ Mantenimiento · respaldo y empezar de cero</summary>
+  <div class="pbody">
+    <p class="legend" style="margin-bottom:12px">Respaldo mensual con 1 clic (sin tokens de sesión — un respaldo filtrado nunca abre nada). Los botones de reinicio piden confirmación — pensados para justo antes de prender anuncios. Para borrar un agente: entra a su página.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="mant" style="background:#E8F4EA;border-color:#BFE3C6;color:#1E6B33;text-decoration:none;display:inline-block" href="/api/admin/backup?key=${KEY}">⬇️ Descargar respaldo (todos los datos)</a>
+      <button class="mant" style="background:#EAF1FB;border-color:#BCD3F2;color:#1A5AAB" onclick="document.getElementById('restoreFile').click()">⬆️ Restaurar respaldo</button>
+      <input type="file" id="restoreFile" accept="application/json,.json" style="display:none" onchange="doRestore(this)">
+      <button class="mant" onclick="if(confirm('¿Archivar TODOS los leads de venta actuales? El buzón queda en cero. (Se archivan, no se destruyen.)'))fetch('/api/sales/clearleads?key=${KEY}',{method:'POST'}).then(r=>r.json()).then(j=>j.ok?location.reload():alert('Error'))">🧹 Archivar leads de venta</button>
+      <button class="mant" onclick="if(confirm('¿Reiniciar TODAS las estadísticas de visitas y embudo a cero?'))fetch('/api/sales/clearmetrics?key=${KEY}',{method:'POST'}).then(r=>r.json()).then(j=>j.ok?location.reload():alert('Error'))">🧹 Reiniciar visitas y embudo</button>
+      <button class="mant" onclick="if(confirm('¿Borrar TODO el historial de reuniones del closer?'))fetch('/api/admin/clearmeetings?key=${KEY}',{method:'POST'}).then(r=>r.json()).then(j=>j.ok?location.reload():alert('Error'))">🧹 Reiniciar reuniones del closer</button>
+    </div>
+  </div>
+</details></div>
 
 </div>
 <script>
+// each panel remembers open/closed per browser; alarm panels (data-force) always open
+(function(){try{var st=JSON.parse(localStorage.getItem('qc_panels')||'{}');
+[].forEach.call(document.querySelectorAll('details[data-p]'),function(d){
+  var k=d.getAttribute('data-p');
+  if(!d.hasAttribute('data-force')&&typeof st[k]==='boolean')d.open=st[k];
+  d.addEventListener('toggle',function(){st[k]=d.open;try{localStorage.setItem('qc_panels',JSON.stringify(st))}catch(e){}});
+});}catch(e){}})();
 function cpy(btn,url){navigator.clipboard.writeText(url);var o=btn.textContent;btn.textContent='✓';setTimeout(function(){btn.textContent=o},900);}
-function genKey(){
-  var a=new Uint8Array(24);crypto.getRandomValues(a);
-  var k='';for(var i=0;i<a.length;i++){k+=('0'+a[i].toString(16)).slice(-2)}
-  var el=document.getElementById('newkey');el.textContent=k;el.style.display='inline-block';
-  document.getElementById('newkeycpy').style.display='inline-block';
+function doRestore(inp){
+  var f=inp.files&&inp.files[0]; inp.value='';
+  if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    var dump; try{dump=JSON.parse(rd.result);}catch(e){alert('Ese archivo no es un respaldo válido (no es JSON).');return;}
+    var list=dump.clients||dump.contractors;
+    if(!Array.isArray(list)){alert('Ese archivo no parece un respaldo de Quick Comp.');return;}
+    var nL=(dump.clients?dump.clients.reduce(function(a,c){return a+((c.leads||[]).length)},0):(dump.leads||[]).length);
+    if(!confirm('¿Restaurar este respaldo?\\n\\n'+list.length+' agentes y '+nL+' leads se van a AGREGAR o ACTUALIZAR. No se borra nada de lo que ya tienes.\\n\\nEscribe RESTAURAR en el siguiente paso para confirmar.'))return;
+    var typed=prompt('Para confirmar, escribe: RESTAURAR');
+    if(typed!=='RESTAURAR'){alert('Cancelado — no se restauró nada.');return;}
+    fetch('/api/admin/restore?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:'RESTAURAR',dump:dump})})
+      .then(function(r){return r.json();})
+      .then(function(j){ if(j.ok){var n=j.restored||{};alert('Respaldo restaurado ✓\\n\\nAgentes: '+n.contractors+'\\nLeads: '+n.leads+'\\nReuniones: '+n.meetings+'\\nTareas: '+n.tasks);location.reload();} else alert('Error: '+(j.error||'?')); })
+      .catch(function(){alert('No se pudo restaurar (revisa tu conexión).');});
+  };
+  rd.readAsText(f);
 }
-function cpyKey(){
-  navigator.clipboard.writeText(document.getElementById('newkey').textContent);
-  var b=document.getElementById('newkeycpy');b.textContent='✓';setTimeout(function(){b.textContent='Copiar'},900);
+var currentMonth='all';
+function filterMonth(m){
+  currentMonth=m;
+  [].forEach.call(document.querySelectorAll('#mtabs a'),function(a){a.classList.toggle('on',a.getAttribute('data-m')===m);});
+  filterClients();
 }
 function filterClients(){
   var q=document.getElementById('csearch').value.toLowerCase().trim();
-  [].forEach.call(document.querySelectorAll('tr[data-name]'),function(tr){
-    tr.style.display = !q || tr.getAttribute('data-name').indexOf(q)>=0 ? '' : 'none';
+  [].forEach.call(document.querySelectorAll('.crow[data-name]'),function(row){
+    var matchQ = !q || row.getAttribute('data-name').indexOf(q)>=0;
+    var matchM = currentMonth==='all' || row.getAttribute('data-month')===currentMonth;
+    row.style.display = (matchQ && matchM) ? '' : 'none';
   });
-}
-function setStatus(id, status, name){
-  var q = status === 'paused'
-    ? '¿Pausar a ' + name + '? Su valuador y su página dejan de recibir leads. Su app y sus datos NO se tocan.'
-    : '¿Reactivar a ' + name + '? Su valuador vuelve a recibir leads al instante.';
-  if (!confirm(q)) return;
-  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=' + status, {method:'POST'})
-    .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
-}
-function activatePending(id, name){
-  if (!confirm('¿Confirmas que ' + name + ' ya pagó (efectivo, Zelle u otro medio)? Esto activa su cuenta ahora mismo.')) return;
-  fetch('/api/admin/status?key=${KEY}&id=' + id + '&status=active', {method:'POST'})
-    .then(r => r.json()).then(j => { if (!j.ok) alert('Error: ' + j.error); location.reload(); });
-}
-function setHook(id, name){
-  var u = prompt('Webhook de HighLevel para ' + name + ' (vacío = desconectar):');
-  if (u === null) return;
-  fetch('/api/admin/webhook?key=${KEY}&id=' + id + '&url=' + encodeURIComponent(u), {method:'POST'})
-    .then(r => r.json()).then(j => { alert(j.ok ? (j.webhook ? '✓ Conectado' : '✓ Desconectado') : 'Error: ' + j.error); location.reload(); });
 }
 </script>
 </body></html>`);
 });
 
-// Per-client control page — everything about one client + every action
-/* Unit-economics calculator (/admin/economics) — private, admin-only.
- * Plug in the 5 funnel numbers → live CAC, payback, LTV, profit/client. */
-// AI "CEO briefing": turns the cockpit numbers into a short prioritized plan.
 app.post("/api/admin/ceo", async (req, res) => {
   if (!adminOk(req)) return res.status(403).json({ error: "no auth" });
   const en = req.body?.lang === "en";

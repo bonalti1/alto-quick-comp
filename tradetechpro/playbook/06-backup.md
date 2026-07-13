@@ -30,6 +30,9 @@ backup and its owner (you).
   data)** → save the `quickcomp-backup-YYYY-MM-DD.json` next to the local
   clone. Includes clients (with their app data), leads, meetings, tasks and
   kv metrics; excludes session tokens and invites on purpose.
+- **Restore, 1 click:** same panel → **⬆️ Restaurar respaldo** → pick the
+  JSON → type RESTAURAR to confirm. Upsert-only: it adds/updates, never
+  deletes what's already there.
 - Supabase also keeps its own automatic restorable backups, but the JSON is
   YOUR copy in YOUR hands.
 

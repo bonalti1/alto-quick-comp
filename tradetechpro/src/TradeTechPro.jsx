@@ -1775,9 +1775,21 @@ export default function TradeTechPro() {
               <p style={{ color: QC.muted2, fontSize: 9, fontWeight: 700, letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: 5 }}>{t.cmpSubject}</p>
               <p className="font-extrabold mb-3" style={{ color: QC.navyDeep, fontSize: 16, lineHeight: 1.3 }}>{subj.address || R.addr}</p>
               <div className="grid grid-cols-4 gap-2">
-                {[["🛏️", subj.beds ?? "—", t.beds], ["🛁", subj.baths ?? "—", t.baths], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft], ["📅", subj.yearBuilt ?? "—", t.builtIn]].map(([icon, v, label]) => (
-                  <div key={label} style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "10px 6px", textAlign: "center" }}>
-                    <p className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{v}</p>
+                {/* County records sometimes lack beds/baths (new builds, rural
+                    counties) — the realtor knows the house, so those two tiles
+                    are tappable and the typed value flows into the report. */}
+                {[["🛏️", subj.beds ?? "—", t.beds, "beds"], ["🛁", subj.baths ?? "—", t.baths, "baths"], ["📐", subj.sqft ? num(subj.sqft) : "—", t.cmpSqft, null], ["📅", subj.yearBuilt ?? "—", t.builtIn, null]].map(([icon, v, label, editKey]) => (
+                  <div key={label}
+                    onClick={editKey ? () => {
+                      const cur = editKey === "beds" ? subj.beds : subj.baths;
+                      const ans = window.prompt(lang === "es" ? (editKey === "beds" ? "Recámaras" : "Baños") : (editKey === "beds" ? "Bedrooms" : "Baths"), cur ?? "");
+                      if (ans === null) return;
+                      const n = parseFloat(String(ans).replace(/[^0-9.]/g, ""));
+                      if (!Number.isFinite(n) || n <= 0 || n > 30) return;
+                      setLookup((prev) => (prev ? { ...prev, subject: { ...(prev.subject || {}), [editKey]: n } } : prev));
+                    } : undefined}
+                    style={{ background: QC.bg, border: `1px solid ${QC.line}`, borderRadius: 10, padding: "10px 6px", textAlign: "center", cursor: editKey ? "pointer" : "default" }}>
+                    <p className="font-extrabold" style={{ color: QC.navy, fontSize: 15 }}>{v}{editKey && v === "—" ? <span style={{ color: QC.muted, fontSize: 10, fontWeight: 700 }}> ✎</span> : null}</p>
                     <p style={{ color: QC.muted, fontSize: 8, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 3 }}>{icon} {label}</p>
                   </div>
                 ))}

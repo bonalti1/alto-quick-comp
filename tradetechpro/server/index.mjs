@@ -2534,7 +2534,12 @@ a{display:inline-block;margin-top:18px;background:#C9973A;color:#fff;text-decora
 <a href="">Intentar de nuevo</a>
 </div></body></html>`);
   }
-  res.redirect(`/#session=${session}`);
+  // The bare brand domain serves the sales landing, so a relative redirect
+  // there would drop the client on the WEBSITE instead of the app. When the
+  // link was opened on the landing host, send the session to the app host.
+  const invHost = reqHost(req);
+  const onLanding = ROOT_DOMAIN && (invHost === ROOT_DOMAIN || invHost === `www.${ROOT_DOMAIN}`);
+  res.redirect(onLanding && APP_HOST ? `https://${APP_HOST}/#session=${session}` : `/#session=${session}`);
 });
 
 // The app asks: who am I, and what's my saved data?

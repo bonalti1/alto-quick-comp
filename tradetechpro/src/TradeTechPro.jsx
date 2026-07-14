@@ -908,6 +908,33 @@ export default function TradeTechPro() {
     }
     setScreen("listing");
   };
+  /* One tap fills the facts from the property record (RentCast — the same
+     source the comps/tax screens use). Everything stays editable after. */
+  const [listingFetching, setListingFetching] = useState(false);
+  const fetchListingFacts = async () => {
+    const addr = String(listingDraft.address || "").trim();
+    if (!addr) { showToast(lang === "es" ? "Escribe la dirección primero" : "Type the address first"); return; }
+    setListingFetching(true);
+    let subj = null;
+    try {
+      const r = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(session ? { Authorization: `Bearer ${session}` } : {}) },
+        body: JSON.stringify({ address: addr, ...(demoPass && !session ? { pass: demoPass } : {}) }),
+      });
+      if (r.status === 429) { setListingFetching(false); showToast("🔒 " + t.demoLimit); return; }
+      if (r.ok) { const j = await r.json(); if (j.found) subj = j.subject || null; }
+    } catch { /* backend unreachable */ }
+    if (!subj && !session) subj = (await mockLookup(addr)).subject; // demo keeps working offline
+    setListingFetching(false);
+    if (!subj) { showToast("🏠 " + (lang === "es" ? "No encontramos esa propiedad — revisa la dirección" : "Couldn't find that property — check the address")); return; }
+    setListingDraft((f) => ({
+      ...f,
+      beds: subj.beds ?? f.beds, baths: subj.baths ?? f.baths, sqft: subj.sqft ?? f.sqft,
+      year: subj.yearBuilt ?? f.year, lot: subj.lotSize ?? f.lot, type: subj.propertyType ?? f.type,
+    }));
+    showToast("✓ " + (lang === "es" ? "Datos encontrados — revisa y edita" : "Facts found — review and edit"));
+  };
   const generateListing = async () => {
     const d = listingDraft;
     if (!String(d.address).trim() && !String(d.highlights).trim()) {
@@ -1338,6 +1365,62 @@ export default function TradeTechPro() {
           );
         })}
       </div>
+    );
+  };
+
+  /* Desktop-only left rail (≥1024px). A pure addition: CSS keeps it
+     display:none on phones, so the mobile experience is byte-identical.
+     Same state and actions as BottomNav — the phone's tabs stretched into a
+     full-height sidebar, evenly distributed, profile pinned at the bottom. */
+  const DesktopRail = () => {
+    const items = [
+      ["comps", "01", "Comps"],
+      ["lending", "02", lang === "es" ? "Crédito" : "Lending"],
+      ["tax", "03", lang === "es" ? "Impuestos" : "Tax record"],
+      ["workspace", "04", lang === "es" ? "Trabajo" : "Workspace"],
+      ["leads", "05", lang === "es" ? "Mis leads" : "My leads"],
+    ];
+    const totalViews = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
+    // Sub-screens (report, social, …) keep their parent tab lit
+    const active = ["comps", "lending", "tax", "workspace", "leads"].includes(screen)
+      ? screen
+      : ({ report: "comps", listing: "comps", social: "workspace", appraisal: "workspace", help: "workspace", share: "workspace" }[screen] || "comps");
+    return (
+      <aside className="qc-rail no-print" style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 300, background: QC.headGrad, flexDirection: "column", padding: "36px 22px 26px", zIndex: 40 }}>
+        <img src="/quick-comp-lockup-white.png" alt="Quick Comp" draggable={false} style={{ height: 76, objectFit: "contain", alignSelf: "center", marginBottom: 8 }} />
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-evenly", minHeight: 0 }}>
+          {items.map(([s, no, label]) => {
+            const on = active === s;
+            return (
+              <button key={s} onClick={() => setScreen(s)} className="qc-rail-it"
+                style={{
+                  display: "flex", alignItems: "center", gap: 16, width: "100%",
+                  border: "none", cursor: "pointer", borderRadius: 16, padding: "17px 18px", textAlign: "left",
+                  ...(on ? { background: QC.gold } : {}),
+                }}>
+                <span style={{ color: on ? QC.navyDeep : QC.gold, fontSize: 12.5, fontWeight: 900, letterSpacing: 1, width: 26 }}>{no}</span>
+                <span style={{ color: on ? QC.navyDeep : "#fff", fontSize: 16.5, fontWeight: 800, letterSpacing: 0.3, flex: 1 }}>{label}</span>
+                {s === "leads" && pendingLeads > 0 && (
+                  <span style={{ background: on ? QC.navyDeep : QC.gold, color: on ? "#fff" : QC.navyDeep, borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 900 }}>
+                    {pendingLeads} {lang === "es" ? (pendingLeads === 1 ? "NUEVO" : "NUEVOS") : "NEW"}
+                  </span>
+                )}
+                {s === "workspace" && totalViews > seenViews && (
+                  <span style={{ width: 10, height: 10, borderRadius: 5, background: QC.goldLine, flexShrink: 0 }} />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        <button onClick={() => setScreen("workspace")} className="qc-rail-it"
+          style={{ display: "flex", alignItems: "center", gap: 13, border: "1px solid rgba(255,255,255,.10)", borderRadius: 18, padding: "14px 16px", cursor: "pointer", textAlign: "left", background: "rgba(255,255,255,.05)" }}>
+          <span style={{ width: 46, height: 46, borderRadius: 23, background: QC.cardGrad, color: QC.goldHi, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 18, flexShrink: 0, border: `1.5px solid ${QC.goldLine}` }}>{(userName || "Q")[0].toUpperCase()}</span>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", color: "#fff", fontSize: 14.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName || (lang === "es" ? "Tu perfil" : "Your profile")}</span>
+            <span style={{ display: "block", color: QC.muted, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{bizName || "Quick Comp"}</span>
+          </span>
+        </button>
+      </aside>
     );
   };
 
@@ -2126,6 +2209,17 @@ export default function TradeTechPro() {
     return (
       <div className="flex-1 overflow-y-auto pb-6" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
+          {/* THE share hub launcher — website + valuator + reviews in one place */}
+          <button onClick={() => setScreen("share")} className="w-full flex items-center gap-3 rounded-2xl p-5 mb-3 text-left active:scale-[0.99] transition-transform"
+            style={{ background: QC.headGrad, border: `2px solid ${QC.goldLine}`, boxShadow: "0 6px 20px rgba(17,27,66,0.3)", cursor: "pointer" }}>
+            <span style={{ fontSize: 28 }}>🌐</span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-extrabold" style={{ color: "#fff", fontSize: 16 }}>{lang === "es" ? "Comparte tu página y tus links" : "Share your page & links"}</span>
+              <span className="block" style={{ color: "#B9C3DC", fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{lang === "es" ? "Tu página web, tu valuador y tu link de reseñas — listos para mandar." : "Your website, your home-value link and your reviews link — ready to send."}</span>
+            </span>
+            <span style={{ color: QC.goldHi, fontSize: 20 }}>›</span>
+          </button>
+
           {/* Listing writer — standalone entry: type the facts from anywhere */}
           <button onClick={() => openListing(null)} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
             style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
@@ -2201,27 +2295,6 @@ export default function TradeTechPro() {
                     style={{ background: QC.navy, color: "#fff", border: "none", borderRadius: 10, padding: 11, fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar código" : "Copy code"}</button>
                   <a href={`/w/${mySlug}`} target="_blank" rel="noreferrer" className="flex items-center justify-center"
                     style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "11px 16px", fontWeight: 800, fontSize: 13, textDecoration: "none" }}>{lang === "es" ? "Ver mi valuador" : "See my widget"}</a>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Review funnel link — send it to happy clients after every closing */}
-          {session && mySlug && (() => {
-            const opinaUrl = `${window.location.origin}/opina/${mySlug}`;
-            const waShare = lang === "es"
-              ? `¡Gracias por confiar en nosotros! 🙏 ¿Nos regalas 1 minuto? Cuéntanos cómo te fue: ${opinaUrl}`
-              : `Thank you for trusting us! 🙏 Got 1 minute? Tell us how we did: ${opinaUrl}`;
-            return (
-              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-                <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Reseñas" : "Reviews"}</p>
-                <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 14 }}>⭐ {lang === "es" ? "Pide una reseña" : "Ask for a review"}</p>
-                <p className="mb-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Mándalo después de cada cierre: 5 estrellas se publican en tu página y van a Google; las malas te llegan en privado, no al público." : "Send it after every closing: 5-star reviews publish on your site and flow to Google; bad ones come to you privately, not publicly."}</p>
-                <div className="flex gap-2">
-                  <a href={`https://wa.me/?text=${encodeURIComponent(waShare)}`} target="_blank" rel="noreferrer" className="flex-1 text-center"
-                    style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 11, fontWeight: 800, fontSize: 13, textDecoration: "none" }}>💬 {lang === "es" ? "Mandar por WhatsApp" : "Send via WhatsApp"}</a>
-                  <button onClick={() => copyText(opinaUrl)} className="active:translate-y-px"
-                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "11px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
                 </div>
               </div>
             );
@@ -2430,27 +2503,17 @@ export default function TradeTechPro() {
     return (
       <div className="flex-1 overflow-y-auto pb-10" style={{ background: QC.bg }}>
         <div className="px-5 pt-4">
-          {/* Compact share card — the months below get the screen space */}
-          <div className="rounded-2xl p-3.5 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
-            <div className="flex items-center justify-between mb-1">
-              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase" }}>{lang === "es" ? "Consigue más leads" : "Get more leads"}</p>
-              <span className="flex items-center gap-2">
-                <span style={{ color: QC.muted2, fontSize: 11, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
-                {leads.length > 0 && (
-                  <button onClick={exportLeadsCsv} className="active:translate-y-px" title={lang === "es" ? "Descargar Excel" : "Download Excel"}
-                    style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 8, padding: "4px 8px", fontWeight: 800, fontSize: 10.5, cursor: "pointer" }}>⬇️ Excel</button>
-                )}
-              </span>
-            </div>
-            <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600, lineHeight: 1.45 }}>{lang === "es" ? "Mándale tu formulario a un cliente — su info te llega aquí sola." : "Send your lead form to a client — their info lands here on its own."}</p>
-            <button onClick={shareLeadForm} className="w-full active:translate-y-px transition-transform mb-1.5"
-              style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 11, padding: 11, fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>💬 {lang === "es" ? "Mandar mi formulario" : "Send my lead form"}</button>
-            <div className="flex gap-2">
-              <button onClick={() => copyText(leadFormUrl)} className="flex-1 active:translate-y-px transition-transform"
-                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
-              <a href={leadFormUrl} target="_blank" rel="noreferrer" className="flex-1 flex items-center justify-center"
-                style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 9, padding: 8, fontWeight: 800, fontSize: 11.5, textDecoration: "none" }}>👀 {lang === "es" ? "Ver formulario" : "Preview form"}</a>
-            </div>
+          {/* Pure CRM: sharing moved to the Workspace share hub. Just the tally + export. */}
+          <div className="flex items-center justify-between mb-3">
+            <span style={{ color: QC.muted2, fontSize: 12, fontWeight: 800 }}>📥 {leads.length} {leads.length === 1 ? "lead" : "leads"}</span>
+            <span className="flex items-center gap-2">
+              <button onClick={() => setScreen("share")} className="active:translate-y-px"
+                style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 8, padding: "5px 10px", fontWeight: 800, fontSize: 11, cursor: "pointer" }}>🔗 {lang === "es" ? "Compartir mis links" : "Share my links"}</button>
+              {leads.length > 0 && (
+                <button onClick={exportLeadsCsv} className="active:translate-y-px" title={lang === "es" ? "Descargar Excel" : "Download Excel"}
+                  style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 8, padding: "5px 10px", fontWeight: 800, fontSize: 11, cursor: "pointer" }}>⬇️ Excel</button>
+              )}
+            </span>
           </div>
 
           {/* The buzz — one tap turns on push for this device (ALTO notifyLead pattern) */}
@@ -2466,11 +2529,61 @@ export default function TradeTechPro() {
             </button>
           )}
 
+          {/* Desktop-only pipeline board (≥1024px, CSS-gated): the same five
+              stages as the buttons below, but as drag-and-drop columns. Drop a
+              card on a column → same markLead() the phone buttons call. */}
+          {leads.length > 0 && (
+            <div className="qc-leadboard no-print">
+              {[
+                ["new", lang === "es" ? "Nuevos" : "New", "#8A6A00", "#FDF3D7", QC.goldLine],
+                ["contacted", lang === "es" ? "Contactado" : "Contacted", "#1E7B3C", "#EAF8EF", "#A7E0BC"],
+                ["interested", lang === "es" ? "Interesado" : "Interested", "#B3611B", "#FBEFE3", "#EFC9A5"],
+                ["not-interested", lang === "es" ? "No interesado" : "Not interested", "#67718A", "#F2F4F7", "#D5DAE3"],
+                ["closed", lang === "es" ? "Cerrado 🎉" : "Closed 🎉", "#0E5A8A", "#E4F1FA", "#A9D3EC"],
+              ].map(([val, lbl, fg, bg, bd]) => {
+                const items = leads.filter((l) => (l.status || "new") === val);
+                return (
+                  <div key={val} className="qc-col"
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("qc-dropping"); }}
+                    onDragLeave={(e) => e.currentTarget.classList.remove("qc-dropping")}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("qc-dropping");
+                      const id = e.dataTransfer.getData("text/plain");
+                      const lead = leads.find((x) => String(x.id) === id);
+                      if (lead && (lead.status || "new") !== val) markLead(lead.id, val);
+                    }}>
+                    <div className="qc-colhead" style={{ color: fg, background: bg, border: `1.5px solid ${bd}` }}>
+                      <span>{lbl}</span><b>{items.length}</b>
+                    </div>
+                    {items.map((l) => (
+                      <div key={l.id} className="qc-card" draggable
+                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", String(l.id)); e.dataTransfer.effectAllowed = "move"; }}
+                        style={{ border: (l.status || "new") === "new" ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}` }}>
+                        <p className="qc-cname">{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</p>
+                        {l.address ? <p className="qc-caddr">📍 {l.address}</p> : null}
+                        <p className="qc-cmeta">{l.phone}{l.info?.low && l.info?.high ? ` · ${fmt(l.info.low)}–${fmt(l.info.high)}` : ""} · {ago(l.created_at)}</p>
+                        {l.info?.note ? <p className="qc-cnote">📝 {l.info.note}</p> : null}
+                        <div className="qc-cbtns">
+                          <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
+                            onClick={() => (l.status || "new") === "new" && markLead(l.id, "contacted")}
+                            style={{ background: "#25D366", color: "#fff" }}>💬 WhatsApp</a>
+                          <a href={`tel:+${digits(l.phone)}`} onClick={() => (l.status || "new") === "new" && markLead(l.id, "contacted")}
+                            style={{ background: QC.navy, color: "#fff" }}>📞</a>
+                        </div>
+                      </div>
+                    ))}
+                    {items.length === 0 && <div className="qc-colempty">{lang === "es" ? "Arrastra un lead aquí" : "Drag a lead here"}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {leads.length === 0 ? (
             <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
-              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu formulario y aparecerán aquí solos." : "No leads yet — share your form and they'll show up here on their own."}</p>
+              <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu página y tus links (botón de arriba) y aparecerán aquí solos." : "No leads yet — share your page and links (button above) and they'll show up here on their own."}</p>
             </div>
-          ) : (() => {
+          ) : <div className="qc-leadlist">{(() => {
             // Group by month (leads arrive newest-first); latest month starts open
             const groups = [];
             leads.forEach((l) => {
@@ -2543,7 +2656,69 @@ export default function TradeTechPro() {
                 </div>
               );
             });
-          })()}
+          })()}</div>}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Share hub (ALTO WebShare, realtor edition): the realtor's three public
+     links — website, home-value widget, reviews — each with a live preview and
+     WhatsApp / SMS / copy senders. Phone: stacked. Desktop: three columns. ── */
+  const Share = () => {
+    const base = window.location.origin;
+    const s = mySlug || "alto-demo";
+    // Demo mode shows the polished sample site; a signed-in realtor gets their
+    // real site (the branded "being built" page until the team publishes it).
+    const siteUrl = session && mySlug ? `${base}/site/${mySlug}` : `${base}/ejemplo`;
+    const links = [
+      {
+        key: "widget", icon: "🏡", accent: QC.goldLine, url: `${base}/w/${s}`,
+        title: lang === "es" ? "Tu valuador" : "Your home-value link",
+        sub: lang === "es" ? "El dueño pone su dirección, ve el valor — y te llega como lead. Para tu bio de Instagram, Facebook y WhatsApp." : "Homeowner types their address, sees the value — and lands as your lead. For your Instagram bio, Facebook and WhatsApp.",
+        msg: lang === "es" ? `Mira cuánto vale tu casa hoy — gratis y en 10 segundos 🏡👇\n${base}/w/${s}` : `See what your home is worth today — free, in 10 seconds 🏡👇\n${base}/w/${s}`,
+      },
+      {
+        key: "site", icon: "🌐", accent: "#2E7CF6", url: siteUrl,
+        title: lang === "es" ? "Tu página completa" : "Your full website",
+        sub: lang === "es" ? "Tu sitio con tu marca y el valuador adentro." : "Your branded site with the home-value tool inside.",
+        msg: lang === "es" ? `Conoce mi página — el valor de tu casa y todos mis servicios 🏡\n${siteUrl}` : `Check out my page — your home's value and everything I do 🏡\n${siteUrl}`,
+      },
+      {
+        key: "reviews", icon: "⭐", accent: "#E3B54E", url: `${base}/opina/${s}`,
+        title: lang === "es" ? "Tu link de reseñas" : "Your reviews link",
+        sub: lang === "es" ? "Mándalo después de cada cierre: 5 estrellas se publican y van a Google; las malas te llegan en privado." : "Send it after every closing: 5-star reviews publish and flow to Google; bad ones reach you privately.",
+        msg: lang === "es" ? `¡Gracias por confiar en nosotros! 🙏 ¿Nos regalas 1 minuto? Cuéntanos cómo te fue: ${base}/opina/${s}` : `Thank you for trusting us! 🙏 Got 1 minute? Tell us how we did: ${base}/opina/${s}`,
+      },
+    ];
+    return (
+      <div className="flex-1 overflow-y-auto pb-8" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <p className="text-center mb-4" style={{ color: QC.muted2, fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+            {lang === "es" ? "Tus tres links que trabajan por ti — tócalos para verlos, mándalos con un botón." : "Your three links that work for you — tap to preview, send with one button."}
+          </p>
+          <div className="qc-sharegrid">
+            {links.map((l) => (
+              <div key={l.key} className="rounded-2xl overflow-hidden mb-4" style={{ background: "#fff", border: `1.5px solid ${QC.line}`, borderTop: `4px solid ${l.accent}`, boxShadow: "0 6px 20px rgba(17,27,66,.07)" }}>
+                <a href={l.url} target="_blank" rel="noreferrer" className="block w-full relative" style={{ height: 200, overflow: "hidden", background: QC.bg, padding: 0 }}>
+                  <iframe src={l.url} title={l.title} scrolling="no" tabIndex={-1} style={{ width: "100%", height: 440, border: 0, pointerEvents: "none" }} />
+                  <span className="absolute font-bold" style={{ right: 10, bottom: 10, fontSize: 12, background: QC.navy, color: "#fff", padding: "7px 12px", borderRadius: 99, boxShadow: "0 4px 12px rgba(17,27,66,.3)" }}>👁️ {lang === "es" ? "Ver" : "View"}</span>
+                </a>
+                <div className="px-4 py-3.5">
+                  <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 15 }}>{l.icon} {l.title}</p>
+                  <p className="mt-1 mb-3" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>{l.sub}</p>
+                  <div className="flex gap-2">
+                    <a href={`https://wa.me/?text=${encodeURIComponent(l.msg)}`} target="_blank" rel="noreferrer" className="flex-1 text-center"
+                      style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>💬 WhatsApp</a>
+                    <a href={`sms:?&body=${encodeURIComponent(l.msg)}`} className="flex-1 text-center"
+                      style={{ background: QC.navy, color: "#fff", borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>✉️ {lang === "es" ? "Mensaje" : "Text"}</a>
+                  </div>
+                  <button onClick={() => copyText(l.url)} className="w-full text-center mt-2.5 active:opacity-80"
+                    style={{ background: "none", border: "none", color: QC.muted2, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>🔗 {lang === "es" ? "Copiar link" : "Copy link"}</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -2866,8 +3041,17 @@ export default function TradeTechPro() {
 
           <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{es ? "Datos de la propiedad" : "Property facts"}</p>
-            <input value={d.address} onChange={set("address")} placeholder={es ? "Dirección" : "Address"}
-              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={inputStyle} />
+            <div className="flex gap-2 mb-2">
+              <input value={d.address} onChange={set("address")} placeholder={es ? "Dirección" : "Address"}
+                onKeyDown={(e) => e.key === "Enter" && !listingFetching && fetchListingFacts()}
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <button onClick={fetchListingFacts} disabled={listingFetching} className="shrink-0 active:translate-y-px transition-transform"
+                title={es ? "Buscar los datos de la propiedad" : "Look up the property facts"}
+                style={{ background: listingFetching ? QC.line : QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: "0 16px", fontWeight: 800, fontSize: 13, cursor: listingFetching ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                {listingFetching ? "…" : "🔍 " + (es ? "Buscar datos" : "Find facts")}
+              </button>
+            </div>
+            <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{es ? "Recámaras, baños, pies² y más se llenan solos del registro de la propiedad — y los puedes editar." : "Beds, baths, sq ft and more fill in from the property record — and you can edit anything."}</p>
             <div className="flex gap-2 mb-2">
               <input value={d.beds} onChange={set("beds")} placeholder={t.beds} inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
@@ -3276,6 +3460,7 @@ export default function TradeTechPro() {
     appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
     leads: "📥 Leads",
     help: "🙋 " + (lang === "es" ? "Pedir un cambio" : "Request a change"),
+    share: "🌐 " + (lang === "es" ? "Tu página y tus links" : "Your page & links"),
   };
   const backMap = {
     report: "comps",
@@ -3284,17 +3469,48 @@ export default function TradeTechPro() {
     appraisal: "workspace",
     leads: "comps",
     help: "workspace",
+    share: "workspace",
   };
   const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
 
   return (
-    <div className="app-outer min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
+    <div className={`app-outer min-h-screen flex justify-center${screen !== "welcome" ? " qc-has-rail" : ""}`} style={{ background: C.navyDeep }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
         * { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         input::placeholder { color: #A7AEBE; }
         @keyframes ttpPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: .65; } }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+        /* ── Desktop (≥1024px): the phone's tabs become a full-height left rail
+           and the shell widens and centers. Below 1024px NONE of this applies —
+           the mobile app is untouched. ── */
+        .qc-rail { display: none; }
+        .qc-leadboard { display: none; }
+        @media (min-width: 1024px) {
+          .qc-rail { display: flex; }
+          .app-outer.qc-has-rail { padding-left: 300px; background: #E9EDF5 !important; }
+          .app-outer.qc-has-rail .app-shell { max-width: 880px; box-shadow: 0 24px 80px rgba(11,23,51,.14); }
+          .app-outer.qc-has-rail .app-shell.qc-wide { max-width: 1120px; }
+          .app-outer.qc-has-rail .qc-brandbar, .app-outer.qc-has-rail .qc-tabbar { display: none; }
+          .qc-rail-it:hover { background: rgba(255,255,255,.07); }
+          /* Leads: pipeline board replaces the phone's month list */
+          .app-outer.qc-has-rail .qc-leadlist { display: none; }
+          .app-outer.qc-has-rail .qc-leadboard { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: start; }
+          .qc-col { background: #E9EEF6; border-radius: 14px; padding: 8px; min-height: 360px; border: 1.5px dashed transparent; }
+          .qc-col.qc-dropping { border-color: #D7B665; background: #F3EFE2; }
+          .qc-colhead { display: flex; align-items: center; justify-content: space-between; border-radius: 10px; padding: 7px 10px; font-size: 11px; font-weight: 900; letter-spacing: .04em; margin-bottom: 8px; text-transform: uppercase; }
+          .qc-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; cursor: grab; box-shadow: 0 1px 4px rgba(27,42,92,.08); }
+          .qc-card:active { cursor: grabbing; }
+          .qc-cname { color: #111B42; font-size: 12.5px; font-weight: 800; }
+          .qc-caddr { color: #4a5a7a; font-size: 10.5px; font-weight: 600; margin-top: 2px; }
+          .qc-cmeta { color: #6b7db3; font-size: 10px; font-weight: 600; margin-top: 2px; }
+          .qc-cnote { color: #4a5a7a; font-size: 10px; font-weight: 600; margin-top: 4px; background: #F0F4FA; border-radius: 7px; padding: 4px 6px; }
+          .qc-cbtns { display: flex; gap: 6px; margin-top: 7px; }
+          .qc-cbtns a { flex: 1; text-align: center; border-radius: 8px; padding: 5px 0; font-size: 10.5px; text-decoration: none; font-weight: 800; }
+          .qc-colempty { color: #9aaac8; font-size: 10.5px; font-weight: 700; text-align: center; padding: 18px 4px; border: 1.5px dashed #CAD5E7; border-radius: 10px; }
+          /* Share hub: the three link cards sit side by side on desktop */
+          .app-outer.qc-has-rail .qc-sharegrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+        }
         @page { margin: 0.45in; }
         @media print {
           body { background: #fff !important; }
@@ -3302,7 +3518,7 @@ export default function TradeTechPro() {
           /* The phone-shaped shell must become a plain, full-width page flow:
              without this the document prints as a 448px strip clipped to one
              screen — the "PDF looks terrible" bug. */
-          .app-outer { background: #fff !important; display: block !important; }
+          .app-outer { background: #fff !important; display: block !important; padding: 0 !important; }
           .app-shell { height: auto !important; overflow: visible !important; max-width: none !important; }
           .print-flow { overflow: visible !important; height: auto !important; background: #fff !important; }
           .print-flow > div { padding: 0 !important; }
@@ -3317,14 +3533,15 @@ export default function TradeTechPro() {
           #qc-report .doc-h { break-after: avoid; }
           #qc-report .doc-cover { padding-top: 170px !important; }
         }`}</style>
-      <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
+      {screen !== "welcome" && <DesktopRail />}
+      <div className={`app-shell w-full max-w-md flex flex-col relative${screen === "leads" || screen === "share" ? " qc-wide" : ""}`} style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
           <div className="no-print px-4 py-2 text-center shrink-0" style={{ background: C.orangeSoft, borderBottom: `1.5px solid ${C.orange}` }}>
             <span className="text-xs font-bold" style={{ color: "#7A5A00" }}>{t.demoBanner}</span>
           </div>
         )}
         {/* Pinned top */}
-        {tabScreens.includes(screen) && <div className="shrink-0"><BrandHeader /></div>}
+        {tabScreens.includes(screen) && <div className="shrink-0 qc-brandbar"><BrandHeader /></div>}
         {screen !== "welcome" && !tabScreens.includes(screen) && (
           <div className="no-print shrink-0"><Header title={titles[screen] || ""} back={() => setScreen(backMap[screen] || "comps")} /></div>
         )}
@@ -3341,9 +3558,10 @@ export default function TradeTechPro() {
           {screen === "social" && SocialWriter()}
           {screen === "help" && Help()}
           {screen === "appraisal" && AppraisalPacket()}
+          {screen === "share" && Share()}
         </div>
         {/* Pinned bottom tabs */}
-        {withNav.includes(screen) && <div className="shrink-0"><BottomNav /></div>}
+        {withNav.includes(screen) && <div className="shrink-0 qc-tabbar"><BottomNav /></div>}
         {toast && (
           <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>

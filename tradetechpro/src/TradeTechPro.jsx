@@ -1341,6 +1341,62 @@ export default function TradeTechPro() {
     );
   };
 
+  /* Desktop-only left rail (≥1024px). A pure addition: CSS keeps it
+     display:none on phones, so the mobile experience is byte-identical.
+     Same state and actions as BottomNav — the phone's tabs stretched into a
+     full-height sidebar, evenly distributed, profile pinned at the bottom. */
+  const DesktopRail = () => {
+    const items = [
+      ["comps", "01", "Comps"],
+      ["lending", "02", lang === "es" ? "Crédito" : "Lending"],
+      ["tax", "03", lang === "es" ? "Impuestos" : "Tax record"],
+      ["workspace", "04", lang === "es" ? "Trabajo" : "Workspace"],
+      ["leads", "05", lang === "es" ? "Mis leads" : "My leads"],
+    ];
+    const totalViews = Object.values(reportOpens).reduce((s, o) => s + (o?.n || 0), 0);
+    // Sub-screens (report, social, …) keep their parent tab lit
+    const active = ["comps", "lending", "tax", "workspace", "leads"].includes(screen)
+      ? screen
+      : ({ report: "comps", listing: "comps", social: "workspace", appraisal: "workspace", help: "workspace" }[screen] || "comps");
+    return (
+      <aside className="qc-rail no-print" style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: 300, background: QC.headGrad, flexDirection: "column", padding: "36px 22px 26px", zIndex: 40 }}>
+        <img src="/quick-comp-lockup-white.png" alt="Quick Comp" draggable={false} style={{ height: 76, objectFit: "contain", alignSelf: "center", marginBottom: 8 }} />
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "space-evenly", minHeight: 0 }}>
+          {items.map(([s, no, label]) => {
+            const on = active === s;
+            return (
+              <button key={s} onClick={() => setScreen(s)} className="qc-rail-it"
+                style={{
+                  display: "flex", alignItems: "center", gap: 16, width: "100%",
+                  border: "none", cursor: "pointer", borderRadius: 16, padding: "17px 18px", textAlign: "left",
+                  ...(on ? { background: QC.gold } : {}),
+                }}>
+                <span style={{ color: on ? QC.navyDeep : QC.gold, fontSize: 12.5, fontWeight: 900, letterSpacing: 1, width: 26 }}>{no}</span>
+                <span style={{ color: on ? QC.navyDeep : "#fff", fontSize: 16.5, fontWeight: 800, letterSpacing: 0.3, flex: 1 }}>{label}</span>
+                {s === "leads" && pendingLeads > 0 && (
+                  <span style={{ background: on ? QC.navyDeep : QC.gold, color: on ? "#fff" : QC.navyDeep, borderRadius: 99, padding: "3px 10px", fontSize: 11.5, fontWeight: 900 }}>
+                    {pendingLeads} {lang === "es" ? (pendingLeads === 1 ? "NUEVO" : "NUEVOS") : "NEW"}
+                  </span>
+                )}
+                {s === "workspace" && totalViews > seenViews && (
+                  <span style={{ width: 10, height: 10, borderRadius: 5, background: QC.goldLine, flexShrink: 0 }} />
+                )}
+              </button>
+            );
+          })}
+        </nav>
+        <button onClick={() => setScreen("workspace")} className="qc-rail-it"
+          style={{ display: "flex", alignItems: "center", gap: 13, border: "1px solid rgba(255,255,255,.10)", borderRadius: 18, padding: "14px 16px", cursor: "pointer", textAlign: "left", background: "rgba(255,255,255,.05)" }}>
+          <span style={{ width: 46, height: 46, borderRadius: 23, background: QC.cardGrad, color: QC.goldHi, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 18, flexShrink: 0, border: `1.5px solid ${QC.goldLine}` }}>{(userName || "Q")[0].toUpperCase()}</span>
+          <span style={{ minWidth: 0 }}>
+            <span style={{ display: "block", color: "#fff", fontSize: 14.5, fontWeight: 800, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{userName || (lang === "es" ? "Tu perfil" : "Your profile")}</span>
+            <span style={{ display: "block", color: QC.muted, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>{bizName || "Quick Comp"}</span>
+          </span>
+        </button>
+      </aside>
+    );
+  };
+
   /* ── Screens ── */
   // Quick Comp visual language — scoped to the comps screens (search + result) only.
   const CompsSearch = () => {
@@ -3289,12 +3345,23 @@ export default function TradeTechPro() {
   const withNav = tabScreens;
 
   return (
-    <div className="app-outer min-h-screen flex justify-center" style={{ background: C.navyDeep }}>
+    <div className={`app-outer min-h-screen flex justify-center${screen !== "welcome" ? " qc-has-rail" : ""}`} style={{ background: C.navyDeep }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700;800&display=swap');
         * { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         input::placeholder { color: #A7AEBE; }
         @keyframes ttpPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: .65; } }
         @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+        /* ── Desktop (≥1024px): the phone's tabs become a full-height left rail
+           and the shell widens and centers. Below 1024px NONE of this applies —
+           the mobile app is untouched. ── */
+        .qc-rail { display: none; }
+        @media (min-width: 1024px) {
+          .qc-rail { display: flex; }
+          .app-outer.qc-has-rail { padding-left: 300px; background: #E9EDF5 !important; }
+          .app-outer.qc-has-rail .app-shell { max-width: 880px; box-shadow: 0 24px 80px rgba(11,23,51,.14); }
+          .app-outer.qc-has-rail .qc-brandbar, .app-outer.qc-has-rail .qc-tabbar { display: none; }
+          .qc-rail-it:hover { background: rgba(255,255,255,.07); }
+        }
         @page { margin: 0.45in; }
         @media print {
           body { background: #fff !important; }
@@ -3302,7 +3369,7 @@ export default function TradeTechPro() {
           /* The phone-shaped shell must become a plain, full-width page flow:
              without this the document prints as a 448px strip clipped to one
              screen — the "PDF looks terrible" bug. */
-          .app-outer { background: #fff !important; display: block !important; }
+          .app-outer { background: #fff !important; display: block !important; padding: 0 !important; }
           .app-shell { height: auto !important; overflow: visible !important; max-width: none !important; }
           .print-flow { overflow: visible !important; height: auto !important; background: #fff !important; }
           .print-flow > div { padding: 0 !important; }
@@ -3317,6 +3384,7 @@ export default function TradeTechPro() {
           #qc-report .doc-h { break-after: avoid; }
           #qc-report .doc-cover { padding-top: 170px !important; }
         }`}</style>
+      {screen !== "welcome" && <DesktopRail />}
       <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
           <div className="no-print px-4 py-2 text-center shrink-0" style={{ background: C.orangeSoft, borderBottom: `1.5px solid ${C.orange}` }}>
@@ -3324,7 +3392,7 @@ export default function TradeTechPro() {
           </div>
         )}
         {/* Pinned top */}
-        {tabScreens.includes(screen) && <div className="shrink-0"><BrandHeader /></div>}
+        {tabScreens.includes(screen) && <div className="shrink-0 qc-brandbar"><BrandHeader /></div>}
         {screen !== "welcome" && !tabScreens.includes(screen) && (
           <div className="no-print shrink-0"><Header title={titles[screen] || ""} back={() => setScreen(backMap[screen] || "comps")} /></div>
         )}
@@ -3343,7 +3411,7 @@ export default function TradeTechPro() {
           {screen === "appraisal" && AppraisalPacket()}
         </div>
         {/* Pinned bottom tabs */}
-        {withNav.includes(screen) && <div className="shrink-0"><BottomNav /></div>}
+        {withNav.includes(screen) && <div className="shrink-0 qc-tabbar"><BottomNav /></div>}
         {toast && (
           <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>

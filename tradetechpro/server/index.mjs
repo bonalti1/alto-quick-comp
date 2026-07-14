@@ -947,6 +947,35 @@ app.get("/api/places", async (req, res) => {
   });
 });
 
+/* GPS coords → nearby street-address candidates, so the app can ask "is this
+ * the property?" before spending a comps lookup. GPS routinely lands on the
+ * neighbor's house; each candidate carries its placeId for a precise lookup. */
+app.get("/api/revgeo", async (req, res) => {
+  const lat = parseFloat(req.query.lat), lng = parseFloat(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: "lat/lng required" });
+  const rgIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`rg:${rgIp}`, 60)) return res.status(429).json({ candidates: [], error: "quota" });
+  if (!GOOGLE_KEY) return res.json({ ok: false, candidates: [] });
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&result_type=street_address|premise|subpremise&key=${GOOGLE_KEY}`;
+    const j = await (await fetchT(url)).json();
+    const seen = new Set();
+    const candidates = (j.results || [])
+      .map((r) => ({
+        address: r.formatted_address,
+        placeId: r.place_id || null,
+        lat: r.geometry?.location?.lat ?? null,
+        lng: r.geometry?.location?.lng ?? null,
+      }))
+      .filter((c) => c.address && !seen.has(c.address) && seen.add(c.address))
+      .slice(0, 5);
+    res.json({ ok: true, candidates });
+  } catch (e) {
+    console.error("revgeo failed:", e.message);
+    res.json({ ok: false, candidates: [] });
+  }
+});
+
 /* ── Parcel boundary (Regrid) for the fence estimator ── */
 function simplifyLatLng(pts, cap = 24) {
   const k = Math.PI / 180, R = 6378137;

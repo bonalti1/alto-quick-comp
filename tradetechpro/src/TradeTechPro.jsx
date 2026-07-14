@@ -1071,11 +1071,24 @@ export default function TradeTechPro() {
     r.start();
   };
 
+  /* GPS confirm (ALTO pattern): GPS can land on the neighbor's house, so
+     before spending a lookup we show the addresses found at that spot and let
+     the realtor pick. Only the 📍 path asks — typed addresses are explicit. */
+  const [gpsPick, setGpsPick] = useState(null); // null | {candidates:[{address,placeId}], lat, lng}
   const useMyLocation = () => {
     if (!navigator.geolocation) { showToast("⚠️ " + t.locErr); return; }
     showToast("📍 " + t.locating);
     navigator.geolocation.getCurrentPosition(
-      (pos) => startLookup(t.myLocation, null, { lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      async (pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        let cands = [];
+        try {
+          const r = await fetch(`/api/revgeo?lat=${lat}&lng=${lng}`);
+          if (r.ok) { const j = await r.json(); if (Array.isArray(j.candidates)) cands = j.candidates; }
+        } catch { /* backend unreachable */ }
+        if (cands.length) setGpsPick({ candidates: cands, lat, lng });
+        else startLookup(t.myLocation, null, { lat, lng }); // no data → old direct behavior
+      },
       () => showToast("⚠️ " + t.locErr),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     );
@@ -3565,6 +3578,36 @@ export default function TradeTechPro() {
         {toast && (
           <div className="no-print absolute left-0 right-0 flex justify-center" style={{ bottom: 80, pointerEvents: "none" }}>
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
+          </div>
+        )}
+        {/* GPS confirm sheet — pick the right property before the lookup runs */}
+        {gpsPick && (
+          <div className="no-print absolute inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(7,12,28,0.72)" }} onClick={() => setGpsPick(null)}>
+            <div className="w-full rounded-t-3xl p-5 pb-7" style={{ background: "#fff", maxWidth: 448 }} onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between mb-1">
+                <p className="font-extrabold" style={{ color: QC.navyDeep, fontSize: 17 }}>📍 {lang === "es" ? "¿Es esta la propiedad?" : "Is this the property?"}</p>
+                <button onClick={() => setGpsPick(null)} style={{ background: "none", border: "none", color: QC.muted2, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>✕</button>
+              </div>
+              <p className="mb-3" style={{ color: QC.muted2, fontSize: 12, fontWeight: 600, lineHeight: 1.5 }}>
+                {lang === "es" ? "El GPS puede caer en la casa de al lado — confirma antes de valuar." : "GPS can land on the house next door — confirm before we value it."}
+              </p>
+              {gpsPick.candidates.map((c, i) => (
+                <button key={c.address} onClick={() => { setGpsPick(null); startLookup(c.address, c.placeId); }}
+                  className="w-full flex items-center gap-2.5 text-left rounded-xl px-3.5 py-3 mb-2 active:opacity-80"
+                  style={{ background: i === 0 ? "#FDF3D7" : "#fff", border: `1.5px solid ${i === 0 ? QC.goldLine : QC.line}`, cursor: "pointer" }}>
+                  <span style={{ fontSize: 16 }}>{i === 0 ? "🏡" : "📍"}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-bold truncate" style={{ color: QC.navyDeep, fontSize: 13.5 }}>{c.address}</span>
+                    {i === 0 && <span style={{ color: "#8A6A00", fontSize: 10.5, fontWeight: 800 }}>{lang === "es" ? "La más cercana a ti" : "Closest to you"}</span>}
+                  </span>
+                  <span style={{ color: QC.gold, fontSize: 16 }}>›</span>
+                </button>
+              ))}
+              <button onClick={() => setGpsPick(null)} className="w-full text-center mt-1 active:opacity-80"
+                style={{ background: "none", border: "none", color: QC.muted2, fontSize: 12.5, fontWeight: 800, cursor: "pointer", padding: "8px 0" }}>
+                {lang === "es" ? "Ninguna de estas — escribir la dirección" : "None of these — I'll type the address"}
+              </button>
+            </div>
           </div>
         )}
         {/* Install guide overlay — iOS steps, Chrome-menu steps, or the

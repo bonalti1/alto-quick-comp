@@ -2522,11 +2522,61 @@ export default function TradeTechPro() {
             </button>
           )}
 
+          {/* Desktop-only pipeline board (≥1024px, CSS-gated): the same five
+              stages as the buttons below, but as drag-and-drop columns. Drop a
+              card on a column → same markLead() the phone buttons call. */}
+          {leads.length > 0 && (
+            <div className="qc-leadboard no-print">
+              {[
+                ["new", lang === "es" ? "Nuevos" : "New", "#8A6A00", "#FDF3D7", QC.goldLine],
+                ["contacted", lang === "es" ? "Contactado" : "Contacted", "#1E7B3C", "#EAF8EF", "#A7E0BC"],
+                ["interested", lang === "es" ? "Interesado" : "Interested", "#B3611B", "#FBEFE3", "#EFC9A5"],
+                ["not-interested", lang === "es" ? "No interesado" : "Not interested", "#67718A", "#F2F4F7", "#D5DAE3"],
+                ["closed", lang === "es" ? "Cerrado 🎉" : "Closed 🎉", "#0E5A8A", "#E4F1FA", "#A9D3EC"],
+              ].map(([val, lbl, fg, bg, bd]) => {
+                const items = leads.filter((l) => (l.status || "new") === val);
+                return (
+                  <div key={val} className="qc-col"
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("qc-dropping"); }}
+                    onDragLeave={(e) => e.currentTarget.classList.remove("qc-dropping")}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove("qc-dropping");
+                      const id = e.dataTransfer.getData("text/plain");
+                      const lead = leads.find((x) => String(x.id) === id);
+                      if (lead && (lead.status || "new") !== val) markLead(lead.id, val);
+                    }}>
+                    <div className="qc-colhead" style={{ color: fg, background: bg, border: `1.5px solid ${bd}` }}>
+                      <span>{lbl}</span><b>{items.length}</b>
+                    </div>
+                    {items.map((l) => (
+                      <div key={l.id} className="qc-card" draggable
+                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", String(l.id)); e.dataTransfer.effectAllowed = "move"; }}
+                        style={{ border: (l.status || "new") === "new" ? `2px solid ${QC.goldLine}` : `1px solid ${QC.line}` }}>
+                        <p className="qc-cname">{l.name || (lang === "es" ? "(sin nombre)" : "(no name)")}</p>
+                        {l.address ? <p className="qc-caddr">📍 {l.address}</p> : null}
+                        <p className="qc-cmeta">{l.phone}{l.info?.low && l.info?.high ? ` · ${fmt(l.info.low)}–${fmt(l.info.high)}` : ""} · {ago(l.created_at)}</p>
+                        {l.info?.note ? <p className="qc-cnote">📝 {l.info.note}</p> : null}
+                        <div className="qc-cbtns">
+                          <a href={`https://wa.me/${digits(l.phone)}?text=${encodeURIComponent(waMsg(l))}`} target="_blank" rel="noreferrer"
+                            onClick={() => (l.status || "new") === "new" && markLead(l.id, "contacted")}
+                            style={{ background: "#25D366", color: "#fff" }}>💬 WhatsApp</a>
+                          <a href={`tel:+${digits(l.phone)}`} onClick={() => (l.status || "new") === "new" && markLead(l.id, "contacted")}
+                            style={{ background: QC.navy, color: "#fff" }}>📞</a>
+                        </div>
+                      </div>
+                    ))}
+                    {items.length === 0 && <div className="qc-colempty">{lang === "es" ? "Arrastra un lead aquí" : "Drag a lead here"}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {leads.length === 0 ? (
             <div className="rounded-2xl text-center" style={{ background: "#fff", border: "1px dashed #CAD5E7", padding: "26px 22px" }}>
               <p style={{ color: "#66759D", fontSize: 13, fontWeight: 600 }}>{lang === "es" ? "Todavía no hay leads — comparte tu formulario y aparecerán aquí solos." : "No leads yet — share your form and they'll show up here on their own."}</p>
             </div>
-          ) : (() => {
+          ) : <div className="qc-leadlist">{(() => {
             // Group by month (leads arrive newest-first); latest month starts open
             const groups = [];
             leads.forEach((l) => {
@@ -2599,7 +2649,7 @@ export default function TradeTechPro() {
                 </div>
               );
             });
-          })()}
+          })()}</div>}
         </div>
       </div>
     );
@@ -3355,12 +3405,29 @@ export default function TradeTechPro() {
            and the shell widens and centers. Below 1024px NONE of this applies —
            the mobile app is untouched. ── */
         .qc-rail { display: none; }
+        .qc-leadboard { display: none; }
         @media (min-width: 1024px) {
           .qc-rail { display: flex; }
           .app-outer.qc-has-rail { padding-left: 300px; background: #E9EDF5 !important; }
           .app-outer.qc-has-rail .app-shell { max-width: 880px; box-shadow: 0 24px 80px rgba(11,23,51,.14); }
+          .app-outer.qc-has-rail .app-shell.qc-wide { max-width: 1120px; }
           .app-outer.qc-has-rail .qc-brandbar, .app-outer.qc-has-rail .qc-tabbar { display: none; }
           .qc-rail-it:hover { background: rgba(255,255,255,.07); }
+          /* Leads: pipeline board replaces the phone's month list */
+          .app-outer.qc-has-rail .qc-leadlist { display: none; }
+          .app-outer.qc-has-rail .qc-leadboard { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; align-items: start; }
+          .qc-col { background: #E9EEF6; border-radius: 14px; padding: 8px; min-height: 360px; border: 1.5px dashed transparent; }
+          .qc-col.qc-dropping { border-color: #D7B665; background: #F3EFE2; }
+          .qc-colhead { display: flex; align-items: center; justify-content: space-between; border-radius: 10px; padding: 7px 10px; font-size: 11px; font-weight: 900; letter-spacing: .04em; margin-bottom: 8px; text-transform: uppercase; }
+          .qc-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; cursor: grab; box-shadow: 0 1px 4px rgba(27,42,92,.08); }
+          .qc-card:active { cursor: grabbing; }
+          .qc-cname { color: #111B42; font-size: 12.5px; font-weight: 800; }
+          .qc-caddr { color: #4a5a7a; font-size: 10.5px; font-weight: 600; margin-top: 2px; }
+          .qc-cmeta { color: #6b7db3; font-size: 10px; font-weight: 600; margin-top: 2px; }
+          .qc-cnote { color: #4a5a7a; font-size: 10px; font-weight: 600; margin-top: 4px; background: #F0F4FA; border-radius: 7px; padding: 4px 6px; }
+          .qc-cbtns { display: flex; gap: 6px; margin-top: 7px; }
+          .qc-cbtns a { flex: 1; text-align: center; border-radius: 8px; padding: 5px 0; font-size: 10.5px; text-decoration: none; font-weight: 800; }
+          .qc-colempty { color: #9aaac8; font-size: 10.5px; font-weight: 700; text-align: center; padding: 18px 4px; border: 1.5px dashed #CAD5E7; border-radius: 10px; }
         }
         @page { margin: 0.45in; }
         @media print {
@@ -3385,7 +3452,7 @@ export default function TradeTechPro() {
           #qc-report .doc-cover { padding-top: 170px !important; }
         }`}</style>
       {screen !== "welcome" && <DesktopRail />}
-      <div className="app-shell w-full max-w-md flex flex-col relative" style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
+      <div className={`app-shell w-full max-w-md flex flex-col relative${screen === "leads" ? " qc-wide" : ""}`} style={{ background: C.bg, height: "100dvh", overflow: "hidden" }}>
         {!session && (
           <div className="no-print px-4 py-2 text-center shrink-0" style={{ background: C.orangeSoft, borderBottom: `1.5px solid ${C.orange}` }}>
             <span className="text-xs font-bold" style={{ color: "#7A5A00" }}>{t.demoBanner}</span>

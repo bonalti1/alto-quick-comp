@@ -57,6 +57,136 @@ async function cfAddHostname(hostname) {
     return { ok: true, id: j.result?.id, status: j.result?.status };
   } catch (e) { return { ok: false, reason: e.message }; }
 }
+
+// Cloudflare Registrar API: buy a domain outright, straight from onboarding —
+// no separate trip to the Cloudflare dashboard. Every domain is registered
+// under OUR account/registrant (not the client's) so ownership stays
+// centralized at scale; the realtor gets a real working custom domain, not a
+// legal claim on it.
+// Needs CF_ACCOUNT_ID + a token with Registrar write permission, a billing
+// profile with a payment method, a default registrant contact (address book),
+// and the Domain Registration Agreement accepted — all one-time setup in the
+// Cloudflare dashboard, not something this code can do.
+// Shapes below match Cloudflare's published OpenAPI schema
+// (POST /registrar/domain-check and POST /registrar/registrations).
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
+async function cfCheckDomains(names) {
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) return { ok: false, reason: "cf_off" };
+  try {
+    const r = await fetchT(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/registrar/domain-check`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ domains: names.slice(0, 20) }), // API max: 20 per request
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.success === false) return { ok: false, reason: "cf_error", errors: j.errors };
+    const map = {};
+    for (const row of j.result?.domains || []) {
+      map[String(row.name || "").toLowerCase()] = {
+        available: !!row.registrable,
+        price: row.pricing?.registration_cost ? Number(row.pricing.registration_cost) : null,
+        currency: row.pricing?.currency || "USD",
+        reason: row.reason || null, // e.g. domain_unavailable, unsupported_tld
+      };
+    }
+    return { ok: true, map };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// Registrant contact sent inline with each purchase. Without these env vars
+// the account's default address book entry is used instead — that default can
+// only be created in the dashboard (Domain Registration → Manage Domains);
+// there's no API for it, so the env vars are the more reliable path.
+const CF_REGISTRANT = (() => {
+  const E = (k) => String(process.env[k] || "").trim();
+  const c = { name: E("CF_REG_NAME"), org: E("CF_REG_ORG"), email: E("CF_REG_EMAIL"), phone: E("CF_REG_PHONE"), street: E("CF_REG_STREET"), city: E("CF_REG_CITY"), state: E("CF_REG_STATE"), zip: E("CF_REG_ZIP"), country: E("CF_REG_COUNTRY") || "US" };
+  if (!(c.name && c.email && c.phone && c.street && c.city && c.state && c.zip)) return null;
+  return {
+    registrant: {
+      email: c.email,
+      phone: c.phone, // E.164 with a dot: +1.9565551234
+      postal_info: {
+        name: c.name,
+        ...(c.org ? { organization: c.org } : {}),
+        address: { street: c.street, city: c.city, state: c.state, postal_code: c.zip, country_code: c.country },
+      },
+    },
+  };
+})();
+async function cfRegisterDomain(name) {
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) return { ok: false, reason: "cf_off" };
+  try {
+    const r = await fetchT(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/registrar/registrations`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
+      // auto_renew so client sites never die on the 1-year anniversary;
+      // registrant comes from CF_REG_* env vars, else the account's default
+      // address book entry
+      body: JSON.stringify({ domain_name: name, auto_renew: true, ...(CF_REGISTRANT ? { contacts: CF_REGISTRANT } : {}) }),
+    }, 25000);
+    const j = await r.json().catch(() => ({}));
+    // 201 = registered within the sync wait window, 202 = still processing
+    // (workflow keeps running server-side; poll j.result.links.self if needed)
+    if ((!r.ok && r.status !== 202) || j.success === false) return { ok: false, reason: "cf_error", errors: j.errors };
+    const w = j.result || {};
+    return { ok: true, status: w.completed ? "complete" : (w.state || "pending"), poll: w.links?.self || null };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// A domain bought via Registrar lands in our account as a fresh Cloudflare
+// zone. Point it at Render: CNAME @ and www → the Render service host
+// (DNS-only so Render can terminate TLS itself; Cloudflare flattens the apex
+// CNAME automatically). Zone creation can lag the purchase by a few seconds,
+// so we retry the lookup briefly.
+const RENDER_ORIGIN = process.env.RENDER_ORIGIN || CF_CNAME_TARGET || "";
+async function cfPointZoneAtRender(domain) {
+  if (!CF_API_TOKEN) return { ok: false, reason: "cf_off" };
+  if (!RENDER_ORIGIN) return { ok: false, reason: "render_origin_off" };
+  const H = { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" };
+  try {
+    let zone = null;
+    for (let i = 0; i < 5 && !zone; i++) {
+      if (i) await new Promise((s) => setTimeout(s, 3000));
+      const r = await fetchT(`https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(domain)}`, { headers: H });
+      const j = await r.json().catch(() => ({}));
+      zone = (j.result || [])[0] || null;
+    }
+    if (!zone) return { ok: false, reason: "zone_not_found" };
+    const recs = [];
+    for (const name of [domain, `www.${domain}`]) {
+      const r = await fetchT(`https://api.cloudflare.com/client/v4/zones/${zone.id}/dns_records`, {
+        method: "POST", headers: H,
+        body: JSON.stringify({ type: "CNAME", name, content: RENDER_ORIGIN, proxied: false, ttl: 1 }),
+      });
+      const j = await r.json().catch(() => ({}));
+      const dup = (j.errors || []).some((e) => e.code === 81053 || e.code === 81057); // already exists
+      recs.push({ name, ok: r.ok || dup });
+    }
+    return { ok: recs.every((x) => x.ok), zone: zone.id, records: recs };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// Render only serves hostnames it knows about (it routes by SNI/Host and
+// issues the Let's Encrypt cert per domain), so every custom domain — bought
+// or client-owned — must also be added to the Render service. Needs an API
+// key + the service id (srv-…) in the environment.
+const RENDER_API_KEY = process.env.RENDER_API_KEY || "";
+const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID || "";
+async function renderAddDomain(domain) {
+  if (!RENDER_API_KEY || !RENDER_SERVICE_ID) return { ok: false, reason: "render_off" };
+  const H = { Authorization: `Bearer ${RENDER_API_KEY}`, "Content-Type": "application/json" };
+  try {
+    const out = [];
+    for (const name of [domain, `www.${domain}`]) {
+      const r = await fetchT(`https://api.render.com/v1/services/${RENDER_SERVICE_ID}/custom-domains`, {
+        method: "POST", headers: H, body: JSON.stringify({ name }),
+      });
+      const j = await r.json().catch(() => ({}));
+      // 409 = already added (fine); Render also auto-adds the www twin for
+      // apex domains, which surfaces as the same conflict — also fine.
+      out.push({ name, ok: r.ok || r.status === 409, status: r.status, msg: r.ok ? undefined : j.message });
+    }
+    return { ok: out.some((x) => x.ok), results: out };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ timeout: 30000, maxRetries: 1 }) : null;
 const aiLive = !!(anthropic || OPENAI_KEY);
 
@@ -5663,13 +5793,15 @@ function checkDomain(){
     .then(function(r){return r.json();}).then(function(j){
       btn.disabled=false;btn.textContent='Buscar';
       if(!j||!j.ok||!j.results){hint.textContent='No se pudo buscar — intenta de nuevo.';return;}
-      hint.innerHTML='💡 Cómpralo en <b>Cloudflare Registrar</b> (precio de costo, sin sobreprecio). Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.';
+      hint.innerHTML='💡 Precio de costo, sin sobreprecio. Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.';
       box.innerHTML=j.results.map(function(x){
         var bg=x.status==='available'?'#EAF8EF':x.status==='taken'?'#FDECEC':'#F0F2F6';
         var fg=x.status==='available'?'#1E7B3C':x.status==='taken'?'#9B1C10':'#67718A';
-        var tag=x.status==='available'?'✓ disponible':x.status==='taken'?'✕ ocupado':'? sin verificar';
-        var click=x.status==='available'?(' onclick="useDomain(\\''+x.domain+'\\')" style="cursor:pointer"'):'';
-        return '<span'+click+' style="background:'+bg+';color:'+fg+';border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px">'+x.domain+' · '+tag+'</span>';
+        var tag=x.status==='available'?(x.price?('✓ disponible · $'+Number(x.price).toFixed(2)+'/año'):'✓ disponible'):x.status==='taken'?'✕ ocupado':'? sin verificar';
+        var pill='<span style="background:'+bg+';color:'+fg+';border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px">'+x.domain+' · '+tag+'</span>';
+        if(x.canBuy) return '<span style="display:inline-flex;gap:6px;align-items:center">'+pill+'<button type="button" onclick="buyDomain(\\''+x.domain+'\\','+(x.price||0)+')" style="padding:7px 12px;font-size:12.5px;white-space:nowrap;background:#15244C;color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer">Comprar y conectar</button></span>';
+        if(x.status==='available') return '<span onclick="useDomain(\\''+x.domain+'\\')" style="cursor:pointer">'+pill+'</span>';
+        return pill;
       }).join('');
     }).catch(function(){btn.disabled=false;btn.textContent='Buscar';hint.textContent='No se pudo buscar — intenta de nuevo.';});
 }
@@ -5683,10 +5815,25 @@ function connectDomain(){
       btn.disabled=false;btn.textContent='Conectar';
       if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo');return;}
       if(!j.domain){msg.style.color='#67718A';msg.textContent='Dominio quitado. Su página sigue en su subdominio.';return;}
-      var cfNote = j.cf&&j.cf.ok ? 'Cloudflare está emitiendo el certificado SSL automáticamente.' : (j.cf&&j.cf.reason==='cf_off' ? 'Cloudflare aún no está configurado en el servidor (CF_API_TOKEN).' : 'Registro en Cloudflare pendiente — revisa el panel.');
+      var cfNote = j.render&&j.render.ok ? 'El certificado SSL se emite automáticamente cuando el DNS apunte.' : (j.render&&j.render.reason==='render_off' ? 'Falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor — agrega el dominio en Render a mano.' : (j.cf&&j.cf.ok ? 'Cloudflare está emitiendo el certificado SSL automáticamente.' : 'Registro en Render pendiente — revisa el panel.'));
       msg.style.color='#1E7B3C';
       msg.innerHTML='✓ Guardado. Pídele al cliente que agregue este registro en su dominio:<br><b>Tipo:</b> CNAME · <b>Nombre:</b> @ (o www) · <b>Destino:</b> '+j.cname_target+'<br><span style="color:#67718A">'+cfNote+'</span>';
     }).catch(function(){btn.disabled=false;btn.textContent='Conectar';msg.style.color='#9B1C10';msg.textContent='No se pudo — intenta de nuevo.';});
+}
+function buyDomain(d,price){
+  var priceTxt=price?('$'+Number(price).toFixed(2)+'/año'):'el precio de costo';
+  if(!confirm('¿Comprar '+d+' ahora por '+priceTxt+'? Se cobra a la cuenta de Cloudflare y no se puede deshacer.'))return;
+  var msg=document.getElementById('dommsg');
+  msg.style.color='#67718A';msg.textContent='Comprando '+d+'…';
+  fetch('/api/onboarding/domain/buy?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:${JSON.stringify(c.slug)},domain:d})})
+    .then(function(r){return r.json();}).then(function(j){
+      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo')+(j&&j.detail?' — '+JSON.stringify(j.detail):'');return;}
+      document.getElementById('domain').value=j.domain;
+      var dnsNote = j.dns&&j.dns.ok ? 'DNS listo' : 'DNS pendiente ('+((j.dns&&j.dns.reason)||'revisa Cloudflare')+')';
+      var sslNote = j.render&&j.render.ok ? 'SSL en camino (Render, unos minutos)' : (j.render&&j.render.reason==='render_off' ? 'falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor' : 'SSL pendiente — agrega el dominio en Render');
+      msg.style.color=(j.dns&&j.dns.ok&&j.render&&j.render.ok)?'#1E7B3C':'#8A6D00';
+      msg.innerHTML='✓ '+j.domain+' comprado. '+dnsNote+' · '+sslNote+'.';
+    }).catch(function(){msg.style.color='#9B1C10';msg.textContent='No se pudo comprar — intenta de nuevo.';});
 }
 function aiWrite(){
   var btn=document.getElementById('aibtn'),hint=document.getElementById('aihint');
@@ -5843,8 +5990,59 @@ app.get("/api/onboarding/domaincheck", async (req, res) => {
   if (overQuota(`dchk:${ip}`, 60)) return res.status(429).json({ error: "quota" });
   const cands = domainCandidates(req.query.name);
   if (!cands.length) return res.status(400).json({ error: "escribe un nombre" });
-  const results = await Promise.all(cands.map(async (d) => ({ domain: d, status: await rdapAvailable(d) })));
+  // Cloudflare's own check gives real price + availability for all candidates
+  // in one batched call; fall back to the free RDAP lookup (availability only,
+  // no price, no buy button) when Cloudflare Registrar isn't configured yet or
+  // for extensions the Registrar API doesn't cover.
+  const cf = await cfCheckDomains(cands);
+  const results = await Promise.all(cands.map(async (d) => {
+    const row = cf.ok ? cf.map[d] : null;
+    if (row) return { domain: d, status: row.available ? "available" : "taken", price: row.price, currency: row.currency, canBuy: row.available };
+    return { domain: d, status: await rdapAvailable(d), canBuy: false };
+  }));
   res.json({ ok: true, results });
+});
+
+// Buy a domain outright via Cloudflare Registrar, then connect it (same SSL
+// step as the manual "conectar" flow below). Registered under OUR account —
+// see the note above cfRegisterDomain for why.
+app.post("/api/onboarding/domain/buy", async (req, res) => {
+  // Buying a domain spends real money on the Cloudflare billing account —
+  // admin only. Connecting an already-owned domain stays closer/cs (no charge).
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin puede comprar dominios" });
+  const c = req.body?.slug && (await db.getContractorBySlug(String(req.body.slug)));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const domain = String(req.body?.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+  if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain) || domain.length > 80) return res.status(400).json({ error: "dominio no válido" });
+  if (ROOT_DOMAIN && domain.endsWith(`.${ROOT_DOMAIN}`)) return res.status(400).json({ error: "ese es un subdominio nuestro, no un dominio propio" });
+
+  // Resumable purchase: each step's outcome is checkpointed in kv, so if DNS
+  // or Render fails after the money was spent (or the process restarts
+  // mid-flight), re-clicking "Comprar" resumes from the record — it re-runs
+  // ONLY the steps that haven't succeeded and never re-buys a purchased
+  // domain. The steps themselves are idempotent too (dup-CNAME codes and
+  // Render 409 count as ok), so a resume can't double-create anything.
+  const stKey = `dombuy:${domain}`;
+  const prior = await db.kvGet(stKey).catch(() => null);
+  const state = prior && typeof prior === "object" ? { ...prior } : { domain, slug: c.slug, startedAt: new Date().toISOString() };
+
+  if (!state.purchase?.ok) {
+    state.purchase = await cfRegisterDomain(domain);
+    await db.kvSet(stKey, state).catch(() => {});
+    if (!state.purchase.ok) return res.status(502).json({ error: "no se pudo comprar el dominio", detail: state.purchase });
+  }
+
+  const data = { ...(c.data || {}) };
+  data.site = { ...(data.site || {}), domain };
+  await db.saveContractorData(c.id, data);
+  // Serve it: DNS records in the new zone → Render, then register the domain
+  // with Render so it routes the host and issues the SSL cert.
+  if (!state.dns?.ok) state.dns = await cfPointZoneAtRender(domain);
+  if (!state.render?.ok) state.render = await renderAddDomain(domain);
+  state.done = !!(state.purchase.ok && state.dns.ok && state.render.ok);
+  state.updatedAt = new Date().toISOString();
+  await db.kvSet(stKey, state).catch(() => {});
+  res.json({ ok: true, domain, purchase: state.purchase, dns: state.dns, render: state.render, resumed: !!prior, done: state.done });
 });
 
 // Connect a client's own domain (Cloudflare for SaaS). Saves it, registers
@@ -5864,8 +6062,11 @@ app.post("/api/onboarding/domain", async (req, res) => {
   const data = { ...(c.data || {}) };
   data.site = { ...(data.site || {}), domain };
   await db.saveContractorData(c.id, data);
-  const cf = await cfAddHostname(domain);
-  res.json({ ok: true, domain, cname_target: CF_CNAME_TARGET, cf });
+  // Render must know the hostname to route it + issue its cert; the client
+  // still has to point their DNS (CNAME → CF_CNAME_TARGET) on their side.
+  const render = await renderAddDomain(domain);
+  const cf = await cfAddHostname(domain); // legacy CF-for-SaaS path, harmless no-op when unset
+  res.json({ ok: true, domain, cname_target: CF_CNAME_TARGET, cf, render });
 });
 
 // Reveal/unpublish a client's site (staff controls the "unveiling" moment)

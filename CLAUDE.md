@@ -84,6 +84,12 @@ re-deriving any process.
   non-disclosure states; the range + confidence + county tax record IS the
   pitch. A signed-in agent must never receive simulated comps (demo fallback
   is anonymous-only).
+- **Domain buy**: CF Registrar API (`/api/onboarding/domaincheck` shows real
+  prices when CF_ACCOUNT_ID is set; `/api/onboarding/domain/buy` is admin-only,
+  resumable via `dombuy:<domain>` kv checkpoint, CF_REG_* contact, phone format
+  `+1.9565551234`) → new zone CNAME → Render custom domain + SSL
+  (RENDER_API_KEY/RENDER_SERVICE_ID). Dormant until those env vars are set —
+  search falls back to free RDAP with no buy button.
 - **Realtor branding**: one brand hex in the profile drives every client-facing
   document (reports, invoices, /r shared pages). Client documents carry the
   REALTOR's brand, not Quick Comp's.

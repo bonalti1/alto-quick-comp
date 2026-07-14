@@ -8,23 +8,28 @@
   conversion moment for prospects.
 - Language with the EN/ES button.
 
-## The 8 slides (what each one is)
+## The 9 slides (what each one is)
 
 1. **Welcome** — "the tools that will work FOR you… any home valued from
    real comparable sales right here in 10 seconds."
-2. **Who we are** — the founder's story: runs construction and tech companies
-   in Texas, built this for his own deals. (The team photo appears
-   automatically once `landing/team.jpg` exists.)
+2. **Who we are** — the origin story: Quick Comp was born inside **Alto
+   Realty Group**, a South Texas real estate company tired of comping all
+   the time; built for its own agents, opened to the public. (The team photo
+   appears automatically once `landing/team.jpg` exists.)
 3. **The problem** — listings are won at the kitchen table; walking in
    without the number loses them.
-4. **Your website** — the sample site LIVE (real scroll, real valuator).
-5. **Your app** — LIVE mockup: value the prospect's own address right there.
-6. **Your AI secretary** — ALL live: open the chat and leave a phone number,
-   **or fill the home-value widget as a homeowner** — either way the lead
-   lands on the mockup phone in front of the prospect. The strongest moment
-   of the call.
-7. **Your investment** — what it would cost separately → the plans.
-8. **Let's begin** — the 4 steps, closing TODAY on the call.
+4. **Your app** — LIVE mockup, app-first for the wow: value the prospect's
+   own address right there, in silence, and wait for the reaction.
+5. **Your AI secretary** — LIVE: let them text it like a homeowner; a phone
+   number typed in chat lands as a lead on the mockup phone in front of
+   them. The strongest moment of the call.
+6. **Your link on social** — LIVE Instagram-profile phone: tap the bio link
+   and the real valuator opens. "Every post you make becomes a seller-lead
+   machine."
+7. **Your website** — the sample site LIVE (real scroll, real valuator).
+   "Everybody has a website; almost nobody has one that sells."
+8. **Your investment** — what it would cost separately → the plans.
+9. **Let's begin** — the 4 steps, closing TODAY on the call.
 
 ## Closer hotkeys
 

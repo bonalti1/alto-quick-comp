@@ -13,6 +13,7 @@ what breaks without it. `server/.env.example` mirrors it in .env format;
 | `CS_KEY` | /cs (ADMIN_KEY also enters) |
 | `CLOSER_KEY` | /closer + /onboarding (ADMIN_KEY also enters) |
 | `DEMO_PASS` | Unlimited demo mode (`?pass=`). Not guessable — every free valuation costs API money. |
+| `HQ_KEY` | /hq — the owner's private cockpit (portfolio + idea board + AI partner). Nobody else's key opens it, not even ADMIN_KEY. |
 
 ⚠️ Rule: all keys distinct from each other and from any other account's
 password, rotated if one ever appears in a screenshot or chat.
@@ -54,6 +55,8 @@ password, rotated if one ever appears in a screenshot or chat.
 |---|---|
 | `ROOT_DOMAIN` / `APP_HOST` | Set once DNS is live: bare-domain sales page, app.* host, client subdomains. |
 | `CF_API_TOKEN` / `CF_ZONE_ID` / `CF_CNAME_TARGET` | Cloudflare for SaaS: client custom domains with auto-SSL. |
+| `CF_ACCOUNT_ID` + `CF_REG_*` (NAME/ORG/EMAIL/PHONE/STREET/CITY/STATE/ZIP/COUNTRY) | One-click domain BUY via Cloudflare Registrar from onboarding. Needs the token to have Registrar write permission + a billing profile with payment method + accepted registration agreement (one-time dashboard setup). Phone format `+1.9565551234`. Without these: search still works (no prices, no buy button). |
+| `RENDER_API_KEY` / `RENDER_SERVICE_ID` / `RENDER_ORIGIN` | Server registers custom domains with the Render service (routing + SSL). ORIGIN = host bought domains CNAME to (defaults to CF_CNAME_TARGET). |
 
 ## GHL / marketing
 

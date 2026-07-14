@@ -57,6 +57,136 @@ async function cfAddHostname(hostname) {
     return { ok: true, id: j.result?.id, status: j.result?.status };
   } catch (e) { return { ok: false, reason: e.message }; }
 }
+
+// Cloudflare Registrar API: buy a domain outright, straight from onboarding —
+// no separate trip to the Cloudflare dashboard. Every domain is registered
+// under OUR account/registrant (not the client's) so ownership stays
+// centralized at scale; the realtor gets a real working custom domain, not a
+// legal claim on it.
+// Needs CF_ACCOUNT_ID + a token with Registrar write permission, a billing
+// profile with a payment method, a default registrant contact (address book),
+// and the Domain Registration Agreement accepted — all one-time setup in the
+// Cloudflare dashboard, not something this code can do.
+// Shapes below match Cloudflare's published OpenAPI schema
+// (POST /registrar/domain-check and POST /registrar/registrations).
+const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || "";
+async function cfCheckDomains(names) {
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) return { ok: false, reason: "cf_off" };
+  try {
+    const r = await fetchT(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/registrar/domain-check`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ domains: names.slice(0, 20) }), // API max: 20 per request
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.success === false) return { ok: false, reason: "cf_error", errors: j.errors };
+    const map = {};
+    for (const row of j.result?.domains || []) {
+      map[String(row.name || "").toLowerCase()] = {
+        available: !!row.registrable,
+        price: row.pricing?.registration_cost ? Number(row.pricing.registration_cost) : null,
+        currency: row.pricing?.currency || "USD",
+        reason: row.reason || null, // e.g. domain_unavailable, unsupported_tld
+      };
+    }
+    return { ok: true, map };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// Registrant contact sent inline with each purchase. Without these env vars
+// the account's default address book entry is used instead — that default can
+// only be created in the dashboard (Domain Registration → Manage Domains);
+// there's no API for it, so the env vars are the more reliable path.
+const CF_REGISTRANT = (() => {
+  const E = (k) => String(process.env[k] || "").trim();
+  const c = { name: E("CF_REG_NAME"), org: E("CF_REG_ORG"), email: E("CF_REG_EMAIL"), phone: E("CF_REG_PHONE"), street: E("CF_REG_STREET"), city: E("CF_REG_CITY"), state: E("CF_REG_STATE"), zip: E("CF_REG_ZIP"), country: E("CF_REG_COUNTRY") || "US" };
+  if (!(c.name && c.email && c.phone && c.street && c.city && c.state && c.zip)) return null;
+  return {
+    registrant: {
+      email: c.email,
+      phone: c.phone, // E.164 with a dot: +1.9565551234
+      postal_info: {
+        name: c.name,
+        ...(c.org ? { organization: c.org } : {}),
+        address: { street: c.street, city: c.city, state: c.state, postal_code: c.zip, country_code: c.country },
+      },
+    },
+  };
+})();
+async function cfRegisterDomain(name) {
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID) return { ok: false, reason: "cf_off" };
+  try {
+    const r = await fetchT(`https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/registrar/registrations`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" },
+      // auto_renew so client sites never die on the 1-year anniversary;
+      // registrant comes from CF_REG_* env vars, else the account's default
+      // address book entry
+      body: JSON.stringify({ domain_name: name, auto_renew: true, ...(CF_REGISTRANT ? { contacts: CF_REGISTRANT } : {}) }),
+    }, 25000);
+    const j = await r.json().catch(() => ({}));
+    // 201 = registered within the sync wait window, 202 = still processing
+    // (workflow keeps running server-side; poll j.result.links.self if needed)
+    if ((!r.ok && r.status !== 202) || j.success === false) return { ok: false, reason: "cf_error", errors: j.errors };
+    const w = j.result || {};
+    return { ok: true, status: w.completed ? "complete" : (w.state || "pending"), poll: w.links?.self || null };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// A domain bought via Registrar lands in our account as a fresh Cloudflare
+// zone. Point it at Render: CNAME @ and www → the Render service host
+// (DNS-only so Render can terminate TLS itself; Cloudflare flattens the apex
+// CNAME automatically). Zone creation can lag the purchase by a few seconds,
+// so we retry the lookup briefly.
+const RENDER_ORIGIN = process.env.RENDER_ORIGIN || CF_CNAME_TARGET || "";
+async function cfPointZoneAtRender(domain) {
+  if (!CF_API_TOKEN) return { ok: false, reason: "cf_off" };
+  if (!RENDER_ORIGIN) return { ok: false, reason: "render_origin_off" };
+  const H = { Authorization: `Bearer ${CF_API_TOKEN}`, "Content-Type": "application/json" };
+  try {
+    let zone = null;
+    for (let i = 0; i < 5 && !zone; i++) {
+      if (i) await new Promise((s) => setTimeout(s, 3000));
+      const r = await fetchT(`https://api.cloudflare.com/client/v4/zones?name=${encodeURIComponent(domain)}`, { headers: H });
+      const j = await r.json().catch(() => ({}));
+      zone = (j.result || [])[0] || null;
+    }
+    if (!zone) return { ok: false, reason: "zone_not_found" };
+    const recs = [];
+    for (const name of [domain, `www.${domain}`]) {
+      const r = await fetchT(`https://api.cloudflare.com/client/v4/zones/${zone.id}/dns_records`, {
+        method: "POST", headers: H,
+        body: JSON.stringify({ type: "CNAME", name, content: RENDER_ORIGIN, proxied: false, ttl: 1 }),
+      });
+      const j = await r.json().catch(() => ({}));
+      const dup = (j.errors || []).some((e) => e.code === 81053 || e.code === 81057); // already exists
+      recs.push({ name, ok: r.ok || dup });
+    }
+    return { ok: recs.every((x) => x.ok), zone: zone.id, records: recs };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+// Render only serves hostnames it knows about (it routes by SNI/Host and
+// issues the Let's Encrypt cert per domain), so every custom domain — bought
+// or client-owned — must also be added to the Render service. Needs an API
+// key + the service id (srv-…) in the environment.
+const RENDER_API_KEY = process.env.RENDER_API_KEY || "";
+const RENDER_SERVICE_ID = process.env.RENDER_SERVICE_ID || "";
+async function renderAddDomain(domain) {
+  if (!RENDER_API_KEY || !RENDER_SERVICE_ID) return { ok: false, reason: "render_off" };
+  const H = { Authorization: `Bearer ${RENDER_API_KEY}`, "Content-Type": "application/json" };
+  try {
+    const out = [];
+    for (const name of [domain, `www.${domain}`]) {
+      const r = await fetchT(`https://api.render.com/v1/services/${RENDER_SERVICE_ID}/custom-domains`, {
+        method: "POST", headers: H, body: JSON.stringify({ name }),
+      });
+      const j = await r.json().catch(() => ({}));
+      // 409 = already added (fine); Render also auto-adds the www twin for
+      // apex domains, which surfaces as the same conflict — also fine.
+      out.push({ name, ok: r.ok || r.status === 409, status: r.status, msg: r.ok ? undefined : j.message });
+    }
+    return { ok: out.some((x) => x.ok), results: out };
+  } catch (e) { return { ok: false, reason: e.message }; }
+}
+
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ timeout: 30000, maxRetries: 1 }) : null;
 const aiLive = !!(anthropic || OPENAI_KEY);
 
@@ -243,16 +373,42 @@ function reqHost(req) {
 app.use(async (req, res, next) => {
   const h = reqHost(req);
   if (OUR_HOSTS.has(h) || h.endsWith(".onrender.com")) return next();
-  // only take over real page navigations; let assets/api/widget pass through
-  if (req.method !== "GET" || (req.path !== "/" && req.path !== "/index.html")) return next();
+  // Only take over site page navigations (home, SEO files, city pages);
+  // assets, /api and /w pass straight through.
+  const p = req.path;
+  const wants = p === "/" || p === "/index.html" || p === "/opina" || p === "/sitemap.xml" || p === "/robots.txt" || /^\/zona\/[a-z0-9-]{1,60}$/.test(p);
+  if (req.method !== "GET" || !wants) return next();
   try {
     let slug = null;
     if (ROOT_DOMAIN && h.endsWith(`.${ROOT_DOMAIN}`)) slug = h.slice(0, -(ROOT_DOMAIN.length + 1)); // <slug>.ROOT_DOMAIN
     else { const c = await db.getContractorByDomain(h); slug = c?.slug || null; }
-    if (slug) { req.url = "/site/" + encodeURIComponent(slug); }
+    if (slug) {
+      const s = encodeURIComponent(slug);
+      if (p === "/" || p === "/index.html") req.url = `/site/${s}`;
+      else if (p === "/opina") req.url = `/opina/${s}`;
+      else req.url = `/site/${s}${p}`; // /sitemap.xml, /robots.txt, /zona/<city>
+    }
   } catch (e) { console.error("host routing:", e.message); }
   next();
 });
+
+/* ── Site SEO helpers (ALTO pattern) ──
+ * A client's "area" field ("Starr, Hidalgo, Zapata") becomes per-city landing
+ * pages (/zona/starr), a sitemap and robots.txt — how client sites get found. */
+const areaCities = (area) => String(area || "").split(/[,·;]+/).map((x) => x.trim()).filter((x) => x && x.length <= 40).slice(0, 12);
+const citySlug = (x) => String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+// Where this site canonically lives: the client's own domain when they have
+// one, their <slug>.ROOT_DOMAIN when that's how they arrived, else our
+// /site/<slug> path on the current host.
+function canonicalOf(c, req) {
+  const site = c.data?.site || {};
+  if (site.domain) return `https://${site.domain}`;
+  // keep the port (localhost:8787 in dev) — reqHost() strips it for matching
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost").split(",")[0].trim().toLowerCase();
+  const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  if (ROOT_DOMAIN && host === `${c.slug}.${ROOT_DOMAIN}`) return `https://${host}`;
+  return `${proto}://${host}/site/${c.slug}`;
+}
 
 // Serve the built app (run `npm run build` first) so one process can host
 // everything in production; in dev, Vite serves the app and proxies /api here.
@@ -1239,6 +1395,56 @@ app.post("/api/admin/status", async (req, res) => {
   res.json({ ok: true, status: paused ? "paused" : "active" });
 });
 
+// Admin: change a client's plan manually (the Stripe webhook normally tags it
+// from the amount paid; this is the cash/Zelle/mistake override).
+app.post("/api/admin/plan", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
+  const c = await db.getContractor(String(req.query.id || req.body?.id || ""));
+  if (!c) return res.status(404).json({ error: "no contractor" });
+  const plan = String(req.query.plan || req.body?.plan || "");
+  if (!PLANS[plan]) return res.status(400).json({ error: "bad plan" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), plan, planAmount: PLANS[plan].price });
+  res.json({ ok: true, plan });
+});
+
+// Admin: free-text private notes on a client (never shown to the client)
+app.post("/api/admin/notes", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ ok: false, error: "bad admin key" });
+  const c = await db.getContractor(String(req.body?.id || ""));
+  if (!c) return res.status(404).json({ ok: false, error: "no contractor" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), adminNotes: String(req.body?.notes || "").slice(0, 4000) });
+  res.json({ ok: true });
+});
+
+// Admin: fire a test push to every device a client has subscribed — the
+// truth-teller when "no me llegan los avisos".
+app.get("/api/admin/pushtest", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "no auth" });
+  if (!pushLive) return res.json({ ok: false, error: "push apagado en el servidor (faltan VAPID keys)" });
+  const c = await db.getContractor(String(req.query.id || ""));
+  if (!c) return res.status(404).json({ error: "no contractor" });
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (!subs.length) return res.json({ ok: false, error: "0 dispositivos suscritos — en su app: Leads → 🔔 Activar alertas" });
+  const body = JSON.stringify({ title: "🔔 Prueba de avisos", body: `Si ves esto, los avisos de ${c.name} funcionan.`, tag: "pushtest", url: "/" });
+  const results = [];
+  for (const s of subs) {
+    try { await webpush.sendNotification(s, body); results.push({ device: `…${String(s.endpoint).slice(-10)}`, ok: true }); }
+    catch (e) { results.push({ device: `…${String(s.endpoint).slice(-10)}`, ok: false, status: e.statusCode || 0, msg: String(e.body || e.message || "").slice(0, 140) }); }
+  }
+  res.json({ ok: results.some((r) => r.ok), devices: results });
+});
+
+// Delete a client and all their data — admin only, slug must be re-typed
+app.post("/api/admin/delete", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin" });
+  const c = await db.getContractor(String(req.body?.id || ""));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  if (["alto-demo", "alto-ventas"].includes(c.slug)) return res.status(400).json({ error: "cuenta interna — no se puede borrar" });
+  if (String(req.body?.confirm || "") !== c.slug) return res.status(400).json({ error: "el texto de confirmación no coincide con el slug" });
+  await db.deleteContractor(c.id, c.slug);
+  res.json({ ok: true });
+});
+
 /* Admin: one-click full data backup (ALTO ownership pattern) — everything the
  * business can't rebuild, in one dated JSON: clients with their app state and
  * leads, plus meetings and tasks. Session tokens and invite links are excluded
@@ -2215,7 +2421,21 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   <a class="b-line" href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 Link de acceso</a>
   <button class="b-line" onclick="revoke()">🔒 Renovar acceso</button>
   <button class="b-line" onclick="hook()">🤖 GHL ${d.webhook ? "(conectado)" : ""}</button>
+  <button class="b-line" onclick="pushTest(this)">🔔 Probar avisos</button>
+  <select onchange="if(this.value)act('/api/admin/plan?key=${KEY}&id=${c.id}&plan='+this.value,'¿Cambiar su plan a '+this.options[this.selectedIndex].text+'? (El webhook de Stripe lo vuelve a etiquetar si paga otro monto.)')" style="font-family:inherit;padding:10px 12px;border-radius:11px;border:1.5px solid #E4E7EC;font-weight:700;font-size:13px;background:#fff;color:#101B30">
+    <option value="">📦 Plan: ${esc(PLANS[planOf(c)].name)}</option>
+    ${Object.entries(PLANS).map(([k, pl]) => `<option value="${k}">${pl.name} — $${pl.price}/mes</option>`).join("")}
+  </select>
+  <button class="b-red" onclick="delClient()">🗑️ Eliminar</button>
 </div></div>
+
+<div class="panel"><h2>📝 Notas privadas (solo tú las ves)</h2>
+  <textarea id="adminNotes" rows="3" placeholder="Acuerdos, contexto, recordatorios de este cliente…" style="width:100%;font-family:inherit;padding:12px 14px;border-radius:12px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;resize:vertical">${esc(d.adminNotes || "")}</textarea>
+  <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+    <button class="b-dark" onclick="saveNotes(this)">💾 Guardar notas</button>
+    <span id="notesMsg" style="color:#10803C;font-weight:700;font-size:13px"></span>
+  </div>
+</div>
 
 <div class="panel"><h2>Enlaces</h2>
   <div class="kv"><span>Widget</span><a href="/w/${c.slug}" target="_blank">/w/${c.slug}</a></div>
@@ -2258,6 +2478,23 @@ function cpEmb(b){ navigator.clipboard.writeText(document.getElementById('emb').
 function pub(v){ fetch('/api/onboarding/publish?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:'${c.slug}',publish:v})}).then(r=>r.json()).then(()=>location.reload()); }
 function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); if(u===null)return; fetch('/api/admin/webhook?key=${KEY}&id=${c.id}&url='+encodeURIComponent(u),{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.ok?'✓ Guardado':'Error');location.reload();}); }
 function revoke(){ if(!confirm('¿Renovar acceso? TODOS sus links y dispositivos actuales quedan desconectados y se genera un link nuevo (mándaselo).'))return; var f=document.createElement('form'); f.method='POST'; f.action='/api/admin/revoke?key=${KEY}&id=${c.id}'; document.body.appendChild(f); f.submit(); }
+function pushTest(btn){btn.disabled=true;var o=btn.textContent;btn.textContent='🔔 Enviando…';
+  fetch('/api/admin/pushtest?key=${KEY}&id=${c.id}').then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent=o;
+    if(j.ok)alert('✓ Aviso de prueba enviado a '+(j.devices||[]).filter(function(x){return x.ok}).length+' dispositivo(s) — pídele que revise su teléfono.');
+    else alert(j.error||'No se pudo enviar');
+  }).catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});}
+function saveNotes(btn){btn.disabled=true;
+  fetch('/api/admin/notes?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${c.id}',notes:document.getElementById('adminNotes').value})})
+  .then(function(r){return r.json()}).then(function(j){btn.disabled=false;document.getElementById('notesMsg').textContent=j.ok?'✓ Guardado':'Error';setTimeout(function(){document.getElementById('notesMsg').textContent=''},2000);})
+  .catch(function(){btn.disabled=false;document.getElementById('notesMsg').textContent='Error de conexión';});}
+function delClient(){
+  var typed=prompt('⚠️ ELIMINAR "${esc(c.name)}" borra su cuenta, su página, sus leads y su app PARA SIEMPRE.\\n\\nPara confirmar, escribe exactamente: ${c.slug}');
+  if(typed===null)return;
+  if(typed!=='${c.slug}'){alert('No coincide — no se borró nada.');return;}
+  fetch('/api/admin/delete?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${c.id}',confirm:typed})})
+  .then(function(r){return r.json()}).then(function(j){if(j.ok){alert('Cuenta eliminada.');location.href='/admin';}else alert(j.error||'Error');})
+  .catch(function(){alert('Error de conexión');});}
 </script>
 </body></html>`);
 });
@@ -2414,6 +2651,225 @@ function queueTask(slug, title, note) {
   return db.addTask({ slug: slug || "", title, note }).catch((e) => console.error("queue task failed:", e.message));
 }
 
+/* ── Crash reporter (ALTO pattern) ──
+ * index.html quietly posts real-device JS errors here; staff read them at
+ * /errors. Credential-like URL params are redacted on BOTH sides. */
+app.post("/api/clienterror", async (req, res) => {
+  try {
+    const ceIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+    if (!overQuota(`ce:${ceIp}`, 20)) {
+      const e = req.body || {};
+      // Belt-and-suspenders: strip credential-like params server-side too, so a
+      // stale cached index.html (pre-redaction) can't log a session token.
+      const redact = (u) => String(u || "").replace(/([?&#](s|key|pass|session|token|invite)=)[^&#]*/gi, "$1REDACTED");
+      const entry = {
+        t: String(e.t || new Date().toISOString()).slice(0, 30),
+        kind: String(e.kind || "").slice(0, 12),
+        msg: redact(e.msg).slice(0, 500),
+        line: e.line, src: redact(e.src).slice(0, 220),
+        stack: redact(e.stack).slice(0, 1400),
+        ua: String(e.ua || "").slice(0, 320),
+        url: redact(e.url).slice(0, 320),
+      };
+      console.error("CLIENT ERROR:", entry.msg, "|", entry.url, "|", entry.ua.slice(0, 50));
+      const list0 = await db.kvGet("clienterr").catch(() => null); const list = Array.isArray(list0) ? list0 : [];
+      list.push(entry);
+      await db.kvSet("clienterr", list.slice(-40)).catch(() => {});
+    }
+  } catch { /* reporting must never break anything */ }
+  res.json({ ok: true });
+});
+
+// Read the captured device errors (gated by the CS/admin key, same as /cs).
+app.get("/errors", async (req, res) => {
+  if (!CS_KEY && !ADMIN_KEY) return res.status(503).send("Set CS_KEY or ADMIN_KEY.");
+  if (!csOk(req)) return res.status(req.query.key ? 403 : 401).send("Agrega ?key=TU_CS_KEY a la URL.");
+  const list0 = await db.kvGet("clienterr").catch(() => null); const list = (Array.isArray(list0) ? list0 : []).slice().reverse();
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const rows = list.length
+    ? list.map((e) => `<div class="e"><div class="m">${esc(e.msg)}</div>${e.line ? `<div class="meta">línea ${esc(e.line)} · ${esc(e.src)}</div>` : ""}${e.stack ? `<div class="s">${esc(e.stack)}</div>` : ""}<div class="meta">${esc(e.t)} · ${esc(e.url)}<br>${esc(e.ua)}</div></div>`).join("")
+    : "<p>Sin errores 🎉</p>";
+  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Errores</title><style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#0F1726;color:#E6EBF3;margin:0;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.e{background:#16223A;border:1px solid #283656;border-radius:10px;padding:12px;margin:10px 0;font-size:13px}
+.m{color:#FFB3B3;font-weight:700;word-break:break-word}
+.s{color:#9AA7C0;white-space:pre-wrap;font-size:11px;margin-top:6px;overflow-x:auto}
+.meta{color:#7A8AA8;font-size:11px;margin-top:6px;word-break:break-word}
+</style></head><body><h1>📋 Errores del cliente (${list.length})</h1>${rows}</body></html>`);
+});
+
+/* ── Reviews funnel (ALTO /opina pattern) ──
+ * The realtor sends happy clients here: 4-5★ reviews publish on their site
+ * and hand the client a one-tap Google-review button (text pre-copied);
+ * 1-3★ go PRIVATELY to the realtor with an instant push — bad experiences
+ * become a phone call, not a public one-star. */
+const getReviews = async (cid) => { const v = await db.kvGet(`rev:${cid}`).catch(() => null); return Array.isArray(v) ? v : []; };
+
+app.post("/api/review/:slug", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).json({ error: "unknown" });
+  if (c.data?.status === "paused") return res.status(403).json({ error: "paused" });
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`rvw:${ip}`, 6) || overQuota(`rvs:${c.slug}`, 80)) return res.status(429).json({ error: "quota" });
+  const stars = Math.round(Number(req.body?.stars));
+  if (!(stars >= 1 && stars <= 5)) return res.status(400).json({ error: "stars 1-5" });
+  const clean = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
+  const r = {
+    id: crypto.randomUUID(),
+    s: stars,
+    n: clean(req.body?.name, 60),
+    t: clean(req.body?.text, 600),
+    ph: String(req.body?.phone || "").replace(/\D/g, "").slice(0, 11),
+    d: new Date().toISOString(),
+  };
+  const list = await getReviews(c.id);
+  list.push(r);
+  await db.kvSet(`rev:${c.id}`, list.slice(-100)).catch(() => {});
+  // Unhappy client → buzz the realtor NOW (their lead-alert subscription)
+  if (stars <= 3 && pushLive && Array.isArray(c.data?.push) && c.data.push.length) {
+    const payload = JSON.stringify({
+      title: "⚠️ Cliente insatisfecho",
+      body: `${r.n || "Un cliente"} dejó ${stars}★${r.t ? ": " + r.t.slice(0, 90) : ""}${r.ph ? " · " + r.ph : ""}`,
+      tag: "rev-" + r.id,
+      url: "/",
+    });
+    Promise.all(c.data.push.map((s) => webpush.sendNotification(s, payload).catch(() => {}))).catch(() => {});
+  }
+  const gmb = stars >= 4 ? String(c.data?.site?.gmb || c.data?.site?.facebook || "") : "";
+  res.json({ ok: true, gmb: /^https:\/\//.test(gmb) ? gmb : null });
+});
+
+app.get("/opina/:slug", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c || c.data?.status === "paused") return res.status(404).send("Not found");
+  const p = c.data?.profile || {};
+  const biz = String(p.biz || c.name).replace(/[&<>"'\\`]/g, "");
+  const logo = /^data:image\/(png|jpeg);base64,/.test(String(p.logo || "")) ? p.logo : null;
+  const color = /^#[0-9a-fA-F]{6}$/.test(String(c.data?.site?.color || "")) ? c.data.site.color : "#15244C";
+  const startEn = (c.data?.site?.lang || "es") === "en";
+  // Back-to-app button when the realtor previews from inside the app (?app=1).
+  const oBack = req.query.app != null ? `<div style="padding:12px 16px 0;max-width:430px;margin:0 auto"><a href="/" onclick="if(history.length>1){history.back();return false}" style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1.5px solid #E6E8EC;border-radius:999px;padding:8px 13px;font-weight:800;font-size:14px;color:#101B30;text-decoration:none;box-shadow:0 4px 14px rgba(16,27,48,.1)">‹ Volver a la app</a></div>` : "";
+  res.send(`<!doctype html><html lang="${startEn ? "en" : "es"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${startEn ? "Your feedback" : "Tu opinión"} — ${biz}</title><meta name="robots" content="noindex">
+<style>
+*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;padding:18px;background:linear-gradient(160deg,${color} 0%,#101B30 90%)}
+.card{background:#fff;border-radius:26px;max-width:430px;width:100%;padding:34px 26px;text-align:center;box-shadow:0 30px 90px rgba(0,0,0,.4)}
+.logo{max-height:56px;max-width:190px;margin-bottom:6px}
+.biz{font-weight:800;font-size:20px;color:${color}}
+h1{font-size:21px;margin:14px 0 6px;color:#101B30;letter-spacing:-.3px}
+.sub{color:#67718A;font-weight:600;font-size:14px;line-height:1.55}
+.stars{display:flex;justify-content:center;gap:6px;margin:22px 0 4px}
+.stars button{font-size:44px;background:none;border:none;cursor:pointer;filter:grayscale(1);opacity:.45;transition:transform .12s,filter .12s,opacity .12s;padding:2px}
+.stars button.on{filter:none;opacity:1;transform:scale(1.12)}
+textarea,input{width:100%;border:1.5px solid #E4E7EE;border-radius:13px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-top:10px;color:#101B30}
+textarea{min-height:96px;resize:vertical}
+textarea:focus,input:focus{border-color:${color}}
+.btn{display:inline-block;width:100%;border:none;cursor:pointer;background:${color};color:#fff;font-weight:800;font-size:16px;padding:15px;border-radius:13px;margin-top:14px;text-decoration:none}
+.hide{display:none}
+.big{font-size:52px;margin:6px 0}
+.lang{position:fixed;top:14px;right:16px;background:#ffffff2e;border:1px solid #ffffff55;color:#fff;font-weight:700;font-size:12.5px;padding:7px 13px;border-radius:99px;cursor:pointer}
+.foot{margin-top:18px;color:#9AA3B2;font-size:11.5px;font-weight:600}
+</style></head><body>${oBack}
+<button class="lang" id="lang"></button>
+<div class="card">
+  ${logo ? `<img class="logo" src="${logo}" alt="${biz}">` : `<div class="biz">${biz}</div>`}
+  <div id="p1">
+    <h1 data-i="q"></h1>
+    <p class="sub" data-i="qs"></p>
+    <div class="stars" id="stars">${[1, 2, 3, 4, 5].map((n) => `<button data-s="${n}" aria-label="${n}">⭐</button>`).join("")}</div>
+  </div>
+  <div id="p2" class="hide">
+    <h1 id="h2"></h1>
+    <p class="sub" id="s2"></p>
+    <textarea id="txt"></textarea>
+    <input id="nm">
+    <input id="ph" type="tel" class="hide">
+    <button class="btn" id="send"></button>
+  </div>
+  <div id="p3" class="hide">
+    <div class="big" id="emo">🙏</div>
+    <h1 id="h3"></h1>
+    <p class="sub" id="s3"></p>
+    <a class="btn hide" id="gbtn" target="_blank" rel="noopener"></a>
+  </div>
+  <p class="foot">${biz}</p>
+</div>
+<script>(function(){
+var slug=${JSON.stringify(c.slug)},stars=0,en=${startEn ? "true" : "false"},sent=false;
+var T={
+ q:["¿Cómo fue tu experiencia con ${biz}?","How was your experience with ${biz}?"],
+ qs:["Toca las estrellas — nos ayuda muchísimo.","Tap the stars — it helps us a lot."],
+ hGood:["¡Qué alegría! 🎉","So glad to hear it! 🎉"],
+ sGood:["¿Nos cuentas en unas palabras cómo te fue? (opcional)","Mind telling us a bit about it? (optional)"],
+ hBad:["Lo sentimos mucho 😔","We're really sorry 😔"],
+ sBad:["Cuéntanos qué pasó. Tu agente lo lee personalmente.","Tell us what happened. Your agent reads this personally."],
+ txtG:["Ej. Vendieron nuestra casa rápido y siempre nos mantuvieron informados…","E.g. They sold our home fast and kept us informed the whole way…"],
+ txtB:["Cuéntanos qué salió mal…","Tell us what went wrong…"],
+ nm:["Tu nombre (opcional)","Your name (optional)"],
+ ph:["Tu teléfono — te llamamos para arreglarlo (opcional)","Your phone — we'll call to make it right (optional)"],
+ send:["Enviar","Send"],
+ h3G:["¡Mil gracias!","Thank you so much!"],
+ s3G:["Tu opinión ya quedó publicada en nuestra página web. Nos ayuda muchísimo — gracias de verdad.","Your review is now published on our website. It helps us so much — thank you."],
+ s3GG:["¿Nos ayudas publicándola también ahí? Ya copiamos tu texto — solo pégalo. Es 1 minuto y nos cambia el negocio.","One more favor: post it there too? We already copied your text — just paste it. Takes 1 minute and changes everything for us."],
+ gbtnG:["⭐ Dejar reseña en Google","⭐ Leave the review on Google"],
+ gbtnF:["👍 Dejar reseña en Facebook","👍 Leave the review on Facebook"],
+ gbtnX:["⭐ Dejar tu reseña ahí","⭐ Leave your review there"],
+ h3B:["Gracias por decírnoslo","Thank you for telling us"],
+ s3B:["Tu agente lo verá hoy mismo y te contactará para arreglarlo. De verdad, gracias por darnos la oportunidad.","Your agent will see this today and reach out to make it right. Truly, thank you for giving us the chance."]
+};
+function t(k){return T[k][en?1:0];}
+function apply(){document.querySelectorAll('[data-i]').forEach(function(e){e.textContent=t(e.getAttribute('data-i'));});
+ document.getElementById('lang').textContent=en?'🇲🇽 Español':'🇺🇸 English';
+ document.getElementById('send').textContent=t('send');
+ if(stars){paint();}}
+document.getElementById('lang').onclick=function(){en=!en;apply();};
+var txt=document.getElementById('txt'),nm=document.getElementById('nm'),ph=document.getElementById('ph');
+function paint(){
+ if(!stars)return;
+ var good=stars>=4;
+ document.getElementById('h2').textContent=good?t('hGood'):t('hBad');
+ document.getElementById('s2').textContent=good?t('sGood'):t('sBad');
+ txt.placeholder=good?t('txtG'):t('txtB');
+ nm.placeholder=t('nm');ph.placeholder=t('ph');
+ ph.classList.toggle('hide',good);
+ document.getElementById('send').textContent=t('send');
+}
+document.getElementById('stars').addEventListener('click',function(e){
+ var b=e.target.closest('button');if(!b)return;
+ stars=+b.getAttribute('data-s');
+ [].forEach.call(document.querySelectorAll('#stars button'),function(x){x.classList.toggle('on',+x.getAttribute('data-s')<=stars);});
+ paint();
+ document.getElementById('p2').classList.remove('hide');
+ setTimeout(function(){txt.focus();},150);
+});
+document.getElementById('send').onclick=function(){
+ if(sent)return;sent=true;this.textContent='…';
+ fetch('/api/review/'+slug,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stars:stars,text:txt.value,name:nm.value,phone:ph.value})})
+ .then(function(r){return r.json()}).then(function(j){
+   var good=stars>=4;
+   document.getElementById('p1').classList.add('hide');
+   document.getElementById('p2').classList.add('hide');
+   document.getElementById('p3').classList.remove('hide');
+   document.getElementById('emo').textContent=good?'🙏':'🤝';
+   document.getElementById('h3').textContent=good?t('h3G'):t('h3B');
+   if(good&&j.gmb){
+     document.getElementById('s3').textContent=t('s3GG');
+     var h='';try{h=new URL(j.gmb).hostname}catch(e){}
+     var bk=/google\\.|g\\.page|goo\\.gl/.test(h)?'gbtnG':/facebook\\.|fb\\./.test(h)?'gbtnF':'gbtnX';
+     var g=document.getElementById('gbtn');g.textContent=t(bk);g.href=j.gmb;g.classList.remove('hide');
+     if(txt.value.trim()&&navigator.clipboard){navigator.clipboard.writeText(txt.value.trim()).catch(function(){});}
+   } else {
+     document.getElementById('s3').textContent=good?t('s3G'):t('s3B');
+   }
+ }).catch(function(){sent=false;document.getElementById('send').textContent=t('send');});
+};
+apply();
+})();</script>
+</body></html>`);
+});
+
 // Widget (and anything public) drops a lead for a contractor by slug
 app.post("/api/widget/lead", async (req, res) => {
   const wlIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
@@ -2531,23 +2987,90 @@ app.post("/api/track", (req, res) => {
 
 /* Live AI-secretary demo for the sales presentation: the prospect chats
  * with the same AI that will answer their own customers' texts. */
+/* Site chat (ALTO pattern): every client site's floating bubble talks here.
+ * With a live client slug the bot answers AS that realtor's business, using
+ * ONLY staff-curated botFacts as extra truth — and a phone number typed in
+ * chat becomes a real lead (saved + GHL forward + push buzz). Without a live
+ * slug it stays the Casa Bella sales-demo persona the deck uses. */
 app.post("/api/widget/chat", async (req, res) => {
   const msgs = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
   if (!msgs.length) return res.status(400).json({ error: "messages required" });
   const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
   if (overQuota(`chat:${ip}`, 40) || overQuota("chat:all", 500)) return res.status(429).json({ error: "quota" });
-  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key.", source: "demo" });
+  const slug = String(req.body?.slug || "").slice(0, 60);
+  const demoSlug = slug === "alto-demo" || slug === "alto-ventas"; // sales personas — never create real leads
+  const c = slug && !demoSlug ? await db.getContractorBySlug(slug).catch(() => null) : null;
+  const live = c && c.data?.status !== "paused" ? c : null;
+
+  // Staff "Probar el chat" (?preview=1) marks every message test=true —
+  // same bot, same wording, but NO real lead, NO push to the real agent.
+  const testMode = req.body?.test === true;
+
+  // Lead capture: only the NEWEST visitor message is scanned (history is
+  // re-sent every turn), and the client sets leadSent after the first catch.
+  let captured = false;
+  if (live && !req.body?.leadSent && !testMode) {
+    const lastUser = [...msgs].reverse().find((m) => m.role !== "assistant");
+    const userText = String(lastUser?.content || "");
+    const m = userText.match(/\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    const digits = m ? m[0].replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "") : "";
+    if (digits.length === 10) {
+      // Grab the name when they introduce themselves ("soy Pedro García…")
+      let name = "";
+      const nm = userText.match(/(?:me llamo|mi nombre es|soy|my name is|i am|i'm|this is)[\s:]+([a-zA-ZÀ-ſ]+(?:\s+[a-zA-ZÀ-ſ]+)?)/i);
+      if (nm && !/^(de|del|la|el|un|una|cliente|yo|the|a)$/i.test(nm[1].split(/\s/)[0])) name = nm[1].slice(0, 40);
+      try {
+        const convo = msgs.filter((x) => x.role !== "assistant").map((x) => String(x.content || "").slice(0, 200)).join(" · ").slice(0, 600);
+        const id = await db.addLead(live.id, { name, phone: digits, address: "", info: { src: "chat", chat: convo } });
+        forwardLead(live, { id, name, phone: digits, src: "chat" });
+        notifyLead(live, { name: name || "💬 Chat de tu página", phone: digits }).catch(() => {});
+        captured = true;
+      } catch (e) { console.error("chat lead failed:", e.message); }
+    }
+  }
+
+  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key.", source: "demo", captured });
   try {
     const inEnglish = req.body?.lang === "en";
+    const tone = `Responde SIEMPRE en ${inEnglish ? "inglés" : "español"}, estilo mensaje de texto: cálido, profesional, máximo 45 palabras, sin markdown.`;
+    // The one true story the bot tells: leaving a phone number notifies the
+    // realtor's phone INSTANTLY (real push). It captures the lead — it does
+    // NOT manage a calendar, so it never invents appointment slots.
+    const playbook = ` Tu meta #1: conseguir el NOMBRE y TELÉFONO del cliente. Si piden que alguien les llame o les urge: di que SÍ — pide su nombre y teléfono, y explica que al dejarlo le llega la notificación al agente EN ESE MOMENTO, directo a su celular. NO manejas calendario: nunca inventes horarios de cita ni prometas "mañana a las 10". Si piden cita, di que con gusto la confirman cuando le marquen de regreso. NUNCA des el valor de una casa ni precios: el valuador de esta misma página da el estimado en segundos, y el análisis completo (CMA) lo prepara el agente. Cumple Fair Housing: nunca afirmes nada sobre la calidad de vecindarios, escuelas o tipos de personas — si preguntan, di que el agente les comparte datos objetivos en su llamada. Lo que no sepas, di que el agente lo confirma cuando le llame — no inventes datos.`;
+    // Did the newest message include a phone number? (also true in the deck
+    // demo, where no lead is saved but the mock phone dings via postMessage)
+    const gaveContact = captured || /\d{3}[\s.\-()]*\d{3}[\s.\-]*\d{4}/.test(String([...msgs].reverse().find((x) => x.role !== "assistant")?.content || ""));
+    const confirmLine = " El cliente ACABA de dejar su teléfono: dale las gracias por su nombre y número, y confirma que EN ESTE MOMENTO le llegó la notificación al agente a su celular y que le marcan de regreso muy pronto.";
+    let system;
+    if (live) {
+      const p = live.data?.profile || {}, st = live.data?.site || {};
+      const clean = (s, n) => String(s || "").replace(/\s+/g, " ").slice(0, n);
+      const biz = clean(p.biz || live.name, 60) || "la agencia";
+      const svc = Array.isArray(st.services) ? st.services.map((s) => clean(Array.isArray(s) ? s[1] : s, 40)).filter(Boolean).slice(0, 9) : [];
+      system = `Eres el asistente virtual del sitio web de "${biz}", ${inEnglish ? "a real-estate agency" : "una agencia de bienes raíces"}${st.city ? ` en ${clean(st.city, 40)}` : ""}.`
+        + (st.years ? ` Llevan ${clean(st.years, 4)} años en el negocio.` : "")
+        + (svc.length ? ` Servicios: ${svc.join(", ")}.` : "")
+        + (st.warranty ? ` Promesa al cliente: ${clean(st.warranty, 80)}.` : "")
+        // Staff-curated facts (cs → "Entrenar bot"): the ONLY extra things
+        // the bot may assert — office/address, hours, languages, FAQs…
+        + (st.botFacts ? ` DATOS CONFIRMADOS del negocio — tu única fuente de verdad para dirección, horarios, idiomas, preguntas frecuentes y temas parecidos; lo que no esté aquí NO lo afirmes, di que lo confirman cuando le llamen: ${clean(st.botFacts, 1600)}.` : ` No tienes confirmados dirección de oficina ni horarios: si preguntan, di que el agente lo confirma cuando le llame.`)
+        + ` ${tone} Contesta dudas de comprar, vender o rentar casa (valor de su casa, cómo funciona vender, comisiones en general sin dar cifras, tiempos del proceso).`
+        + playbook
+        + (gaveContact ? confirmLine : "");
+    } else {
+      system = `Eres el asistente virtual de valuación de bienes raíces de "Casa Bella Realty" (la agente se llama María). Estás en una DEMO en vivo frente a un agente interesado en contratar este servicio. ${tone} Contesta dudas sobre el valor estimado de una propiedad (cómo se calcula con ventas comparables recientes — comps — cercanas, ajustadas por tamaño, recámaras/baños, año y recencia de venta). El estimado de la página es preliminar y se basa SOLO en ventas cerradas. NUNCA prometas un precio de venta garantizado ni des asesoría legal o financiera; un análisis completo (CMA) afina el número.` + playbook.replace(/el agente/g, "María")
+        + (gaveContact ? confirmLine.replace("al agente", "a María") : "")
+        + " Si preguntan algo fuera de tema, redirige con amabilidad hacia el valor de la propiedad.";
+    }
     const text = await aiChat({
       maxTokens: 180,
-      system: `Eres el asistente virtual de valuación de bienes raíces de un agente inmobiliario. Estás en una DEMO en vivo frente a un agente interesado en contratar este servicio. Responde SIEMPRE en ${inEnglish ? "inglés" : "español"}, estilo mensaje de texto: cálido, profesional, máximo 45 palabras, sin markdown. Tu meta: contestar dudas sobre el valor estimado de una propiedad (cómo se calcula con ventas comparables recientes — comps — cercanas, ajustadas por tamaño, recámaras/baños, año y recencia de venta) y AGENDAR una valuación detallada o consulta ofreciendo dos horarios concretos (por ejemplo "¿mañana 10am o 2pm?"). El estimado de la página es preliminar y se basa SOLO en ventas cerradas; las propiedades activas en el mercado son solo contexto, nunca el valor. NUNCA prometas un precio de venta garantizado ni des asesoría legal o financiera; un análisis de mercado completo (CMA) afina el número. Si confirman un horario, confirma con ✓ y menciona que les llegará un recordatorio. Si preguntan algo fuera de tema, redirige con amabilidad hacia el valor de la propiedad.`,
+      system,
       messages: msgs.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 400) })),
     });
-    res.json({ text, source: "live" });
+    res.json({ text, source: live ? "site" : "live", captured });
   } catch (e) {
     console.error("widget chat failed:", e.message);
-    res.status(502).json({ error: "ai_failed" });
+    res.status(502).json({ error: "ai_failed", captured });
   }
 });
 
@@ -3843,11 +4366,18 @@ document.querySelectorAll('.fade').forEach(function(el){io.observe(el)});
 /* ── Client websites (the factory's output) ──
  * Rendered from the client's data card through template 1/2/3.
  * No code per client — improve a template, every site improves. */
-function siteDataOf(c) {
+function siteDataOf(c, req = null, extra = {}) {
   const p = c.data?.profile || {};
   const site = c.data?.site || {};
+  const canonical = req ? canonicalOf(c, req) : "";
+  // zonaBase: path prefix for city links ("" when the site lives at a domain
+  // root, "/site/<slug>" when it lives on our host)
+  const zonaBase = canonical.replace(/^https?:\/\/[^/]+/, "");
   return {
     slug: c.slug,
+    canonical,
+    zonaBase,
+    zonaCities: areaCities(site.area),
     lang: site.lang || p.lang || "es",
     biz: p.biz || c.name,
     phone: String(p.phone || c.phone || "").replace(/\D/g, "").replace(/^1/, ""),
@@ -3860,10 +4390,49 @@ function siteDataOf(c) {
     years: site.years || null,
     tagline: site.tagline || "",
     about: site.about || "",
+    area: site.area || "",
+    warranty: site.warranty || "",
+    diff: site.diff || "",
     photos: Array.isArray(site.photos) ? site.photos : [],
     ...(Array.isArray(site.services) && site.services.length ? { services: site.services } : {}),
+    ...extra,
   };
 }
+
+/* ── Client-site SEO endpoints — per-city pages, sitemap, robots ── */
+app.get("/site/:slug/zona/:city", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).send("Not found");
+  const zPub = c.data?.site?.published === true || (req.query.preview != null && (closerOk(req) || csOk(req)));
+  if (c.data?.status === "paused" || c.data?.payStatus === "pending" || !zPub) {
+    return res.redirect(`/site/${encodeURIComponent(c.slug)}`);
+  }
+  const cities = areaCities(c.data?.site?.area);
+  const city = cities.find((x) => citySlug(x) === String(req.params.city));
+  if (!city) return res.redirect(`/site/${encodeURIComponent(c.slug)}`);
+  // The city page IS the site, retargeted: title/meta/kicker carry the city,
+  // and the canonical points at its own /zona URL.
+  res.send(renderSite(siteDataOf(c, req, { pageCity: city, city, pagePath: `/zona/${citySlug(city)}` })));
+});
+
+app.get("/site/:slug/sitemap.xml", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c || c.data?.site?.published !== true || c.data?.status === "paused") return res.status(404).send("Not found");
+  const d = siteDataOf(c, req);
+  const xesc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const urls = [d.canonical, ...areaCities(d.area).map((x) => `${d.canonical}/zona/${citySlug(x)}`)];
+  res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url><loc>${xesc(u)}</loc></url>`).join("\n")}
+</urlset>`);
+});
+
+app.get("/site/:slug/robots.txt", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).send("Not found");
+  const d = siteDataOf(c, req);
+  res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${d.canonical}/sitemap.xml\n`);
+});
 
 app.get("/site/:slug", async (req, res) => {
   const c = await db.getContractorBySlug(String(req.params.slug));
@@ -3887,7 +4456,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   // Not published yet → branded "en construcción" page (the site is ready
   // internally; staff reveal it on delivery day). Staff preview with ?preview=1.
   const published = c.data?.site?.published === true;
-  const preview = req.query.preview != null && closerOk(req);
+  const preview = req.query.preview != null && (closerOk(req) || csOk(req));
   if (!published && !preview) {
     const cProf = c.data?.profile || {};
     const cBiz = String(cProf.biz || c.name).replace(/[&<>"]/g, "");
@@ -3926,7 +4495,11 @@ ${cLogo ? `<img class="logo" src="${cLogo}" alt="${cBiz}">` : `<div class="biz">
 <p class="ft">⚡ Hecho con Quick Comp</p>
 </div></body></html>`);
   }
-  res.send(renderSite(siteDataOf(c)));
+  // Staff preview carries testMode into the chat bubble: same bot, same
+  // wording, but no real lead and no push to the real agent.
+  // Only public-worthy reviews reach the page: 4-5★ with text, newest first.
+  const reviews = (await getReviews(c.id)).filter((r) => r.s >= 4 && r.t).slice(-6).reverse();
+  res.send(renderSite(siteDataOf(c, req, { testMode: preview, reviews })));
 });
 // call so the client picks their look). ?embed=1 hides the demo chrome.
 app.get("/plantilla/:n", (req, res) => {
@@ -4013,6 +4586,40 @@ function reset(){
 </body></html>`);
 });
 
+/* Realtors don't edit their own website — they ask, and the request lands
+ * in the CS queue as a ticket (human or ✨AI resolves it). ALTO pattern. */
+app.post("/api/change-request", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  if (overQuota(`chreq:${c.id}`, 5)) return res.status(429).json({ error: "quota" });
+  const text = String(req.body?.text || "").trim().slice(0, 600);
+  if (!text) return res.status(400).json({ error: "text required" });
+  // The realtor tags what it's about on the phone — the ticket lands in /cs
+  // pre-sorted, with the right suggestion and the right buttons.
+  const TITLES = {
+    bot: "🤖 Cliente pide cambio del BOT",
+    web: "🌐 Cliente pide cambio de su PÁGINA",
+    widget: "🏡 Cliente pide cambio del VALUADOR",
+    queja: "😕 QUEJA del cliente",
+    any: "🙋 Solicitud del cliente",
+  };
+  const kind = TITLES[String(req.body?.kind || "")] ? String(req.body.kind) : "any";
+  const id = await db.addTask({ slug: c.slug, title: TITLES[kind], note: text });
+  res.json({ ok: true, id });
+});
+
+// The realtor's own ticket history — ONLY tickets they sent from the app
+// (kind-prefixed titles), never internal CS tasks about them.
+app.get("/api/my-requests", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  const mine = (await db.listTasks(500))
+    .filter((t) => t.slug === c.slug && /^(🤖|🌐 Cliente|🏡 Cliente|😕|🙋)/.test(String(t.title || "")))
+    .slice(0, 20)
+    .map((t) => ({ id: t.id, note: String(t.note || "").slice(0, 200), status: t.status, at: t.created_at }));
+  res.json({ tickets: mine });
+});
+
 /* ── Customer-service command center (/cs) ──
  * Tasks + a client directory with one-click edit (the onboarding wizard).
  * Gated by CS_KEY (admin key also works). No money/MRR shown. */
@@ -4032,6 +4639,182 @@ app.post("/api/cs/task/:id", async (req, res) => {
   const status = ["open", "doing", "done"].includes(req.body?.status) ? req.body.status : "open";
   await db.setTaskStatus(id, status);
   res.json({ ok: true });
+});
+
+// Plain-language names for the only fields the AI is allowed to touch —
+// shown to the CS agent so "✨ Arreglar en automático" is never a black box.
+const SITEFIX_CAPS = { botFacts: 1600, hero: 160, tagline: 300, about: 1400, warranty: 120, area: 200, city: 80, diff: 300 };
+const SITEFIX_LABELS = {
+  botFacts: "Lo que el bot del chat puede afirmar (oficina, horarios, idiomas, FAQs)",
+  hero: "Título grande de la página",
+  tagline: "Frase debajo del título",
+  about: "Historia / quiénes somos",
+  warranty: "Promesa al cliente (se muestra en la página)",
+  area: "Zonas que cubre",
+  city: "Ciudad principal",
+  diff: "Qué lo hace diferente",
+};
+
+/* Bot training (ALTO pattern, realtor fields): structured truths the site
+ * bot may assert, composed into the single botFacts blob the chat reads. */
+function sanitizeTrain(t) {
+  const S = (x, n) => String(x || "").replace(/\s+/g, " ").trim().slice(0, n);
+  return {
+    addr: S(t.addr, 160), hours: S(t.hours, 160), languages: S(t.languages, 120),
+    lending: S(t.lending, 200), buyers: S(t.buyers, 200), promos: S(t.promos, 200), extra: S(t.extra, 400),
+    faqs: (Array.isArray(t.faqs) ? t.faqs : []).map((f) => ({ q: S(f?.q, 120), a: S(f?.a, 250) })).filter((f) => f.q && f.a).slice(0, 10),
+  };
+}
+function composeBotFacts(train) {
+  const parts = [
+    train.addr && `Oficina/dirección: ${train.addr}`,
+    train.hours && `Horarios: ${train.hours}`,
+    train.languages && `Idiomas: ${train.languages}`,
+    train.lending && `Crédito/prestamistas: ${train.lending}`,
+    train.buyers && `Compradores: ${train.buyers}`,
+    train.promos && `Promociones: ${train.promos}`,
+    train.extra,
+  ].filter(Boolean);
+  const faqs = Array.isArray(train.faqs) ? train.faqs : [];
+  const faqTxt = faqs.length ? ` Preguntas frecuentes (respuestas oficiales): ${faqs.map((f) => `P: ${f.q} R: ${f.a}`).join(" | ")}` : "";
+  return (parts.join(". ") + (parts.length ? "." : "") + faqTxt).replace(/\.{2,}/g, ".").trim().slice(0, 1600);
+}
+
+app.post("/api/cs/bottrain", async (req, res) => {
+  if (!csOk(req) && !closerOk(req)) return res.status(403).json({ error: "no auth" });
+  const b = req.body || {};
+  const c = b.slug && (await db.getContractorBySlug(String(b.slug)));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const train = sanitizeTrain(b.train || {});
+  const facts = composeBotFacts(train);
+  await db.saveContractorData(c.id, { ...(c.data || {}), site: { ...(c.data?.site || {}), botTrain: train, botFacts: facts } });
+  res.json({ ok: true, chars: facts.length, max: 1600 });
+});
+
+/* FAQ suggestions for the bot — the rep reads them to the client, keeps the
+ * approved ones. With no AI key it returns a solid realtor starter pack
+ * personalized from the same facts. */
+app.post("/api/onboarding/botfaq", async (req, res) => {
+  if (!closerOk(req) && !csOk(req)) return res.status(403).json({ error: "no auth" });
+  const b = req.body || {};
+  const S = (x, n) => String(x || "").replace(/\s+/g, " ").trim().slice(0, n);
+  const zone = S(b.area, 80) || S(b.city, 60);
+  const fallback = [
+    { q: "¿Cobran por saber cuánto vale mi casa?", a: "No — el valuador de la página es gratis, y el análisis completo (CMA) también." },
+    { q: "¿Qué tan exacto es el estimado?", a: "Sale de ventas recientes comparables y se da en rango; el agente lo afina con un análisis completo gratis." },
+    { q: "¿También ayudan a comprar?", a: "Sí — compra, venta y renta. Déjenos su teléfono y le llamamos hoy." },
+    { q: "¿En qué zonas trabajan?", a: zone ? `Trabajamos en ${zone} y alrededores.` : "Trabajamos en toda la zona local — déjenos su dirección y le confirmamos." },
+    { q: "¿Hablan español?", a: "Sí — le atendemos en español o inglés, como usted prefiera." },
+    { q: "¿Qué tan rápido responden?", a: "El mismo día — deje su nombre y teléfono aquí en el chat y el agente le llama." },
+  ];
+  if (!aiLive) return res.json({ ok: true, source: "demo", faqs: fallback });
+  const facts = [
+    b.biz && `Agencia: ${S(b.biz, 80)}`,
+    zone && `Zona: ${zone}`,
+    b.warranty && `Promesa: ${S(b.warranty, 120)}`,
+    b.diff && `Los diferencia: ${S(b.diff, 200)}`,
+    b.botAddr && `Oficina: ${S(b.botAddr, 120)}`,
+    b.botHours && `Horarios: ${S(b.botHours, 120)}`,
+  ].filter(Boolean).join("\n");
+  try {
+    const raw = await aiChat({
+      maxTokens: 700,
+      system: `Eres el asistente del sitio web de una agencia de bienes raíces. Con los datos que te doy, escribe las 6 preguntas más frecuentes que un dueño de casa haría por chat, con su respuesta oficial corta (máx 30 palabras), en español sencillo y cálido. NO inventes datos que no te di (comisiones, tiempos exactos, zonas): si el dato no está, la respuesta debe ofrecer confirmarlo por teléfono. Nunca prometas precios ni citas con hora. Cumple Fair Housing: nada sobre calidad de vecindarios, escuelas o tipos de personas. Responde SOLO con un arreglo JSON: [{"q":"…","a":"…"}] — sin markdown.`,
+      messages: [{ role: "user", content: facts || "Agencia de bienes raíces local, sin datos extra." }],
+    });
+    const arr = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] || "[]");
+    const faqs = (Array.isArray(arr) ? arr : []).map((f) => ({ q: S(f?.q, 120), a: S(f?.a, 250) })).filter((f) => f.q && f.a).slice(0, 8);
+    res.json({ ok: true, source: "live", faqs: faqs.length ? faqs : fallback });
+  } catch { res.json({ ok: true, source: "demo", faqs: fallback }); }
+});
+
+/* ✨ Step 1 — PREVIEW: the AI proposes a patch to ONLY the whitelisted site
+ * fields. Nothing is saved and the ticket isn't touched — the agent sees
+ * exactly what would change, in plain language, before deciding. Anything
+ * outside the whitelist (photos, domain, template, billing) comes back
+ * handled=false with why, so a human takes over. */
+app.post("/api/cs/aifix", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug || !t.note) return res.status(400).json({ error: "la tarea necesita cliente y detalle" });
+  if (t.title.startsWith("😕")) return res.json({ ok: true, handled: false, summary: "Es una queja — se arregla hablando con el cliente (WhatsApp o llamada), no editando la página." });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  if (!aiLive) return res.status(503).json({ error: "IA no configurada en el servidor" });
+  const st = c.data?.site || {};
+  const cur = { botFacts: st.botFacts || "", hero: st.hero || "", tagline: st.tagline || "", about: st.about || "", warranty: st.warranty || "", area: st.area || "", city: st.city || "", diff: st.diff || "" };
+  const kindHint = t.title.startsWith("🤖") ? " El cliente marcó que la solicitud es sobre el BOT del chat: casi seguro el cambio va en botFacts (oficina, horarios, idiomas, FAQs — todo lo que el bot afirma). REESCRIBE botFacts completo conservando lo actual que siga siendo cierto."
+    : t.title.startsWith("🌐") ? " El cliente marcó que la solicitud es sobre su PÁGINA web: revisa hero, tagline, about, warranty, area, city, diff — y botFacts si también aplica."
+    : t.title.startsWith("🏡") ? " El cliente marcó que es sobre su VALUADOR (el widget de valor de casa): el widget no tiene textos editables aparte — si pide otra cosa (colores, dominio, funcionamiento), handled=false para que lo vea un especialista."
+    : "";
+  try {
+    const raw = await aiChat({
+      maxTokens: 600,
+      system: `Eres el editor del sitio web de un agente de bienes raíces. Te doy la SOLICITUD del cliente y sus campos editables actuales. Responde SOLO con JSON: {"handled": true/false, "summary": "en una frase, en español simple, qué cambiarías y por qué (o por qué debe hacerlo un especialista)", "patch": {…solo los campos que cambias, entre: botFacts, hero, tagline, about, warranty, area, city, diff}}. Reglas: botFacts son los datos que el bot del chat afirma (oficina, horarios, idiomas, FAQs) — si la solicitud es de ese tipo, REESCRIBE botFacts completo conservando lo actual que siga siendo cierto. hero máximo 8 palabras. No inventes datos que el cliente no dio. Cumple Fair Housing: nunca escribas afirmaciones sobre la calidad de vecindarios, escuelas o tipos de personas. Si piden algo fuera de esos campos (fotos, dominio, plantilla, precios, facturación, logo, el valuador), handled=false.${kindHint}`,
+      messages: [{ role: "user", content: `SOLICITUD DEL CLIENTE: ${String(t.note).slice(0, 600)}\n\nCAMPOS ACTUALES: ${JSON.stringify(cur)}` }],
+    });
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    const patch = {};
+    for (const k of Object.keys(SITEFIX_CAPS)) if (j.patch && typeof j.patch[k] === "string") patch[k] = j.patch[k].slice(0, SITEFIX_CAPS[k]);
+    const handled = !!j.handled && Object.keys(patch).length > 0;
+    const changes = Object.keys(patch).map((k) => ({ key: k, label: SITEFIX_LABELS[k] || k, before: cur[k] || "(vacío)", after: patch[k] || "(vacío)" }));
+    res.json({ ok: true, handled, summary: String(j.summary || "").slice(0, 300), changes, patch });
+  } catch (e) {
+    console.error("cs aifix preview failed:", e.message);
+    res.status(502).json({ error: "la IA no pudo — hazlo manual con ✏️ Editar" });
+  }
+});
+
+/* ✨ Step 2 — APPLY: the agent reviewed the exact patch from the preview
+ * above and approved it. We re-validate it server-side (whitelist + length
+ * caps) rather than trusting the client blindly, then save and close the
+ * ticket. No second AI call — what you saw is exactly what gets written. */
+app.post("/api/cs/aifix/apply", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug) return res.status(400).json({ error: "tarea no encontrada" });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const patch = {};
+  const given = req.body?.patch;
+  for (const k of Object.keys(SITEFIX_CAPS)) if (given && typeof given[k] === "string") patch[k] = given[k].slice(0, SITEFIX_CAPS[k]);
+  if (!Object.keys(patch).length) return res.status(400).json({ error: "nada que aplicar" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), site: { ...(c.data?.site || {}), ...patch } });
+  await db.setTaskStatus(id, "done");
+  res.json({ ok: true });
+});
+
+/* 🔔 "Avisarle": tell the realtor their request is done — INSIDE their own
+ * app (a real push notification via their lead-alert subscription), not a
+ * WhatsApp text that leaves our product. Falls back to WhatsApp only for
+ * realtors who never enabled push. */
+app.post("/api/cs/notify", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug) return res.status(400).json({ error: "tarea no encontrada" });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (pushLive && subs.length) {
+    const es = (c.data?.profile?.lang || "") === "es";
+    const payload = JSON.stringify({
+      title: es ? "✅ Tu solicitud ya está lista" : "✅ Your request is done",
+      body: String(t.note || (es ? "Hicimos el cambio que pediste" : "We made the change you asked for")).slice(0, 140),
+      tag: "ticket-" + id,
+      url: "/",
+    });
+    let sent = 0;
+    await Promise.all(subs.map((s) => webpush.sendNotification(s, payload).then(() => { sent++; }).catch(() => {})));
+    if (sent) return res.json({ ok: true, pushed: true });
+  }
+  // No push device on file — hand CS a WhatsApp link as the fallback so the
+  // client still hears back, just not through the in-app channel.
+  const phone = String(c.data?.profile?.phone || c.phone || "").replace(/\D/g, "").replace(/^1/, "");
+  const wa = phone.length === 10 ? `https://wa.me/1${phone}?text=${encodeURIComponent("¡Listo! Ya quedó el cambio que pediste 🙌 Revísalo y me dices.")}` : null;
+  res.json({ ok: true, pushed: false, waFallback: wa, error: wa ? undefined : "Sin teléfono ni notificaciones activas para este cliente" });
 });
 
 app.get("/cs", async (req, res) => {
@@ -4060,13 +4843,84 @@ app.get("/cs", async (req, res) => {
   for (const c of clients) {
     const s = c.data?.site || {}, d = c.data || {};
     const dev = devCounts[String(c.id)] || 0;
-    if (d.status === "paused" || d.payStatus === "canceled") attention.push({ slug: c.slug, name: c.name, tag: "pausada", icon: "⏸", msg: "Cuenta pausada — confirma si quiere reactivar", act: "site", c });
-    else if (d.payStatus === "failed") attention.push({ slug: c.slug, name: c.name, tag: "pago falló", icon: "💳", msg: "Falló su pago — recuérdale actualizar su tarjeta", act: "site", c });
-    else if (d.payStatus === "pending") attention.push({ slug: c.slug, name: c.name, tag: "esperando pago", icon: "⏳", msg: "Aún no activa — se activa sola al pagar", act: "site", c });
-    else if (!(s.template || s.about)) attention.push({ slug: c.slug, name: c.name, tag: "falta onboarding", icon: "🆕", msg: "Cliente nuevo sin página — haz su onboarding", act: "edit", c });
-    else if (!s.published) attention.push({ slug: c.slug, name: c.name, tag: "sin publicar", icon: "🏗️", msg: "Su página está lista pero no publicada — revísala y publícala", act: "edit", c });
-    if (dev >= 4) attention.push({ slug: c.slug, name: c.name, tag: "link compartido", icon: "📱", msg: `${dev} dispositivos — ofrécele cuentas para su equipo`, act: "site", c });
+    if (d.status === "paused" || d.payStatus === "canceled") attention.push({ slug: c.slug, name: c.name, tag: "pausada", icon: "⏸", msg: "Cuenta pausada — confirma si quiere reactivar", c });
+    else if (d.payStatus === "failed") attention.push({ slug: c.slug, name: c.name, tag: "pago falló", icon: "💳", msg: "Falló su pago — recuérdale actualizar su tarjeta", c });
+    else if (d.payStatus === "pending") attention.push({ slug: c.slug, name: c.name, tag: "esperando pago", icon: "⏳", msg: "Aún no activa — se activa sola al pagar", c });
+    else if (!(s.template || s.about)) attention.push({ slug: c.slug, name: c.name, tag: "falta onboarding", icon: "🆕", msg: "Cliente nuevo sin página — haz su onboarding", c });
+    else if (!s.published) attention.push({ slug: c.slug, name: c.name, tag: "sin publicar", icon: "🏗️", msg: "Su página está lista pero no publicada — revísala y publícala", c });
+    if (dev >= 4) attention.push({ slug: c.slug, name: c.name, tag: "link compartido", icon: "📱", msg: `${dev} dispositivos — ofrécele cuentas para su equipo`, c });
   }
+  // Quick-edit: the raw data behind every client's onboarding, embedded so the
+  // rep can edit ANY text field in one place. Saving posts to
+  // /api/onboarding/save, which merges and keeps logo/photos/publish untouched.
+  const qeData = {};
+  for (const c of clients) {
+    const s = c.data?.site || {}, p = c.data?.profile || {};
+    qeData[c.slug] = {
+      name: c.name, biz: p.biz || "", phone: p.phone || c.phone || "", license: p.license || "",
+      template: s.template || "1", color: s.color || "#15244C", city: s.city || "", area: s.area || "",
+      years: s.years || "", services: (Array.isArray(s.services) ? s.services : []).join(", "),
+      warranty: s.warranty || "", diff: s.diff || "", tagline: s.tagline || "", hero: s.hero || "",
+      about: s.about || "", gmb: s.gmb || "", facebook: s.facebook || "", instagram: s.instagram || "",
+      published: !!s.published,
+    };
+  }
+  // Bot trainer data: structured botTrain when it exists; else seed "extra"
+  // with a hand-written botFacts so nothing already taught gets lost.
+  const btData = {};
+  for (const c of clients) {
+    const s = c.data?.site || {};
+    const bt = s.botTrain || null;
+    btData[c.slug] = {
+      addr: bt?.addr || "", hours: bt?.hours || "", languages: bt?.languages || "",
+      lending: bt?.lending || "", buyers: bt?.buyers || "", promos: bt?.promos || "",
+      extra: bt ? bt.extra || "" : (s.botFacts || ""),
+      faqs: Array.isArray(bt?.faqs) ? bt.faqs : [],
+    };
+  }
+  // Tasks: pending is the morning worklist; done is history, tucked away.
+  const pendTasks = tasks.filter((t) => t.status !== "done");
+  const doneTasks = tasks.filter((t) => t.status === "done");
+  const taskRow = (t, badge) => {
+    // Client-request tickets arrive pre-tagged from the app; each kind gets
+    // its own one-line playbook and only the buttons that make sense.
+    const kind = t.title.startsWith("🤖") ? "bot" : t.title.startsWith("🌐 Cliente") ? "web" : t.title.startsWith("🏡 Cliente") ? "widget" : t.title.startsWith("😕") ? "queja" : t.title.startsWith("🙋") ? "any" : "";
+    const cli = kind && t.slug ? clients.find((x) => x.slug === t.slug) : null;
+    const cwa = cli ? waOf(phoneOf(cli)) : "";
+    const hint = kind === "bot" ? "💡 Toca ✨ para VER qué cambiaría antes de aplicarlo. Luego pruébalo tú mismo en su chat, y avísale con 🔔."
+      : kind === "web" ? "💡 Textos, zonas o datos → toca ✨ y revisa el cambio antes de aplicarlo. Fotos, plantilla o dominio → ✏️ Onboarding."
+      : kind === "widget" ? "💡 El valuador no tiene textos editables — lee qué pide: si es del funcionamiento o los valores, pásalo al admin; si en realidad es de su página, toca ✨."
+      : kind === "queja" ? "💡 Una queja se arregla hablando — mándale WhatsApp o llámalo hoy. Nada de botones."
+      : kind === "any" ? "💡 Léelo: si es del bot o de la página, toca ✨ y revisa antes de aplicar. Si es otra cosa, hazlo con ⚡ Editar datos u ✏️ Onboarding."
+      : "";
+    return `<details class="task ${t.status}">
+    <summary class="attsum">
+      <span class="an${t.status === "done" ? " dn" : ""}">${badge}</span>
+      <div class="am"><b>${esc(t.title)}</b><span class="x">${t.slug ? esc(nameOf(t.slug)) : "general"}${t.note ? ` — ${esc(String(t.note).slice(0, 90))}${String(t.note).length > 90 ? "…" : ""}` : ""}</span></div>
+      <span class="tstat ${t.status}">${stLabel[t.status] || t.status}</span>
+      ${t.status !== "done"
+        ? `<button class="tbtn go" onclick="event.preventDefault();tStat('${t.id}','done')">✓ Hecho</button>`
+        : `<button class="tbtn" onclick="event.preventDefault();tStat('${t.id}','open')">↩ Reabrir</button>`}
+      <span class="achev">▾</span>
+    </summary>
+    <div class="abody">
+      ${t.note ? `<div class="asec"><b>Lo que pidió</b><p class="qnote">${esc(t.note)}</p></div>` : ""}
+      ${hint && t.status !== "done" ? `<p class="qhint">${hint}</p>` : ""}
+      <div class="aacts">
+        ${t.status !== "done" && t.slug && t.note && kind !== "queja" ? `<button class="tbtn" style="border-color:#C9973A" onclick="aiFix('${t.id}',this)">${kind ? "✨ Ver arreglo automático" : "✨ IA"}</button>` : ""}
+        ${t.slug ? `<button class="tbtn" onclick="qeOpen('${esc(t.slug)}')">⚡ Editar datos</button>` : ""}
+        ${t.slug && (kind === "bot" || kind === "any" || !kind) ? `<button class="tbtn" onclick="btOpen('${esc(t.slug)}')">🤖 Entrenar bot</button>` : ""}
+        ${kind && kind !== "queja" && t.slug ? `<a class="tbtn" href="/site/${esc(t.slug)}?preview=1&chat=open" target="_blank">💬 Probar su chat</a>` : ""}
+        ${cwa && t.status !== "done" ? `<a class="wa" href="${cwa}" target="_blank" style="padding:6px 12px;border-radius:9px;font-size:12.5px">💬 WhatsApp</a>` : ""}
+        ${kind && kind !== "queja" && t.slug ? `<button class="tbtn" onclick="notifyClient('${t.id}',this)">🔔 Avisarle</button>` : ""}
+        ${t.status === "open" && !kind ? `<button class="tbtn" onclick="tStat('${t.id}','doing')">▶ Empezar</button>` : ""}
+        ${t.slug ? `<a class="tbtn" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ Onboarding</a><a class="tbtn" href="/site/${esc(t.slug)}" target="_blank">🌐 Página</a><a class="tbtn" href="/w/${esc(t.slug)}" target="_blank">🏡 Valuador</a>` : ""}
+        <button class="tbtn del" onclick="tDel('${t.id}')">🗑 Borrar</button>
+      </div>
+      <div class="tpreview" id="pv-${t.id}" style="display:none"></div>
+    </div>
+  </details>`;
+  };
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quick Comp · Servicio</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -4081,6 +4935,7 @@ body{background:#F5F6F8;color:#0B1220;letter-spacing:-0.011em}
 .card{background:#fff;border:1px solid rgba(16,27,48,.05);border-radius:18px;padding:18px 20px;box-shadow:0 1px 2px rgba(16,27,48,.04),0 8px 22px rgba(16,27,48,.045)}
 .card .v{font-size:28px;font-weight:700;letter-spacing:-0.035em}.card .l{font-size:11px;font-weight:700;color:#9097A3;letter-spacing:.5px;text-transform:uppercase;margin-top:6px}
 .card.gold{background:linear-gradient(155deg,#16243f,#0d1729);border:none}.card.gold .v{color:#C9973A}.card.gold .l{color:#9DA8C4}
+.card.cardred .v{color:#C5221F}
 .panel{background:#fff;border:1px solid rgba(16,27,48,.05);border-radius:20px;padding:22px 24px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,27,48,.04),0 10px 26px rgba(16,27,48,.05)}
 .panel h2{font-size:15px;font-weight:700;margin-bottom:14px}
 .tform{display:grid;gap:8px;grid-template-columns:1fr;margin-bottom:16px}
@@ -4088,18 +4943,44 @@ body{background:#F5F6F8;color:#0B1220;letter-spacing:-0.011em}
 .tform select,.tform input{font-family:inherit;padding:11px 13px;border-radius:11px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;background:#fff}
 .tform select:focus,.tform input:focus{border-color:#C9973A;box-shadow:0 0 0 3px rgba(201,151,58,.18)}
 .tform button{background:#C9973A;color:#101B30;border:none;border-radius:11px;padding:11px 20px;font-weight:800;cursor:pointer;white-space:nowrap}
-.task{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px solid #F2F4F7;flex-wrap:wrap}
-.task.done{opacity:.55}
-.task .tmain{flex:1;min-width:200px}
-.task .tt{font-weight:700;font-size:14.5px}
-.task.done .tt{text-decoration:line-through}
-.task .tc{display:inline-block;margin-left:8px;font-size:12.5px;font-weight:700;color:#B07A00;text-decoration:none}
-.task .tn{color:#67718A;font-size:12.5px;font-weight:500;margin-top:3px}
-.task .tact{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.task{border-bottom:1px solid #F2F4F7}
+.task:last-of-type{border-bottom:none}
+.task.done .am b{text-decoration:line-through;color:#9097A3}
+.task.done{opacity:.75}
+.an.dn{background:#E7F7ED;color:#10803C}
+.qnote{font-size:13px;font-weight:600;color:#3A4250;background:#fff;border:1px solid #E7EAF0;border-radius:10px;padding:9px 12px;line-height:1.6;margin:0}
+.qhint{color:#9A6E00;background:#FFF8E1;border-radius:10px;padding:8px 11px;font-size:12.5px;font-weight:600;margin:10px 0 0;line-height:1.6}
+.qe .qegrid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:820px){.qe .qegrid{grid-template-columns:1fr 1fr}}
+.qe label{display:block}
+.qe .qel{display:block;font-size:11px;color:#8A94A8;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:5px}
+.qe input,.qe textarea,.qe select{width:100%;font-family:inherit;padding:10px 12px;border-radius:10px;border:1px solid #E4E7EC;font-size:13.5px;font-weight:600;color:#16202E;outline:none;background:#fff}
+.qe input:focus,.qe textarea:focus{border-color:#C9973A;box-shadow:0 0 0 3px rgba(201,151,58,.16)}
+.qe textarea{resize:vertical}
+.qe .full{grid-column:1/-1}
+.qemsg{font-size:13px;font-weight:700;color:#10803C}
+.btfaq{display:grid;grid-template-columns:1fr 1.4fr auto;gap:8px;margin:0 0 8px}
+@media(max-width:700px){.btfaq{grid-template-columns:1fr;border-bottom:1px dashed #E4E7EC;padding-bottom:10px}}
+.tdone{margin-top:14px;border-top:1px solid #F2F4F7}
+.tdsum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 4px;color:#8A94A8;font-weight:700;font-size:13px}
+.tdsum::-webkit-details-marker{display:none}
+.tdsum:hover{color:#5A6478}
+.tdone[open] .tdsum .achev{transform:rotate(180deg)}
 .tstat{border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;white-space:nowrap}
-.tstat.open{background:#F7EFD8;color:#8A6A00}.tstat.doing{background:#E5EFFE;color:#21438A}.tstat.done{background:#E7F7ED;color:#10803C}
+.tstat.open{background:#F7EFD8;color:#946400}.tstat.doing{background:#E5EFFE;color:#21438A}.tstat.done{background:#E7F7ED;color:#10803C}
 .tbtn{border:1px solid #E4E7EC;background:#fff;border-radius:9px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;text-decoration:none;color:#101B30}
 .tbtn.go{background:#101B30;color:#fff;border:none}.tbtn.del{color:#C5221F;border-color:#F3B4B0}
+.tpreview{width:100%;order:99}
+.pvbox{background:#FFFBEF;border:1.5px solid #C9973A;border-radius:14px;padding:14px 16px;margin-top:8px}
+.pvbox.pvno{background:#F4F6FA;border-color:#E4E7EC}
+.pvsum{font-weight:700;font-size:13.5px;color:#101B30;margin-bottom:10px;line-height:1.5}
+.pvrow{border-top:1px solid #F0E4B8;padding:9px 0}
+.pvrow:first-of-type{border-top:none}
+.pvrow b{display:block;font-size:12.5px;color:#8A6D00;margin-bottom:4px}
+.pvold{font-size:12.5px;color:#9097A3;text-decoration:line-through;margin-bottom:2px;word-break:break-word}
+.pvnew{font-size:13px;color:#101B30;font-weight:600;word-break:break-word}
+.pvbtns{display:flex;gap:8px;margin-top:12px}
+.pvbtns .tbtn{font-size:13px;padding:8px 16px}
 .search{width:100%;font-family:inherit;padding:11px 14px;border-radius:11px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;margin-bottom:12px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;color:#9097A3;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;font-weight:700;padding:9px 8px;border-bottom:1px solid #EEF0F4}
@@ -4107,16 +4988,39 @@ td{padding:11px 8px;border-bottom:1px solid #F2F4F7;font-weight:600;vertical-ali
 td a{color:#B07A00;font-weight:700;text-decoration:none}
 .edit{background:#C9973A;color:#101B30 !important;border-radius:9px;padding:6px 12px;font-weight:800;font-size:12.5px}
 .empty{color:#9097A3;font-weight:600;padding:14px 0}
-.card.cardred .v{color:#C5221F}
-.att{display:flex;gap:11px;align-items:center;padding:12px 0;border-bottom:1px solid #F2F4F7;flex-wrap:wrap}
+.att{border-bottom:1px solid #F2F4F7}
 .att:last-child{border-bottom:none}
+.attsum{display:flex;gap:11px;align-items:center;padding:13px 4px;cursor:pointer;list-style:none;flex-wrap:wrap}
+.attsum::-webkit-details-marker{display:none}
+.attsum:hover{background:#FBFBFD}
+.an{width:24px;height:24px;border-radius:8px;background:#101B30;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.achev{color:#9097A3;font-size:12px;flex-shrink:0;transition:transform .15s}
+.att[open] .achev,.task[open] .achev{transform:rotate(180deg)}
+.abody{background:#F7F9FC;border:1px solid #EDF0F5;border-radius:16px;padding:16px 18px 18px;margin:2px 4px 16px 39px}
+.agrid{display:grid;gap:16px}
+@media(min-width:920px){.agrid{grid-template-columns:1fr 1.25fr}}
+.asec>b{display:block;font-size:11px;color:#8A94A8;text-transform:uppercase;letter-spacing:.6px;font-weight:800;margin-bottom:8px}
+.asec ol{margin:0 0 0 18px;color:#3A4250;font-size:13px;font-weight:500;line-height:1.75}
+.ckbar{display:inline-block;width:84px;height:5px;background:#E9EDF3;border-radius:99px;margin-left:8px;vertical-align:2px}
+.ckbar i{display:block;height:100%;background:#C9973A;border-radius:99px}
+.ck{display:flex;flex-wrap:wrap;gap:7px}
+.ck span{font-size:12px;font-weight:700;border-radius:99px;padding:5px 11px;white-space:nowrap}
+.ck .y{background:#E7F7ED;color:#10803C}
+.ck .n{background:#fff;border:1px solid #EAD3D2;color:#A04441}
+.ck .o{background:transparent;border:1px dashed #D5DAE3;color:#9097A3}
+.ck .i{background:#fff;border:1px solid #E7EAF0;color:#3A4250}
+.asec+.asec,.agrid+.asec{margin-top:15px}
+.aacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid #EDF0F5}
+.aacts .tbtn{background:#fff}
+.aacts .tbtn.go{background:#101B30}
+@media(max-width:600px){.abody{margin-left:4px}}
 .att .ai{font-size:20px;flex-shrink:0}
-.att .am{flex:1;min-width:190px}
-.att .am b{font-size:14px}.att .am .x{display:block;color:#67718A;font-size:12.5px;font-weight:500;margin-top:1px}
+.am{flex:1;min-width:190px}
+.am b{font-size:14px}.am .x{display:block;color:#67718A;font-size:12.5px;font-weight:500;margin-top:1px}
 .att .atag{border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;background:#FDECEC;color:#C5221F;white-space:nowrap}
 .qchips{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px}
 .qchip{border:1px dashed #C9CDD6;background:#FBFBFD;border-radius:99px;padding:7px 13px;font-size:12.5px;font-weight:700;color:#475067;cursor:pointer}
-.qchip:hover{border-color:#C9973A;background:#F7EFD8}
+.qchip:hover{border-color:#C9973A;background:#FFFBEF}
 .wa{background:#25D366;color:#fff !important;border-radius:8px;padding:5px 11px;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap}
 .slug2{color:#9097A3;font-size:11.5px}
 .guide details{border:1px solid #EEF0F4;border-radius:12px;margin:8px 0;background:#FBFBFD}
@@ -4126,6 +5030,13 @@ td a{color:#B07A00;font-weight:700;text-decoration:none}
 .guide details[open] summary::before{content:"▾ "}
 .guide .gb{padding:0 14px 13px;color:#475067;font-size:12.5px;font-weight:500;line-height:1.7}
 .guide .gb ol{margin:6px 0 0 18px}.guide .gb li{margin:3px 0}
+/* Collapsible panels — closed by default so nothing sits in the way. */
+summary.psum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;margin:0}
+summary.psum::-webkit-details-marker{display:none}
+summary.psum::after{content:"▾";margin-left:auto;color:#9097A3;font-size:13px;transition:transform .15s}
+details[open]>summary.psum::after{transform:rotate(180deg)}
+.pbody{margin-top:16px}
+.guide summary.psum::before,.guide details[open] summary.psum::before{content:none}
 </style></head><body>
 <div class="appheader">
   <img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Servicio al cliente</b>
@@ -4135,53 +5046,167 @@ td a{color:#B07A00;font-weight:700;text-decoration:none}
 <div class="cards">
   <div class="card ${attention.length ? "cardred" : ""}"><div class="v">${attention.length}</div><div class="l">Necesita atención</div></div>
   <div class="card gold"><div class="v">${openCount}</div><div class="l">Tareas pendientes</div></div>
-  <div class="card"><div class="v">${clients.length}</div><div class="l">Clientes</div></div>
+  <div class="card"><div class="v">${clients.length}</div><div class="l">Agentes</div></div>
   <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
 </div>
 
-${attention.length ? `<div class="panel">
-  <h2>🚨 Necesita atención <span style="color:#9097A3;font-weight:600;font-size:13px">— trabaja esta lista de arriba a abajo</span></h2>
-  ${attention.map((a) => { const wa = waOf(phoneOf(a.c)); const editUrl = `/onboarding?key=${K}&slug=${esc(a.slug)}`; return `<div class="att">
-    <span class="ai">${a.icon}</span>
-    <div class="am"><b>${esc(a.name)}</b><span class="x">${a.msg}</span></div>
-    <span class="atag">${a.tag}</span>
-    <a class="tbtn go" href="${editUrl}">✏️ Editar</a>
-    <a class="tbtn" href="/site/${esc(a.slug)}" target="_blank">🌐</a>
-    ${wa ? `<a class="wa" href="${wa}" target="_blank">💬 WhatsApp</a>` : ""}
-  </div>`; }).join("")}
-</div>` : `<div class="panel"><h2>🎉 Todo al día</h2><p class="empty" style="padding:4px 0">Nada necesita atención ahora mismo. Buen trabajo.</p></div>`}
+${attention.length ? `<div class="panel"><details open><summary class="psum"><h2 style="margin:0">🚨 Necesita atención (${attention.length}) <span style="color:#9097A3;font-weight:600;font-size:13px">— trabaja de arriba a abajo; toca una para ver TODO lo del agente</span></h2></summary>
+  <div class="pbody">
+  ${attention.map((a, ai) => {
+    const wa = waOf(phoneOf(a.c));
+    const editUrl = `/onboarding?key=${K}&slug=${esc(a.slug)}`;
+    const s = a.c.data?.site || {}, d = a.c.data || {};
+    const devN = devCounts[String(a.c.id)] || 0;
+    const nPhotos = Array.isArray(s.photos) ? s.photos.length : 0;
+    const nServ = Array.isArray(s.services) ? s.services.length : 0;
+    // The FULL state of the client, not just what's broken — ✓ done,
+    // ✗ missing (blocks a good page), ○ optional. CS fixes any ✗ via onboarding.
+    const check = [
+      ["Logo / foto", !!d.profile?.logo],
+      ["Teléfono", !!phoneOf(a.c)],
+      ["Ciudad / área", !!(s.city || s.area)],
+      ["Plantilla elegida", !!s.template],
+      ["Textos (titular e historia)", !!(s.hero && s.about)],
+      [`Fotos (${nPhotos}/8)`, nPhotos > 0],
+      [`Servicios (${nServ})`, nServ > 0],
+      ["Página publicada", !!s.published],
+      ["Dominio propio", !!s.domain, true],
+    ];
+    const okCount = check.filter((x) => x[1]).length;
+    const STEPS = {
+      "pausada": ["Confírmale por WhatsApp si quiere seguir con el servicio.", "Si quiere volver: pídele al admin que la reactive en /admin.", "Si canceló de plano: no borres nada — sus datos quedan guardados por si regresa."],
+      "pago falló": ["Avísale por WhatsApp: su tarjeta no pasó.", "Que actualice su tarjeta con el mismo link de pago de su plan (te lo pasa el closer o el admin).", "En cuanto pague, su cuenta se reactiva sola — no hay que tocar nada."],
+      "esperando pago": ["Todavía no paga — su cuenta se activa sola al pagar; no hay nada técnico que hacer.", "¿Dice que ya pagó por Zelle o efectivo? El admin la marca como pagada en /admin y listo.", "Si no responde en 2 días, mándale un recordatorio amable por WhatsApp."],
+      "falta onboarding": ["Llama al agente y abre el onboarding (botón abajo) — se llena junto con él en ~20 min.", "El checklist de abajo te dice exactamente qué le falta.", "Al terminar, revisa el borrador y publica desde el mismo onboarding."],
+      "sin publicar": ["Abre el borrador (botón abajo) y revisa que todo se vea bien.", "Lo que falte, corrígelo en el onboarding — guíate con el checklist de abajo.", "Cuando esté lista, publícala desde el onboarding."],
+      "link compartido": ["Su equipo entra con el mismo link — señal de que la app les gusta 💪.", "Ofrécele cuentas para su equipo (el admin las crea).", "No es urgente: es oportunidad, no problema."],
+    };
+    return `<details class="att">
+    <summary class="attsum">
+      <span class="an">${ai + 1}</span>
+      <span class="ai">${a.icon}</span>
+      <div class="am"><b>${esc(a.name)}</b><span class="x">${a.msg}</span></div>
+      <span class="atag">${a.tag}</span>
+      <span class="achev">▾</span>
+    </summary>
+    <div class="abody">
+      <div class="agrid">
+      <div class="asec"><b>Qué hacer — ${a.tag}</b><ol>${(STEPS[a.tag] || []).map((step) => `<li>${step}</li>`).join("")}</ol></div>
+      <div class="asec"><b>Su página — ${okCount}/${check.length} listo<span class="ckbar"><i style="width:${Math.round((okCount / check.length) * 100)}%"></i></span></b>
+        <div class="ck">${check.map(([label, ok, opt]) => `<span class="${ok ? "y" : opt ? "o" : "n"}">${ok ? "✓" : opt ? "○" : "✗"} ${label}${!ok && opt ? " · opcional" : ""}</span>`).join("")}</div>
+      </div>
+      </div>
+      <div class="asec"><b>Datos del agente</b>
+        <div class="ck">
+          <span class="i">📦 ${esc(PLANS[planOf(a.c)].name)}</span>
+          <span class="i">📞 ${esc(phoneOf(a.c)) || "sin teléfono"}</span>
+          <span class="i">📱 ${devN} dispositivo${devN === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div class="aacts">
+        <a class="tbtn go" href="${editUrl}">✏️ Abrir onboarding</a>
+        <a class="tbtn" href="/site/${esc(a.slug)}?preview=1" target="_blank">👁️ Borrador</a>
+        <a class="tbtn" href="/site/${esc(a.slug)}" target="_blank">🌐 Página</a>
+        <a class="tbtn" href="/w/${esc(a.slug)}" target="_blank">🏡 Valuador</a>
+        ${wa ? `<a class="wa" href="${wa}" target="_blank">💬 WhatsApp</a>` : ""}
+        <button class="tbtn" onclick="mkTask('${esc(a.slug)}','${esc(a.tag)}: ')">＋ Crear tarea</button>
+      </div>
+    </div>
+  </details>`; }).join("")}
+  </div>
+</details></div>` : `<div class="panel"><h2>🎉 Todo al día</h2><p class="empty" style="padding:4px 0">Nada necesita atención ahora mismo. Buen trabajo.</p></div>`}
 
-<div class="panel">
-  <h2>✅ Tareas</h2>
+<div class="panel"><details open><summary class="psum"><h2 style="margin:0">✅ Tareas${pendTasks.length ? ` (${pendTasks.length})` : ""} <span style="color:#9097A3;font-weight:600;font-size:13px">— tu trabajo del día</span></h2></summary>
+  <div class="pbody">
   <div class="qchips">
     <span class="qchip" onclick="quick('Cambiar teléfono')">📞 Cambiar teléfono</span>
     <span class="qchip" onclick="quick('Subir fotos nuevas')">📷 Subir fotos</span>
     <span class="qchip" onclick="quick('Publicar la página')">🚀 Publicar página</span>
     <span class="qchip" onclick="quick('Conectar su dominio')">🌐 Conectar dominio</span>
-    <span class="qchip" onclick="quick('Actualizar precios / info')">💲 Actualizar info</span>
+    <span class="qchip" onclick="quick('Actualizar zonas / info')">💲 Actualizar info</span>
   </div>
   <div class="tform">
-    <select id="t_slug"><option value="">— sin cliente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+    <select id="t_slug"><option value="">— sin agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
     <input id="t_title" placeholder="¿Qué hay que hacer? (ej. cambiar teléfono, subir fotos)">
     <button onclick="addTask()">+ Agregar tarea</button>
   </div>
-  ${tasks.length ? tasks.map((t) => `<div class="task ${t.status}">
-    <div class="tmain"><span class="tt">${esc(t.title)}</span>${t.slug ? `<a class="tc" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ ${esc(nameOf(t.slug))}</a>` : `<span class="tc" style="color:#9097A3">general</span>`}${t.note ? `<p class="tn">${esc(t.note)}</p>` : ""}</div>
-    <div class="tact">
-      <span class="tstat ${t.status}">${stLabel[t.status] || t.status}</span>
-      ${t.status === "open" ? `<button class="tbtn" onclick="tStat('${t.id}','doing')">▶ Empezar</button>` : ""}
-      ${t.status !== "done" ? `<button class="tbtn go" onclick="tStat('${t.id}','done')">✓ Hecho</button>` : `<button class="tbtn" onclick="tStat('${t.id}','open')">↩ Reabrir</button>`}
-      ${t.slug ? `<a class="tbtn" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ Editar</a><a class="tbtn" href="/site/${esc(t.slug)}" target="_blank">🌐</a>` : ""}
-      <button class="tbtn del" onclick="tDel('${t.id}')">🗑</button>
-    </div>
-  </div>`).join("") : `<p class="empty">Sin tareas. Agrega una arriba.</p>`}
-</div>
+  ${pendTasks.length ? pendTasks.map((t, i) => taskRow(t, String(i + 1))).join("") : `<p class="empty">🎉 Nada pendiente — todo el trabajo del día está hecho.</p>`}
+  ${doneTasks.length ? `<details class="tdone"><summary class="tdsum">📁 Hechas (${doneTasks.length}) — ver historial<span class="achev" style="margin-left:auto">▾</span></summary>
+    <div>${doneTasks.map((t) => taskRow(t, "✓")).join("")}</div>
+  </details>` : ""}
+  </div>
+</details></div>
 
-<div class="panel">
-  <h2>📋 Clientes</h2>
-  <input class="search" id="csearch" placeholder="Buscar cliente…" oninput="filt()">
+<div class="panel qe"><details id="qepanel"><summary class="psum"><h2 style="margin:0">⚡ Edición rápida <span style="color:#9097A3;font-weight:600;font-size:13px">— cambia cualquier dato de un agente aquí mismo, sin pasar por el onboarding</span></h2></summary>
+  <div class="pbody">
+  <select id="qe_slug" onchange="qeShow()" style="max-width:340px;margin-bottom:4px"><option value="">— elige un agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+  <div id="qe_form" style="display:none">
+    <div class="qegrid" style="margin-top:12px">
+      <label><span class="qel">Nombre / inmobiliaria</span><input id="qe_biz"></label>
+      <label><span class="qel">Teléfono</span><input id="qe_phone" inputmode="numeric"></label>
+      <label><span class="qel">Ciudad</span><input id="qe_city"></label>
+      <label><span class="qel">Zonas que cubre</span><input id="qe_area"></label>
+      <label><span class="qel">Años de experiencia</span><input id="qe_years" inputmode="numeric"></label>
+      <label><span class="qel">Licencia</span><input id="qe_license"></label>
+      <label><span class="qel">Plantilla</span><select id="qe_template"><option value="1">1 · Elegante</option><option value="2">2 · Con energía</option><option value="3">3 · De confianza</option></select></label>
+      <label><span class="qel">Color de la marca</span><input id="qe_color" placeholder="#15244C"></label>
+      <label class="full"><span class="qel">Servicios (separados por coma)</span><input id="qe_services" placeholder="Compra, Venta, Rentas, Inversión"></label>
+      <label><span class="qel">Titular de la página (hero)</span><input id="qe_hero"></label>
+      <label><span class="qel">Frase de apoyo (tagline)</span><input id="qe_tagline"></label>
+      <label class="full"><span class="qel">Su historia (about)</span><textarea id="qe_about" rows="3"></textarea></label>
+      <label class="full"><span class="qel">Qué lo hace diferente</span><textarea id="qe_diff" rows="2"></textarea></label>
+      <label><span class="qel">Promesa al cliente</span><input id="qe_warranty"></label>
+      <label><span class="qel">Link de reseñas (Google)</span><input id="qe_gmb" placeholder="g.page/r/…"></label>
+      <label><span class="qel">Facebook</span><input id="qe_facebook" placeholder="facebook.com/…"></label>
+      <label><span class="qel">Instagram</span><input id="qe_instagram" placeholder="instagram.com/…"></label>
+    </div>
+    <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0">📷 Logo y fotos se cambian en el onboarding (suben archivos). Todo lo demás se guarda desde aquí — y si su página ya está publicada, el cambio sale al instante.</p>
+    <div class="aacts" style="border-top:none;padding-top:0">
+      <button class="tbtn go" id="qe_save" onclick="qeSave(this)">💾 Guardar cambios</button>
+      <button class="tbtn" onclick="btOpen(document.getElementById('qe_slug').value)">🤖 Entrenar su bot</button>
+      <a class="tbtn" id="qe_prev" href="#" target="_blank">👁️ Ver borrador</a>
+      <a class="tbtn" id="qe_live" href="#" target="_blank">🌐 Ver página</a>
+      <span class="qemsg" id="qe_msg"></span>
+    </div>
+  </div>
+  </div>
+</details></div>
+
+<div class="panel qe"><details id="btpanel"><summary class="psum"><h2 style="margin:0">🤖 Entrenamiento del bot <span style="color:#9097A3;font-weight:600;font-size:13px">— todo lo que el bot del chat puede afirmar; lo que no esté aquí, dice que se confirma por teléfono</span></h2></summary>
+  <div class="pbody">
+  <select id="bt_slug" onchange="btShow()" style="max-width:340px;margin-bottom:4px"><option value="">— elige un agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+  <div id="bt_form" style="display:none">
+    <div class="qegrid" style="margin-top:14px">
+      <label><span class="qel">📍 Oficina / dirección</span><input id="bt_addr" placeholder='ej. "123 Main St, McAllen" o "sin oficina — atendemos a domicilio"'></label>
+      <label><span class="qel">🕐 Horarios</span><input id="bt_hours" placeholder="ej. Lun–Vie 9am–6pm, sábados con cita"></label>
+      <label><span class="qel">🗣️ Idiomas</span><input id="bt_languages" placeholder="ej. Español e inglés"></label>
+      <label><span class="qel">💳 Crédito / prestamistas</span><input id="bt_lending" placeholder='ej. "Trabajamos con varios prestamistas y le conectamos" o dejar vacío'></label>
+      <label><span class="qel">🔑 Compradores</span><input id="bt_buyers" placeholder="ej. Sí ayudamos a comprar — casas, terrenos e inversión"></label>
+      <label><span class="qel">🎁 Promociones vigentes</span><input id="bt_promos" placeholder="ej. Valuación completa (CMA) gratis este mes"></label>
+      <label class="full"><span class="qel">➕ Otros datos confirmados</span><textarea id="bt_extra" rows="2" placeholder="Cualquier otra verdad que el bot pueda afirmar de esta agencia…"></textarea></label>
+    </div>
+    <div class="asec" style="margin-top:14px"><b>Preguntas frecuentes — respuestas oficiales (máx. 10)</b>
+      <div id="bt_faqs"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button class="tbtn" type="button" onclick="btAddFaq('','')">＋ Agregar pregunta</button>
+        <button class="tbtn" type="button" onclick="btSuggest(this)">✨ Sugerir con IA</button>
+      </div>
+    </div>
+    <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0;line-height:1.6">🧠 El bot solo afirma lo que esté aquí — lo demás contesta "se lo confirmamos por teléfono". Nunca da el valor de una casa (manda al valuador de la página) ni agenda citas, y cumple Fair Housing siempre.</p>
+    <div class="aacts" style="border-top:none;padding-top:2px">
+      <button class="tbtn go" id="bt_save" onclick="btSave(this)">💾 Guardar entrenamiento</button>
+      <a class="tbtn" id="bt_chat" href="#" target="_blank">💬 Probar el chat</a>
+      <span class="qemsg" id="bt_msg"></span>
+    </div>
+  </div>
+  </div>
+</details></div>
+
+<div class="panel"><details><summary class="psum"><h2 style="margin:0">📋 Agentes</h2></summary>
+  <div class="pbody">
+  <input class="search" id="csearch" placeholder="Buscar agente…" oninput="filt()">
   <div style="overflow-x:auto"><table id="ctab">
-    <tr><th>Negocio</th><th>Leads (7d / total)</th><th>Enlaces</th><th>Editar página</th></tr>
+    <tr><th>Agente</th><th>Leads (7d / total)</th><th>Enlaces</th><th>Editar página</th></tr>
     ${clients.length ? clients.map((c) => {
       const s = statOf(c.id); const wa = waOf(phoneOf(c)); const sd = c.data?.site || {}, dd = c.data || {};
       const pill = dd.status === "paused" ? '<span class="tstat" style="background:#FDECEC;color:#C5221F">pausada</span>'
@@ -4191,30 +5216,146 @@ ${attention.length ? `<div class="panel">
       return `<tr data-n="${esc(c.name).toLowerCase()} ${c.slug}">
       <td><b>${esc(c.name)}</b> ${pill}<br><span class="slug2">/${c.slug}</span></td>
       <td>${s.last7} / ${s.total}</td>
-      <td><a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/w/${c.slug}" target="_blank">🛰️</a>${wa ? ` · <a class="wa" href="${wa}" target="_blank">💬</a>` : ""}</td>
+      <td><a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/w/${c.slug}" target="_blank">🏡</a>${wa ? ` · <a class="wa" href="${wa}" target="_blank">💬</a>` : ""}</td>
       <td><a class="edit" href="/onboarding?key=${K}&slug=${c.slug}">✏️ Editar</a></td>
-    </tr>`; }).join("") : `<tr><td colspan="4" class="empty">Todavía no hay clientes.</td></tr>`}
+    </tr>`; }).join("") : `<tr><td colspan="4" class="empty">Todavía no hay agentes.</td></tr>`}
   </table></div>
-</div>
+  </div>
+</details></div>
 
-<div class="panel guide">
-  <h2>📘 Guía rápida — cómo hacer cada cosa</h2>
-  <details><summary>El cliente quiere cambiar su info (teléfono, nombre, color, historia)</summary><div class="gb"><ol><li>En "Clientes" o en la tarea, toca <b>✏️ Editar</b>.</li><li>Cambia lo que pide en los pasos.</li><li>En el último paso toca <b>Enviar / Guardar</b> y luego <b>🚀 Publicar página</b>.</li><li>Marca la tarea <b>✓ Hecho</b>.</li></ol></div></details>
+<div class="panel guide"><details><summary class="psum"><h2 style="margin:0">📘 Guía rápida — cómo hacer cada cosa</h2></summary>
+  <div class="pbody">
+  <details><summary>El cliente quiere que el BOT diga algo (oficina, horarios, idiomas)</summary><div class="gb"><ol><li>En la tarea, toca <b>✨ Ver arreglo automático</b> — la IA te MUESTRA qué cambiaría (antes → después), sin guardar nada todavía.</li><li>Lee el cambio. Si tiene sentido, toca <b>✅ Sí, aplicar</b>. Si no, <b>✕ Cancelar</b> y hazlo tú con 🤖 Entrenar bot.</li><li>Toca <b>💬 Probar su chat</b> (es el chat REAL de ese agente, no uno genérico) y pregúntale lo que el cliente pidió — es un chat de prueba, no crea leads falsos.</li><li>Toca <b>🔔 Avisarle</b> — le llega un aviso directo a su celular (push). Marca <b>✓ Hecho</b>.</li></ol></div></details>
+  <details><summary>El cliente pide un cambio de su PÁGINA (textos, zonas, datos)</summary><div class="gb"><ol><li>En la tarea, toca <b>✨ Ver arreglo automático</b> — la IA te MUESTRA qué cambiaría (antes → después), sin guardar nada todavía.</li><li>Lee el cambio. Si tiene sentido, toca <b>✅ Sí, aplicar</b>. Si no, <b>✕ Cancelar</b> y hazlo tú con ⚡ Editar datos.</li><li>Toca <b>🔔 Avisarle</b> — le llega un aviso directo a su celular (push). Marca <b>✓ Hecho</b>.</li></ol></div></details>
+  <details><summary>El cliente pide algo del VALUADOR (el widget de su página)</summary><div class="gb">El valuador no tiene textos editables — funciona igual para todos. Lee qué pide: si es un dato de SU página, usa ✨ o ⚡. Si es del funcionamiento o de los valores que muestra, pásaselo al admin (es del motor, no de este cliente).</div></details>
+  <details><summary>El cliente quiere cambiar su info (teléfono, nombre, color, historia)</summary><div class="gb"><ol><li>En "Agentes" o en la tarea, toca <b>✏️ Editar</b> o <b>⚡ Editar datos</b>.</li><li>Cambia lo que pide.</li><li>Guarda — si su página está publicada, el cambio sale al instante.</li><li>Marca la tarea <b>✓ Hecho</b> y <b>🔔 Avísale</b>.</li></ol></div></details>
   <details><summary>El cliente quiere subir fotos nuevas</summary><div class="gb"><ol><li>Pídele las fotos por <b>💬 WhatsApp</b>.</li><li><b>✏️ Editar</b> → paso <b>Logo y fotos</b> → súbelas.</li><li>Guarda y <b>Publica</b>. Marca <b>Hecho</b>.</li></ol></div></details>
   <details><summary>La página está "en construcción" / sin publicar</summary><div class="gb"><ol><li><b>✏️ Editar</b> y revisa que esté completa.</li><li>En el último paso toca <b>🚀 Publicar página al cliente</b>.</li></ol></div></details>
-  <details><summary>El cliente quiere su propio dominio (ej. sucasa.com)</summary><div class="gb"><ol><li><b>✏️ Editar</b> → paso <b>Su dominio</b> → buscar/conectar.</li><li>Pásale el registro <b>CNAME</b> para que lo ponga en su dominio.</li></ol></div></details>
   <details><summary>Dice que su página "no aparece" en Google</summary><div class="gb">Su página ya está en línea (sitio + valuador). Salir en Google toma tiempo. Confírmale que su link funciona y que ya puede compartirlo por WhatsApp y redes.</div></details>
   <details><summary>Pago falló / cuenta pausada</summary><div class="gb">Recuérdale por <b>💬 WhatsApp</b> actualizar su tarjeta. Cuando pague, la cuenta se reactiva sola. Si pagó por otro medio, avísale al admin.</div></details>
   <details><summary>Aparece "📱 link compartido"</summary><div class="gb">Su cuenta se está abriendo en muchos teléfonos — su equipo la está compartiendo. Ofrécele por <b>💬 WhatsApp</b> cuentas para su equipo (más venta para nosotros).</div></details>
-</div>
+  </div>
+</details></div>
 </div>
 <script>
+var QE=${JSON.stringify(qeData)};
+var BT=${JSON.stringify(btData)};
 function quick(t){var i=document.getElementById('t_title');i.value=t;document.getElementById('t_slug').focus();}
+function mkTask(slug,prefix){document.getElementById('t_slug').value=slug;var i=document.getElementById('t_title');i.value=prefix;i.focus();window.scrollTo({top:document.getElementById('t_title').getBoundingClientRect().top+window.scrollY-140,behavior:'smooth'});}
 function addTask(){var s=document.getElementById('t_slug').value,t=document.getElementById('t_title').value.trim();if(!t){document.getElementById('t_title').focus();return;}
-  fetch('/api/cs/task?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,title:t})}).then(function(r){return r.json()}).then(function(){location.reload()}).catch(function(){alert('Error')});}
+  fetch('/api/cs/task?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,title:t})}).then(function(){location.reload()});}
 function tStat(id,st){fetch('/api/cs/task/'+encodeURIComponent(id)+'?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:st})}).then(function(){location.reload()});}
 function tDel(id){if(!confirm('¿Borrar tarea?'))return;fetch('/api/cs/task/'+encodeURIComponent(id)+'?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete:true})}).then(function(){location.reload()});}
 function filt(){var q=document.getElementById('csearch').value.toLowerCase();document.querySelectorAll('#ctab tr[data-n]').forEach(function(r){r.style.display=r.getAttribute('data-n').indexOf(q)>=0?'':'none';});}
+/* ✨ two-step: PREVIEW (nothing saved) → the agent reads before→after → APPLY */
+function aiFix(id,btn){
+  var pv=document.getElementById('pv-'+id);
+  btn.disabled=true;var o=btn.textContent;btn.textContent='✨ Pensando…';
+  fetch('/api/cs/aifix?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})
+    .then(function(x){
+      btn.disabled=false;btn.textContent=o;
+      var j=x.j;pv.style.display='block';
+      if(x.s!==200){pv.innerHTML='<div class="pvbox pvno"><p class="pvsum">😕 '+(j.error||'No se pudo')+'</p></div>';return;}
+      if(!j.handled){pv.innerHTML='<div class="pvbox pvno"><p class="pvsum">🙋 '+(j.summary||'Esto lo tiene que hacer una persona.')+'</p></div>';return;}
+      var rows=(j.changes||[]).map(function(c){return '<div class="pvrow"><b>'+c.label+'</b><div class="pvold">'+esc2(c.before)+'</div><div class="pvnew">'+esc2(c.after)+'</div></div>'}).join('');
+      pv.innerHTML='<div class="pvbox"><p class="pvsum">✨ '+esc2(j.summary||'')+'</p>'+rows+
+        '<div class="pvbtns"><button class="tbtn go" onclick=\\'aiApply("'+id+'",this)\\'>✅ Sí, aplicar</button><button class="tbtn" onclick="this.closest(\\'.tpreview\\').style.display=\\'none\\'">✕ Cancelar</button></div></div>';
+      pv.dataset.patch=JSON.stringify(j.patch||{});
+    })
+    .catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});
+}
+function aiApply(id,btn){
+  var pv=document.getElementById('pv-'+id);
+  var patch={};try{patch=JSON.parse(pv.dataset.patch||'{}')}catch(e){}
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/cs/aifix/apply?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,patch:patch})})
+    .then(function(r){return r.json()}).then(function(j){if(j.ok)location.reload();else{alert(j.error||'Error');btn.disabled=false;btn.textContent='✅ Sí, aplicar';}})
+    .catch(function(){alert('Error de conexión');btn.disabled=false;btn.textContent='✅ Sí, aplicar';});
+}
+function notifyClient(id,btn){
+  btn.disabled=true;var o=btn.textContent;btn.textContent='🔔 Avisando…';
+  fetch('/api/cs/notify?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(function(r){return r.json()}).then(function(j){
+      btn.disabled=false;
+      if(j.pushed){btn.textContent='✓ Avisado';setTimeout(function(){btn.textContent=o},2500);}
+      else if(j.waFallback){btn.textContent=o;if(confirm('Este cliente no tiene notificaciones activas. ¿Avisarle por WhatsApp?'))window.open(j.waFallback,'_blank');}
+      else{btn.textContent=o;alert(j.error||'No se pudo avisar');}
+    })
+    .catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});
+}
+function esc2(x){var d=document.createElement('div');d.textContent=String(x==null?'':x);return d.innerHTML;}
+function qeOpen(slug){var p=document.getElementById('qepanel');p.open=true;document.getElementById('qe_slug').value=slug;qeShow();p.scrollIntoView({behavior:'smooth'});}
+/* 🤖 Bot trainer — structured truths → composed botFacts on save */
+function btOpen(slug){if(!slug)return;var p=document.getElementById('btpanel');p.open=true;document.getElementById('bt_slug').value=slug;btShow();p.scrollIntoView({behavior:'smooth'});}
+function btShow(){
+  var slug=document.getElementById('bt_slug').value,f=document.getElementById('bt_form');
+  if(!slug||!BT[slug]){f.style.display='none';return;}
+  var d=BT[slug];f.style.display='block';
+  ['addr','hours','languages','lending','buyers','promos','extra'].forEach(function(k){var el=document.getElementById('bt_'+k);if(el)el.value=d[k]||'';});
+  document.getElementById('bt_faqs').innerHTML='';
+  (d.faqs||[]).forEach(function(fq){btAddFaq(fq.q,fq.a);});
+  document.getElementById('bt_chat').href='/site/'+slug+'?preview=1&chat=open';
+  document.getElementById('bt_msg').textContent='';
+}
+function btAddFaq(q,a){
+  var box=document.getElementById('bt_faqs');
+  if(box.children.length>=10)return;
+  var row=document.createElement('div');row.className='btfaq';
+  row.innerHTML='<input class="bfq" placeholder="Pregunta (ej. ¿Cobran por la valuación?)"><input class="bfa" placeholder="Respuesta oficial corta"><button class="tbtn del" type="button" onclick="this.parentNode.remove()">✕</button>';
+  row.querySelector('.bfq').value=q||'';row.querySelector('.bfa').value=a||'';
+  box.appendChild(row);
+}
+function btFaqs(){
+  return [].map.call(document.querySelectorAll('#bt_faqs .btfaq'),function(r){
+    return {q:r.querySelector('.bfq').value.trim(),a:r.querySelector('.bfa').value.trim()};
+  }).filter(function(f){return f.q&&f.a;});
+}
+function btSave(btn){
+  var slug=document.getElementById('bt_slug').value;if(!slug)return;
+  var v=function(k){var el=document.getElementById('bt_'+k);return el?el.value:''};
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/cs/bottrain?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug,train:{
+    addr:v('addr'),hours:v('hours'),languages:v('languages'),lending:v('lending'),buyers:v('buyers'),promos:v('promos'),extra:v('extra'),faqs:btFaqs()
+  }})}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent='💾 Guardar entrenamiento';
+    document.getElementById('bt_msg').textContent=j.ok?('✓ Guardado ('+j.chars+'/'+j.max+')'):'Error: '+(j.error||'?');
+  }).catch(function(){btn.disabled=false;btn.textContent='💾 Guardar entrenamiento';document.getElementById('bt_msg').textContent='Error de conexión';});
+}
+function btSuggest(btn){
+  var slug=document.getElementById('bt_slug').value;if(!slug)return;
+  var qe=QE[slug]||{};
+  btn.disabled=true;var o=btn.textContent;btn.textContent='✨ Pensando…';
+  fetch('/api/onboarding/botfaq?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    biz:qe.biz,city:qe.city,area:qe.area,warranty:qe.warranty,diff:qe.diff,
+    botAddr:document.getElementById('bt_addr').value,botHours:document.getElementById('bt_hours').value
+  })}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent=o;
+    (j.faqs||[]).forEach(function(f){btAddFaq(f.q,f.a);});
+  }).catch(function(){btn.disabled=false;btn.textContent=o;alert('No se pudo — agrega las preguntas a mano');});
+}
+function qeShow(){
+  var slug=document.getElementById('qe_slug').value,f=document.getElementById('qe_form');
+  if(!slug||!QE[slug]){f.style.display='none';return;}
+  var d=QE[slug];f.style.display='block';
+  ['biz','phone','city','area','years','license','template','color','services','hero','tagline','about','diff','warranty','gmb','facebook','instagram'].forEach(function(k){var el=document.getElementById('qe_'+k);if(el)el.value=d[k]||'';});
+  document.getElementById('qe_prev').href='/site/'+slug+'?preview=1';
+  document.getElementById('qe_live').href='/site/'+slug;
+  document.getElementById('qe_msg').textContent='';
+}
+function qeSave(btn){
+  var slug=document.getElementById('qe_slug').value;if(!slug)return;
+  var v=function(k){var el=document.getElementById('qe_'+k);return el?el.value:''};
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/onboarding/save?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    slug:slug,biz:v('biz'),phone:v('phone'),city:v('city'),area:v('area'),years:v('years'),license:v('license'),
+    template:v('template'),color:v('color'),services:v('services').split(',').map(function(x){return x.trim()}).filter(Boolean),
+    hero:v('hero'),tagline:v('tagline'),about:v('about'),diff:v('diff'),warranty:v('warranty'),gmb:v('gmb'),facebook:v('facebook'),instagram:v('instagram')
+  })}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent='💾 Guardar cambios';
+    document.getElementById('qe_msg').textContent=j.ok?'✓ Guardado':'Error: '+(j.error||'?');
+  }).catch(function(){btn.disabled=false;btn.textContent='💾 Guardar cambios';document.getElementById('qe_msg').textContent='Error de conexión';});
+}
 </script>
 </body></html>`);
 });
@@ -4652,13 +5793,15 @@ function checkDomain(){
     .then(function(r){return r.json();}).then(function(j){
       btn.disabled=false;btn.textContent='Buscar';
       if(!j||!j.ok||!j.results){hint.textContent='No se pudo buscar — intenta de nuevo.';return;}
-      hint.innerHTML='💡 Cómpralo en <b>Cloudflare Registrar</b> (precio de costo, sin sobreprecio). Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.';
+      hint.innerHTML='💡 Precio de costo, sin sobreprecio. Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.';
       box.innerHTML=j.results.map(function(x){
         var bg=x.status==='available'?'#EAF8EF':x.status==='taken'?'#FDECEC':'#F0F2F6';
         var fg=x.status==='available'?'#1E7B3C':x.status==='taken'?'#9B1C10':'#67718A';
-        var tag=x.status==='available'?'✓ disponible':x.status==='taken'?'✕ ocupado':'? sin verificar';
-        var click=x.status==='available'?(' onclick="useDomain(\\''+x.domain+'\\')" style="cursor:pointer"'):'';
-        return '<span'+click+' style="background:'+bg+';color:'+fg+';border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px">'+x.domain+' · '+tag+'</span>';
+        var tag=x.status==='available'?(x.price?('✓ disponible · $'+Number(x.price).toFixed(2)+'/año'):'✓ disponible'):x.status==='taken'?'✕ ocupado':'? sin verificar';
+        var pill='<span style="background:'+bg+';color:'+fg+';border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px">'+x.domain+' · '+tag+'</span>';
+        if(x.canBuy) return '<span style="display:inline-flex;gap:6px;align-items:center">'+pill+'<button type="button" onclick="buyDomain(\\''+x.domain+'\\','+(x.price||0)+')" style="padding:7px 12px;font-size:12.5px;white-space:nowrap;background:#15244C;color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer">Comprar y conectar</button></span>';
+        if(x.status==='available') return '<span onclick="useDomain(\\''+x.domain+'\\')" style="cursor:pointer">'+pill+'</span>';
+        return pill;
       }).join('');
     }).catch(function(){btn.disabled=false;btn.textContent='Buscar';hint.textContent='No se pudo buscar — intenta de nuevo.';});
 }
@@ -4672,10 +5815,25 @@ function connectDomain(){
       btn.disabled=false;btn.textContent='Conectar';
       if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo');return;}
       if(!j.domain){msg.style.color='#67718A';msg.textContent='Dominio quitado. Su página sigue en su subdominio.';return;}
-      var cfNote = j.cf&&j.cf.ok ? 'Cloudflare está emitiendo el certificado SSL automáticamente.' : (j.cf&&j.cf.reason==='cf_off' ? 'Cloudflare aún no está configurado en el servidor (CF_API_TOKEN).' : 'Registro en Cloudflare pendiente — revisa el panel.');
+      var cfNote = j.render&&j.render.ok ? 'El certificado SSL se emite automáticamente cuando el DNS apunte.' : (j.render&&j.render.reason==='render_off' ? 'Falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor — agrega el dominio en Render a mano.' : (j.cf&&j.cf.ok ? 'Cloudflare está emitiendo el certificado SSL automáticamente.' : 'Registro en Render pendiente — revisa el panel.'));
       msg.style.color='#1E7B3C';
       msg.innerHTML='✓ Guardado. Pídele al cliente que agregue este registro en su dominio:<br><b>Tipo:</b> CNAME · <b>Nombre:</b> @ (o www) · <b>Destino:</b> '+j.cname_target+'<br><span style="color:#67718A">'+cfNote+'</span>';
     }).catch(function(){btn.disabled=false;btn.textContent='Conectar';msg.style.color='#9B1C10';msg.textContent='No se pudo — intenta de nuevo.';});
+}
+function buyDomain(d,price){
+  var priceTxt=price?('$'+Number(price).toFixed(2)+'/año'):'el precio de costo';
+  if(!confirm('¿Comprar '+d+' ahora por '+priceTxt+'? Se cobra a la cuenta de Cloudflare y no se puede deshacer.'))return;
+  var msg=document.getElementById('dommsg');
+  msg.style.color='#67718A';msg.textContent='Comprando '+d+'…';
+  fetch('/api/onboarding/domain/buy?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:${JSON.stringify(c.slug)},domain:d})})
+    .then(function(r){return r.json();}).then(function(j){
+      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo')+(j&&j.detail?' — '+JSON.stringify(j.detail):'');return;}
+      document.getElementById('domain').value=j.domain;
+      var dnsNote = j.dns&&j.dns.ok ? 'DNS listo' : 'DNS pendiente ('+((j.dns&&j.dns.reason)||'revisa Cloudflare')+')';
+      var sslNote = j.render&&j.render.ok ? 'SSL en camino (Render, unos minutos)' : (j.render&&j.render.reason==='render_off' ? 'falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor' : 'SSL pendiente — agrega el dominio en Render');
+      msg.style.color=(j.dns&&j.dns.ok&&j.render&&j.render.ok)?'#1E7B3C':'#8A6D00';
+      msg.innerHTML='✓ '+j.domain+' comprado. '+dnsNote+' · '+sslNote+'.';
+    }).catch(function(){msg.style.color='#9B1C10';msg.textContent='No se pudo comprar — intenta de nuevo.';});
 }
 function aiWrite(){
   var btn=document.getElementById('aibtn'),hint=document.getElementById('aihint');
@@ -4759,6 +5917,14 @@ app.post("/api/onboarding/save", async (req, res) => {
     hero: String(b.hero || "").slice(0, 160),
     about: String(b.about || "").slice(0, 1400),
     photos: Array.isArray(b.photos) ? b.photos.filter((u) => /^\/api\/logo\/[a-f0-9]{16}\.(png|jpg)$/.test(u)).slice(0, 8) : (data.site?.photos || []),
+    // Review destination + socials (the /opina funnel's "post it on Google" button)
+    gmb: String(b.gmb ?? data.site?.gmb ?? "").trim().slice(0, 300),
+    facebook: String(b.facebook ?? data.site?.facebook ?? "").trim().slice(0, 300),
+    instagram: String(b.instagram ?? data.site?.instagram ?? "").trim().slice(0, 300),
+    // preserve fields owned by other flows (bot trainer)
+    ...(data.site?.botTrain ? { botTrain: data.site.botTrain } : {}),
+    ...(data.site?.botFacts ? { botFacts: data.site.botFacts } : {}),
+    ...(data.site?.domain ? { domain: data.site.domain } : {}),
     published: data.site?.published === true, // saving keeps current publish state
   };
   await db.saveContractorData(c.id, data);
@@ -4824,8 +5990,59 @@ app.get("/api/onboarding/domaincheck", async (req, res) => {
   if (overQuota(`dchk:${ip}`, 60)) return res.status(429).json({ error: "quota" });
   const cands = domainCandidates(req.query.name);
   if (!cands.length) return res.status(400).json({ error: "escribe un nombre" });
-  const results = await Promise.all(cands.map(async (d) => ({ domain: d, status: await rdapAvailable(d) })));
+  // Cloudflare's own check gives real price + availability for all candidates
+  // in one batched call; fall back to the free RDAP lookup (availability only,
+  // no price, no buy button) when Cloudflare Registrar isn't configured yet or
+  // for extensions the Registrar API doesn't cover.
+  const cf = await cfCheckDomains(cands);
+  const results = await Promise.all(cands.map(async (d) => {
+    const row = cf.ok ? cf.map[d] : null;
+    if (row) return { domain: d, status: row.available ? "available" : "taken", price: row.price, currency: row.currency, canBuy: row.available };
+    return { domain: d, status: await rdapAvailable(d), canBuy: false };
+  }));
   res.json({ ok: true, results });
+});
+
+// Buy a domain outright via Cloudflare Registrar, then connect it (same SSL
+// step as the manual "conectar" flow below). Registered under OUR account —
+// see the note above cfRegisterDomain for why.
+app.post("/api/onboarding/domain/buy", async (req, res) => {
+  // Buying a domain spends real money on the Cloudflare billing account —
+  // admin only. Connecting an already-owned domain stays closer/cs (no charge).
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin puede comprar dominios" });
+  const c = req.body?.slug && (await db.getContractorBySlug(String(req.body.slug)));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const domain = String(req.body?.domain || "").trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+  if (!/^([a-z0-9-]+\.)+[a-z]{2,}$/.test(domain) || domain.length > 80) return res.status(400).json({ error: "dominio no válido" });
+  if (ROOT_DOMAIN && domain.endsWith(`.${ROOT_DOMAIN}`)) return res.status(400).json({ error: "ese es un subdominio nuestro, no un dominio propio" });
+
+  // Resumable purchase: each step's outcome is checkpointed in kv, so if DNS
+  // or Render fails after the money was spent (or the process restarts
+  // mid-flight), re-clicking "Comprar" resumes from the record — it re-runs
+  // ONLY the steps that haven't succeeded and never re-buys a purchased
+  // domain. The steps themselves are idempotent too (dup-CNAME codes and
+  // Render 409 count as ok), so a resume can't double-create anything.
+  const stKey = `dombuy:${domain}`;
+  const prior = await db.kvGet(stKey).catch(() => null);
+  const state = prior && typeof prior === "object" ? { ...prior } : { domain, slug: c.slug, startedAt: new Date().toISOString() };
+
+  if (!state.purchase?.ok) {
+    state.purchase = await cfRegisterDomain(domain);
+    await db.kvSet(stKey, state).catch(() => {});
+    if (!state.purchase.ok) return res.status(502).json({ error: "no se pudo comprar el dominio", detail: state.purchase });
+  }
+
+  const data = { ...(c.data || {}) };
+  data.site = { ...(data.site || {}), domain };
+  await db.saveContractorData(c.id, data);
+  // Serve it: DNS records in the new zone → Render, then register the domain
+  // with Render so it routes the host and issues the SSL cert.
+  if (!state.dns?.ok) state.dns = await cfPointZoneAtRender(domain);
+  if (!state.render?.ok) state.render = await renderAddDomain(domain);
+  state.done = !!(state.purchase.ok && state.dns.ok && state.render.ok);
+  state.updatedAt = new Date().toISOString();
+  await db.kvSet(stKey, state).catch(() => {});
+  res.json({ ok: true, domain, purchase: state.purchase, dns: state.dns, render: state.render, resumed: !!prior, done: state.done });
 });
 
 // Connect a client's own domain (Cloudflare for SaaS). Saves it, registers
@@ -4845,8 +6062,11 @@ app.post("/api/onboarding/domain", async (req, res) => {
   const data = { ...(c.data || {}) };
   data.site = { ...(data.site || {}), domain };
   await db.saveContractorData(c.id, data);
-  const cf = await cfAddHostname(domain);
-  res.json({ ok: true, domain, cname_target: CF_CNAME_TARGET, cf });
+  // Render must know the hostname to route it + issue its cert; the client
+  // still has to point their DNS (CNAME → CF_CNAME_TARGET) on their side.
+  const render = await renderAddDomain(domain);
+  const cf = await cfAddHostname(domain); // legacy CF-for-SaaS path, harmless no-op when unset
+  res.json({ ok: true, domain, cname_target: CF_CNAME_TARGET, cf, render });
 });
 
 // Reveal/unpublish a client's site (staff controls the "unveiling" moment)
@@ -5237,8 +6457,8 @@ app.get("/closer", async (req, res) => {
     ["Complete", 297, stripeLink],
   ].filter(([, , lnk]) => lnk);
   const wMsg = en
-    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
-    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website or your Instagram-bio link:\n${base}/w/alto-demo`
+    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const welcome = en
     ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
     : `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
@@ -5258,13 +6478,14 @@ app.get("/closer", async (req, res) => {
     scriptT: "🎤 Talk track — what you say on each slide",
     script: [
       ["01 · Welcome", "“Thanks for booking. In 10 minutes you'll see a home valued from real comparable sales. If it's not for you, no problem. Sound good?”"],
-      ["02 · Who we are", "“Before I show you anything: the owner runs construction and tech companies in Texas. He built this tool for his own deals — and uses it today for his own company. We're not an agency reselling software.”"],
+      ["02 · Who we are", "“Before I show you anything: Quick Comp was born inside Alto Realty Group, a real estate company in South Texas that was tired of comping all the time. They built these tools for their own agents — and they worked so well they opened them to the public. We're not an agency reselling software; we run our own deals on this.”"],
       ["03 · The problem", "“Quick question: how many sellers do you lose because they don't know their home already went up in value? … Most list with whoever shows them a number first. You don't lack contacts — you lack a system that brings sellers to you.”"],
-      ["04 · Your website", "“This is what YOUR site would look like — phone and computer. Now the good part: type YOUR address in the valuator. (wait for the wow — say nothing) That feeling? That's what your sellers will feel.”"],
-      ["05 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
-      ["06 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
-      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
-      ["08 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
+      ["04 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME, type a real address. (wait for the wow — say nothing) That feeling? That's what your sellers will feel. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
+      ["05 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
+      ["06 · Your social link", "“You don't even need a website for this part: this same link goes in your Instagram bio and on your Facebook page. (tap the link on the phone) Every follower who wonders what their house is worth taps it — and their name and number land in your app. Your social media finally has a job.”"],
+      ["07 · Your website", "“And this is what YOUR site would look like — phone and computer, with that same valuator inside working for you 24/7. Everybody has a website; almost nobody has one that values homes and captures the seller's number by itself.”"],
+      ["08 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
+      ["09 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
     ],
     keysT: "⌨️ Secret shortcuts in the presentation (/demo)",
     keys: ["<b>Double-click the counter</b> or press <b>C</b> → closer panel", "<b>P</b> payment link · <b>B</b> welcome · <b>D</b> demo message · <b>O</b> open checkout"],
@@ -5298,13 +6519,14 @@ app.get("/closer", async (req, res) => {
     scriptT: "🎤 Guion — qué dices en cada slide",
     script: [
       ["01 · Bienvenida", "“Gracias por agendar. En 10 minutos vas a ver una casa valuada con ventas comparables reales. Si no es para ti, no pasa nada. ¿Te parece?”"],
-      ["02 · Quiénes somos", "“Antes de enseñarte nada: el dueño tiene compañías de construcción y tecnología en Texas. Esta herramienta la hizo para sus propios negocios — y hoy la usa para su propia compañía. No somos una agencia revendiendo software.”"],
+      ["02 · Quiénes somos", "“Antes de enseñarte nada: Quick Comp nació dentro de Alto Realty Group, una compañía de bienes raíces del sur de Texas que estaba cansada de sacar comparables a cada rato. Hicieron estas herramientas para sus propios agentes — y funcionaron tan bien que las abrieron al público. No somos una agencia revendiendo software; nuestros propios cierres corren con esto.”"],
       ["03 · El problema", "“Te pregunto algo: ¿cuántos vendedores pierdes porque no saben que su casa ya subió de valor? … La mayoría lista con el primero que les enseña un número. No te faltan contactos — te falta un sistema que te traiga vendedores.”"],
-      ["04 · Tu página", "“Así se vería TU página — en celular y computadora. Ahora lo bueno: pon TU dirección en el valuador. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores.”"],
-      ["05 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
-      ["06 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
-      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
-      ["08 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
+      ["04 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA, pon una dirección real. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
+      ["05 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
+      ["06 · Tu link en redes", "“Para esta parte ni necesitas página: este mismo link va en tu bio de Instagram y en tu página de Facebook. (toca el link en el teléfono) Cada seguidor que se pregunta cuánto vale su casa lo toca — y su nombre y teléfono llegan a tu app. Tus redes por fin tienen un trabajo.”"],
+      ["07 · Tu página", "“Y así se vería TU página — en celular y computadora, con ese mismo valuador adentro trabajando 24/7. Todos tienen página; casi nadie tiene una que valúe casas y capture el teléfono del vendedor solita.”"],
+      ["08 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
+      ["09 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
     ],
     keysT: "⌨️ Atajos secretos en la presentación (/demo)",
     keys: ["<b>Doble clic en el contador</b> o tecla <b>C</b> → panel del closer", "<b>P</b> link de pago · <b>B</b> bienvenida · <b>D</b> mensaje demo · <b>O</b> abrir el pago"],
@@ -5611,7 +6833,7 @@ app.get("/cierre", (req, res) => {
   if (!closerOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Cierre (privado)", "/cierre", !!req.query.key));
   const base = canonBase(req);
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
-  const wMsg = `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+  const wMsg = `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const welcome = `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
   const esc = (s) => String(s).replace(/</g, "&lt;");
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -5676,8 +6898,8 @@ app.get("/demo", (req, res) => {
   // The public deck stays capped on purpose — that cap is a conversion moment.
   const appPass = DEMO_PASS && closerOk(req) ? `&pass=${encodeURIComponent(DEMO_PASS)}` : "";
   const wMsg = en
-    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
-    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website or your Instagram-bio link:\n${base}/w/alto-demo`
+    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   const welcome = en
     ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
@@ -5693,38 +6915,43 @@ app.get("/demo", (req, res) => {
   const L = en ? {
     title: "Quick Comp · Presentation", presentation: "PRESENTATION", forClients: "Client presentation",
     menu: "☰ Menu", prev: "‹ Previous", next: "Next ›", langBtn: "🇲🇽 Español", langHref: "?lang=es",
-    t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin",
+    t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin", ts: "Your social link",
     k1: "QUICK COMP · MARKETING & TECHNOLOGY FOR REALTORS", h1a: "More sellers,", h1b: "without chasing them.",
     b1: "Thanks for booking. In the next 10 minutes you'll see a home valued from real comparable sales — and how your website can bring you sellers 24 hours a day.",
     g1: "10 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
-    k2: "02 · WHO WE ARE", h2a: "Built by a Texas builder,", h2b: "for realtors.",
-    b2: "Rolando, our founder, owns residential construction and technology companies in Texas. Buying and valuing his own properties, he lived how hard it was to get an accurate number fast — so he built this tool for himself. It worked so well he opened it to the public, and today he uses this same system to get leads for his own company.",
-    p2a: "Builder-founder: he buys and sells real property, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
-    cap2: "Rolando · Founder of Quick Comp", ph2a: "Photo of Rolando and the team", ph2b: "in Quick Comp shirts",
+    k2: "02 · WHO WE ARE", h2a: "Built by a real estate company,", h2b: "for realtors.",
+    b2: "Quick Comp was born inside Alto Realty Group, a real estate company in South Texas that was tired of comping all the time. We built these tools for our own agents — an accurate number in seconds instead of an afternoon of research. They worked so well we opened them to the public, and Alto Realty Group still runs on this exact system every day.",
+    p2a: "Born inside a working real estate company — real deals, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
+    cap2: "Rolando · Alto Realty Group · Founder of Quick Comp", ph2a: "Photo of Rolando and the team", ph2b: "in Quick Comp shirts",
     k3: "03 · WHY IT MATTERS", h3a: "Sellers slip away", h3b: "without a number.",
     p3a: 'When you\'re showing a house, you can\'t answer. And most sellers list with <b style="color:#fff">whoever responds first</b>.',
     p3b: 'Every CMA you build by hand costs you: the research, the comps, the time. <b style="color:#fff">And many of those never turn into a listing.</b>',
     p3c: 'A pretty website with no system behind it is <b style="color:#fff">an expensive business card</b>.',
     p3d: 'Big companies already answer with artificial intelligence — in seconds, around the clock. <b style="color:#fff">The question isn\'t whether this is coming. It\'s which side you\'ll be on.</b>',
     c3: "You work hard. What you're missing is a system that works when you can't.",
-    k4: "04 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
+    k4: "07 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
     b4: "It looks excellent on the phone and on the computer — with your logo, your colors and the home-value tool inside. This one is a sample; yours is delivered in 10–14 days. Both are live: scroll, and type YOUR address into the valuator.",
-    k5: "05 · YOUR APP", h5a: "Your office,", h5b: "in your pocket.",
+    k5: "04 · YOUR APP", h5a: "Your office,", h5b: "in your pocket.",
     p5a: "Value any home wherever you are: address or GPS, from real comparable sales", p5b: "Every lead hits your phone with a WhatsApp button and the message pre-written", p5c: "An AI texts your lead instantly and books the appointment for you", p5d: "Professional CMA reports with your brand",
     live5: '🔴 <b style="color:#fff">The app on the right is LIVE</b> — explore it: tap VALUE A HOME, type a real address and value it right here, with the client.',
-    k6: "06 · ARTIFICIAL INTELLIGENCE", h6a: "Your own secretary,", h6b: "who never sleeps.",
+    k6: "05 · ARTIFICIAL INTELLIGENCE", h6a: "Your own secretary,", h6b: "who never sleeps.",
+    ks: "06 · YOUR LINK ON SOCIAL MEDIA", hsa: "One link in your bio,", hsb: "sellers from every post.",
+    bs: "The same home-value tool lives at your own link — put it in your Instagram bio, your Facebook page, your WhatsApp status. Every follower who wonders what their house is worth taps it, and becomes a seller lead in your app.",
+    psa: "Instagram bio, Facebook page, WhatsApp status — one link, everywhere", psb: "The homeowner taps, types their address and sees their number in seconds", psc: "Their name and phone land in your app — with WhatsApp ready", psd: "Every post you publish now has a job: bringing you listings",
+    lives: '🔴 <b style="color:#fff">The phone is LIVE</b> — tap the link in the bio, exactly like your followers would.',
+    igStats: ["posts", "followers", "following"], igBioName: "Casa Bella Realty", igBioLine: "Your trusted South Texas realtor 🏡", igLink: "🔗 whats-my-home-worth", igBack: "‹ Back to the profile",
     b6: "We all know artificial intelligence is here — what better way than starting now? Your own secretary answers the messages from customers landing on your website, at any hour of the day.",
     p6a: "Replies instantly — even at 11 at night", p6b: "Books the appointment for you. You just show up.", p6c: "You can read every conversation whenever you want", p6d: "Ready in 10–14 days — carrier registration of your number takes a few days",
     chHead: "🔴 LIVE DEMO — text it like you're the homeowner", chGreet: "Hi! 👋 I'm the assistant at Casa Bella Realty. How can I help you buy or sell a home?",
     chPh: "Type as the homeowner… (e.g., I want to sell my house)", chFoot: "This same AI will answer YOUR leads' texts", chRetry: "Give me one moment 🙏 (try again)",
-    k7: "07 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
+    k7: "08 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
     b7: "What this would cost separately (typical market prices):",
     s7a: "🌐 Professional website with your brand", s7b: "🏡 Home-value tool on your site", s7c: "🤖 AI secretary that texts and books", s7d: "📲 Values, CMAs & leads app", s7e: "🇺🇸 Domain, hosting & bilingual support",
     s7tot: "Separately", roi7: '💰 <b style="color:#fff">One commission is thousands of dollars.</b> One single extra deal pays for your whole year.',
     pk7: "WITH QUICK COMP · PICK YOUR PLAN", mo: "/mo", setup7: "No setup fees — just the monthly.",
     tiers7: [["PRO — just the app", 67, 0], ["WIDGET — on the site you already have", 197, 1], ["COMPLETE — website + everything", 297, 0]],
     pr7a: "✓ No long contracts", pr7b: "✓ Cancel anytime", pr7c: "✓ Your domain is YOURS — by contract",
-    k8: "08 · LET'S BEGIN", h8a: "Let's start", h8b: "today.",
+    k8: "09 · LET'S BEGIN", h8a: "Let's start", h8b: "today.",
     b8: "Getting started is this easy — everything begins on this very call:",
     d8a: "STEP 1", t8a: "Secure your spot", x8a: "We send a secure payment link to your WhatsApp. You pay by card, protected by Stripe 🔒.",
     d8b: "STEP 2 · TODAY", t8b: "Your app, today", x8b: "Your access arrives by WhatsApp before we hang up. You're valuing homes today.",
@@ -5734,38 +6961,43 @@ app.get("/demo", (req, res) => {
   } : {
     title: "Quick Comp · Presentación", presentation: "PRESENTACIÓN", forClients: "Presentación para clientes",
     menu: "☰ Menú", prev: "‹ Anterior", next: "Siguiente ›", langBtn: "🇺🇸 English", langHref: "?lang=en",
-    t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos",
+    t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos", ts: "Tu link en redes",
     k1: "QUICK COMP · MARKETING Y TECNOLOGÍA PARA AGENTES", h1a: "Más vendedores,", h1b: "sin perseguirlos.",
     b1: "Gracias por agendar. En los próximos 10 minutos vas a ver una casa valuada con ventas comparables reales — y cómo tu página puede traerte vendedores las 24 horas.",
     g1: "10 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
-    k2: "02 · QUIÉNES SOMOS", h2a: "Construido por un constructor de Texas,", h2b: "para agentes.",
-    b2: "Rolando, nuestro fundador, tiene compañías de construcción residencial y de tecnología en Texas. Comprando y valuando sus propias propiedades vivió lo difícil que era sacar un número correcto rápido — así que construyó esta herramienta para él mismo. Funcionó tan bien que la abrió al público, y hoy usa este mismo sistema para conseguir leads para su propia compañía.",
-    p2a: "Fundador constructor: compra y vende propiedades, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",
-    cap2: "Rolando · Fundador de Quick Comp", ph2a: "Foto de Rolando y el equipo", ph2b: "con la camisa Quick Comp",
+    k2: "02 · QUIÉNES SOMOS", h2a: "Construido por una compañía de bienes raíces,", h2b: "para agentes.",
+    b2: "Quick Comp nació dentro de Alto Realty Group, una compañía de bienes raíces del sur de Texas que estaba cansada de sacar comparables a cada rato. Construimos estas herramientas para nuestros propios agentes — un número correcto en segundos en vez de una tarde de investigación. Funcionaron tan bien que las abrimos al público, y Alto Realty Group sigue trabajando con este mismo sistema todos los días.",
+    p2a: "Nació dentro de una compañía de bienes raíces real — cierres reales, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",
+    cap2: "Rolando · Alto Realty Group · Fundador de Quick Comp", ph2a: "Foto de Rolando y el equipo", ph2b: "con la camisa Quick Comp",
     k3: "03 · POR QUÉ IMPORTA", h3a: "Los vendedores se pierden", h3b: "sin un número.",
     p3a: 'Cuando estás enseñando una casa, no puedes contestar. Y la mayoría de los vendedores lista con <b style="color:#fff">el primero que les responde</b>.',
     p3b: 'Cada CMA que haces a mano cuesta: la investigación, las comparables, el tiempo. <b style="color:#fff">Y muchas nunca se vuelven un listing.</b>',
     p3c: 'Una página bonita sin un sistema detrás es <b style="color:#fff">una tarjeta de presentación cara</b>.',
     p3d: 'Las compañías grandes ya responden con inteligencia artificial — en segundos, a toda hora. <b style="color:#fff">La pregunta no es si esto llega. Es de qué lado vas a estar.</b>',
     c3: "Trabajas duro. Lo que te falta es un sistema que trabaje cuando tú no puedes.",
-    k4: "04 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
+    k4: "07 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
     b4: "Se mira excelente en el celular y en la computadora — con tu logo, tus colores y el valuador adentro. Esta es de ejemplo; la tuya se entrega en 10–14 días. Las dos están vivas: haz scroll, y pon TU dirección en el valuador.",
-    k5: "05 · TU APP", h5a: "Tu oficina,", h5b: "en tu bolsillo.",
+    k5: "04 · TU APP", h5a: "Tu oficina,", h5b: "en tu bolsillo.",
     p5a: "Valúa cualquier casa donde estés: dirección o GPS, con ventas comparables reales", p5b: "Cada lead llega a tu teléfono con botón de WhatsApp y el mensaje ya escrito", p5c: "Una IA le textea a tu lead al momento y agenda la cita por ti", p5d: "Reportes CMA profesionales con tu marca",
     live5: '🔴 <b style="color:#fff">La app de la derecha está EN VIVO</b> — explórala: toca VALUAR CASA, pon una dirección real y valúala aquí mismo, con el cliente.',
-    k6: "06 · INTELIGENCIA ARTIFICIAL", h6a: "Tu propia secretaria,", h6b: "que nunca duerme.",
+    k6: "05 · INTELIGENCIA ARTIFICIAL", h6a: "Tu propia secretaria,", h6b: "que nunca duerme.",
+    ks: "06 · TU LINK EN REDES", hsa: "Un link en tu bio,", hsb: "vendedores de cada post.",
+    bs: "El mismo valuador vive en tu propio link — ponlo en tu bio de Instagram, tu página de Facebook, tu estado de WhatsApp. Cada seguidor que se pregunta cuánto vale su casa lo toca, y se vuelve un seller lead en tu app.",
+    psa: "Bio de Instagram, página de Facebook, estado de WhatsApp — un link, en todas partes", psb: "El dueño lo toca, pone su dirección y ve su número en segundos", psc: "Su nombre y teléfono llegan a tu app — con WhatsApp listo", psd: "Cada post que publicas ahora tiene un trabajo: traerte listings",
+    lives: '🔴 <b style="color:#fff">El teléfono está VIVO</b> — toca el link de la bio, igual que lo harían tus seguidores.',
+    igStats: ["posts", "seguidores", "seguidos"], igBioName: "Casa Bella Realty", igBioLine: "Tu realtor de confianza en el sur de Texas 🏡", igLink: "🔗 cuanto-vale-mi-casa", igBack: "‹ Volver al perfil",
     b6: "Todos sabemos que la inteligencia artificial ya viene — ¿qué mejor que empezar desde ahora? Tu propia secretaria contesta los mensajes de los clientes que llegan de tu página, a cualquier hora del día.",
     p6a: "Contesta al momento — aunque sean las 11 de la noche", p6b: "Agenda la cita por ti. Tú solo llegas a hacerla.", p6c: "Puedes ver cada conversación cuando quieras", p6d: "Lista en 10–14 días — el registro de tu número con las telefónicas tarda unos días",
     chHead: "🔴 DEMO EN VIVO — escríbele como si fueras el dueño", chGreet: "¡Hola! 👋 Soy la asistente de Casa Bella Realty. ¿Le puedo ayudar a comprar o vender una casa?",
     chPh: "Escribe como dueño… (ej. quiero vender mi casa)", chFoot: "Esta misma IA contestará los textos de TUS leads", chRetry: "Dame un momentito y te contesto 🙏 (intenta de nuevo)",
-    k7: "07 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
+    k7: "08 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
     b7: "Lo que esto costaría por separado (precios típicos del mercado):",
     s7a: "🌐 Página web profesional con tu marca", s7b: "🏡 Valuador de casas en tu página", s7c: "🤖 Secretaria IA que textea y agenda", s7d: "📲 App de valores, CMAs y leads", s7e: "🇺🇸 Dominio, hosting y soporte en español",
     s7tot: "Por separado", roi7: '💰 <b style="color:#fff">Una comisión son miles de dólares.</b> Un solo cierre extra paga tu año entero.',
     pk7: "CON QUICK COMP · ELIGE TU PLAN", mo: "/mes", setup7: "Sin costo de inicio — solo la mensualidad.",
     tiers7: [["PRO — solo la app", 67, 0], ["WIDGET — en la página que ya tienes", 197, 1], ["COMPLETE — página web + todo", 297, 0]],
     pr7a: "✓ Sin contratos largos", pr7b: "✓ Cancelas cuando quieras", pr7c: "✓ Tu dominio es TUYO — por contrato",
-    k8: "08 · EMPECEMOS", h8a: "Empecemos", h8b: "hoy mismo.",
+    k8: "09 · EMPECEMOS", h8a: "Empecemos", h8b: "hoy mismo.",
     b8: "Así de fácil es arrancar — todo empieza en esta misma llamada:",
     d8a: "PASO 1", t8a: "Asegura tu lugar", x8a: "Te mandamos un link de pago seguro a tu WhatsApp. Pagas con tarjeta, protegido por Stripe 🔒.",
     d8b: "PASO 2 · HOY", t8b: "Tu app, hoy mismo", x8b: "Tu acceso te llega por WhatsApp antes de colgar. Hoy mismo ya estás valuando casas.",
@@ -5903,6 +7135,21 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 #ktoast{display:none;position:fixed;left:18px;bottom:70px;z-index:80;background:#34A853;color:#fff;border-radius:99px;width:34px;height:34px;align-items:center;justify-content:center;font-weight:800}
 #ktoast.on{display:flex}
 .ct{cursor:default;user-select:none}
+.inotch{pointer-events:none} /* decorative — must never swallow taps meant for the screen under it */
+.ig{background:#fff;color:#101B30;height:100%;overflow-y:auto;font-size:12px}
+.ig-top{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:14px;border-bottom:1px solid #EFEFEF}
+.ig-head{display:flex;align-items:center;gap:14px;padding:14px}
+.ig-av{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#C9973A,#15244C);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;border:2.5px solid #E1306C}
+.ig-stats{display:flex;flex:1;justify-content:space-around;text-align:center}
+.ig-stats b{display:block;font-size:15px}
+.ig-stats span{color:#67718A;font-size:11px}
+.ig-bio{padding:0 14px 12px;line-height:1.55}
+.ig-bio a{color:#1B6FB8;font-weight:800;cursor:pointer;display:inline-block;margin-top:4px;background:#EAF2FB;border-radius:8px;padding:6px 10px}
+.ig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px}
+.ig-grid div{aspect-ratio:1;background:linear-gradient(135deg,#F0F2F6,#DDE3EE);display:flex;align-items:center;justify-content:center;font-size:26px}
+.ig-wrap{height:100%;display:none;flex-direction:column;background:#fff}
+.ig-back{background:#101B30;color:#fff;border:none;padding:9px;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0}
+.ig-wrap iframe{border:0;width:100%;flex:1}
 </style></head><body>
 <a class="langpill" href="${L.langHref}">${L.langBtn}</a>
 <div class="layout">
@@ -5971,19 +7218,6 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
   </div>
 </section>
 
-<section class="slide" data-t="${L.t4}">
-  <div class="s-veil"></div>
-  <div class="s-in" style="max-width:1180px">
-    <p class="kick">${L.k4}</p>
-    <h1>${L.h4a} <em>${L.h4b}</em></h1>
-    <p class="body" style="margin-top:14px">${L.b4}</p>
-    <div class="devices">
-      <div class="webframe"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">tunegocio.com</span></div><div class="dscr"><iframe data-src="/ejemplo?embed=1" title="Web"></iframe></div></div>
-      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/ejemplo?embed=1" title="Mobile"></iframe></div></div>
-    </div>
-  </div>
-</section>
-
 <section class="slide" data-t="${L.t5}">
   <div class="s-veil"></div>
   <div class="s-in" style="max-width:1120px">
@@ -6032,6 +7266,59 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </div>
         <div class="ch-foot">${L.chFoot}</div>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-t="${L.ts}">
+  <div class="s-veil"></div>
+  <div class="s-in" style="max-width:1120px">
+    <p class="kick">${L.ks}</p>
+    <h1>${L.hsa}<br><em>${L.hsb}</em></h1>
+    <div class="rule"></div>
+    <div class="duo">
+      <div>
+        <p class="body">${L.bs}</p>
+        <ul class="pts">
+          <li><b>📸</b><span>${L.psa}</span></li>
+          <li><b>🏡</b><span>${L.psb}</span></li>
+          <li><b>📥</b><span>${L.psc}</span></li>
+          <li><b>🔁</b><span>${L.psd}</span></li>
+        </ul>
+        <p class="body" style="margin-top:22px;font-size:14px">${L.lives}</p>
+      </div>
+      <div class="iphone big"><div class="inotch"></div><div class="mscr">
+        <div class="ig" id="igmock">
+          <div class="ig-top"><span>‹</span><b>casabella.realty</b><span>⋯</span></div>
+          <div class="ig-head">
+            <div class="ig-av">🏡</div>
+            <div class="ig-stats">
+              <div><b>212</b><span>${L.igStats[0]}</span></div>
+              <div><b>3,481</b><span>${L.igStats[1]}</span></div>
+              <div><b>512</b><span>${L.igStats[2]}</span></div>
+            </div>
+          </div>
+          <div class="ig-bio"><b>${L.igBioName}</b><br>${L.igBioLine}<br><a onclick="igGo()">${L.igLink}</a></div>
+          <div class="ig-grid">${["🏠", "🌇", "🔑", "🏡", "🌳", "📸", "🛋️", "🏘️", "🌅"].map((e) => `<div>${e}</div>`).join("")}</div>
+        </div>
+        <div class="ig-wrap" id="igwrap">
+          <button class="ig-back" onclick="igBack()">${L.igBack}</button>
+          <iframe id="igfr" data-src="/w/alto-demo" title="Widget"></iframe>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-t="${L.t4}">
+  <div class="s-veil"></div>
+  <div class="s-in" style="max-width:1180px">
+    <p class="kick">${L.k4}</p>
+    <h1>${L.h4a} <em>${L.h4b}</em></h1>
+    <p class="body" style="margin-top:14px">${L.b4}</p>
+    <div class="devices">
+      <div class="webframe"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">tunegocio.com</span></div><div class="dscr"><iframe data-src="/ejemplo?embed=1" title="Web"></iframe></div></div>
+      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/ejemplo?embed=1" title="Mobile"></iframe></div></div>
     </div>
   </div>
 </section>
@@ -6088,7 +7375,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 </div>
 <div class="bbar">
   <div class="pn"><button class="prev" onclick="go(-1)">${L.prev}</button><button class="next" onclick="go(1)">${L.next}</button></div>
-  <span class="ct" id="ct">1 / 8</span>
+  <span class="ct" id="ct">1 / 9</span>
 </div>
 </main>
 </div>
@@ -6154,6 +7441,16 @@ function sendChat(){
       else{addBub('me',${JSON.stringify(en ? "Give me one moment 🙏 (try again)" : "Dame un momentito y te contesto 🙏 (intenta de nuevo)")})}
     })
     .catch(function(){ty.remove();chatBusy=false;addBub('me',${JSON.stringify(en ? "Give me one moment 🙏 (try again)" : "Dame un momentito y te contesto 🙏 (intenta de nuevo)")})});
+}
+/* Instagram-bio demo phone: profile → tap the bio link → the live widget */
+function igGo(){
+  document.getElementById('igmock').style.display='none';
+  document.getElementById('igwrap').style.display='flex';
+  var f=document.getElementById('igfr');if(!f.src)f.src=f.dataset.src;
+}
+function igBack(){
+  document.getElementById('igwrap').style.display='none';
+  document.getElementById('igmock').style.display='block';
 }
 document.addEventListener('keydown',function(e){if(e.key==='ArrowRight')go(1);if(e.key==='ArrowLeft')go(-1)});
 show(parseInt(location.hash.slice(1))-1||0);
@@ -6557,6 +7854,201 @@ ${d.k === "est" && !d.paid ? `<div class="sec" style="font-size:12px;color:#6771
 <button class="btn" onclick="window.print()">${L.print}</button>
 <div class="ft">${esc(d.biz)}</div>
 </div></body></html>`);
+});
+
+/* ═════════ Quick Comp HEADQUARTERS (/hq) — the owner's private cockpit ═════════
+ * Portfolio of every product (live numbers for Quick Comp, manual cards for
+ * the others — ALTO, future launches), the mastermind idea board, and an AI
+ * thinking partner that knows the real numbers. Guarded by its OWN key
+ * (HQ_KEY) — no staff key opens it, not even ADMIN_KEY. Ported from ALTO. */
+const HQ_KEY = process.env.HQ_KEY || "";
+const hqOk = (req) => HQ_KEY && [req.query.key, req.body?.key, reqCookies(req).alto_hq].some((k) => safeEq(k, HQ_KEY));
+
+async function hqNumbers() {
+  const list = await db.listContractors();
+  const real = list.filter((c) => !["alto-demo", "alto-ventas"].includes(c.slug));
+  return {
+    quickcomp: {
+      clients: real.filter((c) => !(c.data && c.data.status === "paused")).length,
+      paying: real.filter((c) => (c.data?.payStatus || "") === "ok").length,
+      mrr: real.filter((c) => (c.data?.payStatus || "") === "ok").reduce((a, c) => a + PLANS[planOf(c)].price, 0),
+    },
+  };
+}
+const hqId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// One endpoint mutates both stores: hq:portfolio (manual cards) + hq:ideas.
+app.post("/api/hq/save", async (req, res) => {
+  if (!hqOk(req)) return res.status(403).json({ error: "no" });
+  const { kind, action, item = {} } = req.body || {};
+  const key = kind === "card" ? "hq:portfolio" : kind === "idea" ? "hq:ideas" : null;
+  if (!key || !["add", "update", "del"].includes(action)) return res.status(400).json({ error: "bad request" });
+  const cur0 = await db.kvGet(key).catch(() => null);
+  let arr = Array.isArray(cur0) ? cur0 : [];
+  const S = (x, n) => String(x || "").slice(0, n);
+  if (action === "add") {
+    const it = kind === "card"
+      ? { id: hqId(), name: S(item.name, 60), clients: Math.max(0, parseInt(item.clients) || 0), mrr: Math.max(0, parseInt(item.mrr) || 0), note: S(item.note, 300) }
+      : { id: hqId(), lane: item.lane === "futuro" ? "futuro" : "mejora", title: S(item.title, 120), note: S(item.note, 600), stage: "idea", created_at: new Date().toISOString() };
+    if (kind === "card" ? !it.name : !it.title) return res.status(400).json({ error: "falta nombre" });
+    arr = [...arr, it].slice(-200);
+  } else if (action === "update") {
+    const STAGES = ["idea", "investigado", "planeado", "construyendo", "vivo"];
+    arr = arr.map((x) => x.id !== item.id ? x : {
+      ...x,
+      ...(item.name != null ? { name: S(item.name, 60) } : {}),
+      ...(item.title != null ? { title: S(item.title, 120) } : {}),
+      ...(item.note != null ? { note: S(item.note, 600) } : {}),
+      ...(item.clients != null ? { clients: Math.max(0, parseInt(item.clients) || 0) } : {}),
+      ...(item.mrr != null ? { mrr: Math.max(0, parseInt(item.mrr) || 0) } : {}),
+      ...(item.stage != null && STAGES.includes(item.stage) ? { stage: item.stage } : {}),
+    });
+  } else {
+    arr = arr.filter((x) => x.id !== item.id);
+  }
+  await db.kvSet(key, arr);
+  res.json({ ok: true });
+});
+
+// The thinking partner: brainstorms WITH the real portfolio in context.
+app.post("/api/hq/brain", async (req, res) => {
+  if (!hqOk(req)) return res.status(403).json({ error: "no" });
+  const q = String(req.body?.q || "").slice(0, 1200);
+  if (!q.trim()) return res.status(400).json({ error: "pregunta vacía" });
+  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key." });
+  const [live, cards0, ideas0] = await Promise.all([
+    hqNumbers(),
+    db.kvGet("hq:portfolio").catch(() => null),
+    db.kvGet("hq:ideas").catch(() => null),
+  ]);
+  const cards = Array.isArray(cards0) ? cards0 : [];
+  const ideas = (Array.isArray(ideas0) ? ideas0 : []).map((i) => `[${i.lane}/${i.stage}] ${i.title}${i.note ? " — " + i.note.slice(0, 120) : ""}`);
+  try {
+    const text = await aiChat({
+      maxTokens: 700,
+      system: `Eres el socio estratégico personal de Rolando, dueño de Quick Comp: SaaS en inglés para realtors — comps/CMA instantáneos desde el teléfono + página web con widget de valuación que convierte dueños de casa en seller leads. Corre sobre el mismo motor de negocio que ALTO Pro (su otro producto, para contratistas hispanos): ventas + Stripe + onboarding + CS + GHL. Su modelo: 4 VAs por lanzamiento (closer, setter, onboarding, CS), un lanzamiento a la vez, anuncios en Meta. Piensa con él como un fundador experimentado: directo, números primero, sin humo. Cuando proponga ideas, evalúa contra: ¿usa el motor existente?, ¿mismo motion de ventas?, ¿tamaño del mercado de realtors?, ¿costo de APIs (RentCast/Google/IA)?, ¿carga para los VAs? Responde en español, máximo 250 palabras, con una recomendación clara al final.`,
+      messages: [{ role: "user", content: `MIS NÚMEROS HOY: ${JSON.stringify(live)}. OTROS PRODUCTOS (manual): ${JSON.stringify(cards)}. MI TABLERO DE IDEAS: ${JSON.stringify(ideas.slice(0, 40))}.\n\nQUIERO PENSAR ESTO: ${q}` }],
+    });
+    res.json({ text });
+  } catch (e) {
+    console.error("hq brain failed:", e.message);
+    res.status(502).json({ error: "ai_failed" });
+  }
+});
+
+app.get("/hq", async (req, res) => {
+  if (!HQ_KEY) return res.status(503).send("Set HQ_KEY env var to enable headquarters.");
+  if (req.query.logout != null) { clearKeyCookie(res, "alto_hq"); return res.redirect("/hq"); }
+  if (req.query.key && safeEq(req.query.key, HQ_KEY)) { setKeyCookie(res, "alto_hq", HQ_KEY); return res.redirect("/hq"); }
+  const hqIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (req.query.key && overQuota(`keyguess:${hqIp}`, 30)) return res.status(429).send("Demasiados intentos. Intenta más tarde.");
+  if (!hqOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Headquarters", "/hq", !!req.query.key));
+  const esc = (x) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const [live, cards0, ideas0] = await Promise.all([
+    hqNumbers(),
+    db.kvGet("hq:portfolio").catch(() => null),
+    db.kvGet("hq:ideas").catch(() => null),
+  ]);
+  const cards = Array.isArray(cards0) ? cards0 : [];
+  const ideas = Array.isArray(ideas0) ? ideas0 : [];
+  const STAGES = { idea: ["💭 Idea", "#8A93A5"], investigado: ["🔎 Investigado", "#1B6FB8"], planeado: ["📋 Planeado", "#D99E00"], construyendo: ["🔨 Construyendo", "#B3611B"], vivo: ["🟢 Vivo", "#1E7B3C"] };
+  const stageSel = (i) => `<select onchange="ideaUpd('${i.id}',{stage:this.value})" class="stg" style="color:${(STAGES[i.stage] || STAGES.idea)[1]}">${Object.entries(STAGES).map(([k, [lbl]]) => `<option value="${k}" ${i.stage === k ? "selected" : ""}>${lbl}</option>`).join("")}</select>`;
+  const ideaRow = (i) => `<div class="idea">
+    <div class="it"><b>${esc(i.title)}</b>${stageSel(i)}</div>
+    <div class="inote" onclick="ideaNote('${i.id}',this)">${i.note ? "📝 " + esc(i.note) : '<span style="color:#5A6478">📝 agregar notas…</span>'}</div>
+    <button class="x" onclick="if(confirm('¿Borrar esta idea?'))ideaDel('${i.id}')">✕</button>
+  </div>`;
+  const autoCard = (name, icon, n) => `<div class="pcard live">
+    <div class="pn">${icon} ${name} <span class="lv">EN VIVO</span></div>
+    <div class="big">$${n.mrr.toLocaleString("en-US")}<span class="mo">/mes</span></div>
+    <div class="ps">${n.paying} pagando · ${n.clients} activos</div>
+  </div>`;
+  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quick Comp · Headquarters</title><link rel="icon" href="/icon-192.png"><style>
+*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
+body{background:#0B1226;color:#fff;padding-bottom:60px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+header{padding:26px 0 18px;display:flex;align-items:center;justify-content:space-between}
+header b{font-size:22px;letter-spacing:.5px}header b em{color:#C9973A;font-style:normal}
+header a{color:#9DA8C4;font-size:12.5px;font-weight:700;text-decoration:none}
+h2{font-size:13px;letter-spacing:2.5px;color:#C9973A;margin:26px 0 12px;text-transform:uppercase}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.pcard{background:#121D36;border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:16px;position:relative}
+.pcard.live{border-color:rgba(201,151,58,.55)}
+.pn{font-weight:800;font-size:14px}.lv{font-size:9.5px;background:#C9973A;color:#101B30;font-weight:800;border-radius:99px;padding:2px 7px;margin-left:6px;letter-spacing:1px}
+.big{font-size:30px;font-weight:800;margin-top:8px;font-family:'Barlow Condensed',Arial}.mo{font-size:14px;color:#9DA8C4;font-weight:700}
+.ps{color:#9DA8C4;font-size:12.5px;font-weight:600;margin-top:2px}
+.pnote{color:#7E8AA6;font-size:12px;margin-top:6px}
+.x{position:absolute;top:10px;right:10px;background:none;border:none;color:#5A6478;font-size:14px;cursor:pointer;font-weight:700}
+.addrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.addrow input{background:#0E1730;border:1.5px solid rgba(255,255,255,.14);border-radius:10px;color:#fff;padding:10px 12px;font-size:13.5px;font-weight:600;outline:none}
+.addrow input:focus{border-color:#C9973A}
+.addrow button,.brain button{background:#C9973A;border:none;border-radius:10px;color:#101B30;font-weight:800;padding:10px 16px;font-size:13px;cursor:pointer}
+.lanes{display:grid;gap:14px}@media(min-width:860px){.lanes{grid-template-columns:1fr 1fr}}
+.lane{background:#0E1730;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px}
+.lane h3{font-size:14.5px;margin-bottom:10px}
+.idea{background:#121D36;border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:11px 34px 11px 12px;margin-bottom:8px;position:relative}
+.it{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px}
+.stg{background:#0E1730;border:1px solid rgba(255,255,255,.14);border-radius:8px;font-weight:800;font-size:11.5px;padding:4px 6px;cursor:pointer}
+.inote{color:#9DA8C4;font-size:12px;margin-top:6px;cursor:pointer;line-height:1.5}
+.brain{background:#0E1730;border:1px solid rgba(201,151,58,.4);border-radius:16px;padding:16px}
+.brain textarea{width:100%;background:#121D36;border:1.5px solid rgba(255,255,255,.14);border-radius:12px;color:#fff;padding:12px;font-size:14px;font-weight:600;outline:none;min-height:74px;font-family:inherit;resize:vertical}
+.brain textarea:focus{border-color:#C9973A}
+#bout{white-space:pre-wrap;background:#121D36;border-radius:12px;padding:14px;margin-top:12px;font-size:14px;line-height:1.65;color:#DCE4F5;display:none}
+</style></head><body><div class="wrap">
+<header><b>🏛 QUICK <em>COMP</em> · HEADQUARTERS</b><a href="/hq?logout=1">Salir</a></header>
+
+<h2>Portafolio</h2>
+<div class="pgrid">
+  ${autoCard("Quick Comp", "📊", live.quickcomp)}
+  ${cards.map((c) => `<div class="pcard">
+    <div class="pn">📦 ${esc(c.name)}</div>
+    <div class="big">$${(c.mrr || 0).toLocaleString("en-US")}<span class="mo">/mes</span></div>
+    <div class="ps">${c.clients || 0} clientes <button style="background:none;border:none;color:#5A6478;cursor:pointer;font-size:11px" onclick="cardEdit('${c.id}',${c.clients || 0},${c.mrr || 0})">✏️ actualizar</button></div>
+    ${c.note ? `<div class="pnote">${esc(c.note)}</div>` : ""}
+    <button class="x" onclick="if(confirm('¿Quitar este producto del portafolio?'))cardDel('${c.id}')">✕</button>
+  </div>`).join("")}
+</div>
+<div class="addrow">
+  <input id="cn" placeholder="Producto (ej. ALTO Pro)" style="flex:2;min-width:180px">
+  <input id="cc" placeholder="Clientes" type="number" style="width:90px">
+  <input id="cm" placeholder="$/mes" type="number" style="width:100px">
+  <button onclick="cardAdd()">＋ Agregar producto</button>
+</div>
+
+<h2>Mastermind</h2>
+<div class="lanes">
+  <div class="lane"><h3>💡 Mejoras a lo que ya existe</h3>
+    ${ideas.filter((i) => i.lane === "mejora").map(ideaRow).join("") || '<p style="color:#5A6478;font-size:13px">Nada todavía — agrega tu primera idea.</p>'}
+    <div class="addrow"><input id="im" placeholder="Nueva mejora…" style="flex:1"><button onclick="ideaAdd('mejora')">＋</button></div>
+  </div>
+  <div class="lane"><h3>🚀 Productos futuros</h3>
+    ${ideas.filter((i) => i.lane === "futuro").map(ideaRow).join("") || '<p style="color:#5A6478;font-size:13px">Nada todavía — ¿cuál es el siguiente negocio?</p>'}
+    <div class="addrow"><input id="if" placeholder="Nuevo producto/nicho…" style="flex:1"><button onclick="ideaAdd('futuro')">＋</button></div>
+  </div>
+</div>
+
+<h2>🧠 Piénsalo conmigo</h2>
+<div class="brain">
+  <textarea id="bq" placeholder="Ej.: ¿Subo el precio del plan Completo o agrego un tier más barato? / ¿Qué le falta a la app para que el realtor la abra a diario?"></textarea>
+  <div style="margin-top:10px"><button id="bgo" onclick="brain()">Pensar con mis números →</button></div>
+  <div id="bout"></div>
+</div>
+</div>
+<script>
+function post(body){return fetch('/api/hq/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.reload();else alert(j.error||'Error')})}
+function cardAdd(){var n=document.getElementById('cn').value.trim();if(!n)return;post({kind:'card',action:'add',item:{name:n,clients:document.getElementById('cc').value,mrr:document.getElementById('cm').value}})}
+function cardEdit(id,c,m){var nc=prompt('Clientes:',c);if(nc===null)return;var nm=prompt('$/mes:',m);if(nm===null)return;post({kind:'card',action:'update',item:{id:id,clients:nc,mrr:nm}})}
+function cardDel(id){post({kind:'card',action:'del',item:{id:id}})}
+function ideaAdd(lane){var el=document.getElementById(lane==='mejora'?'im':'if');var t=el.value.trim();if(!t)return;post({kind:'idea',action:'add',item:{lane:lane,title:t}})}
+function ideaUpd(id,patch){post({kind:'idea',action:'update',item:Object.assign({id:id},patch)})}
+function ideaNote(id,el){var t=prompt('Notas de la idea:',el.textContent.replace(/^📝 /,'').replace('agregar notas…','').trim());if(t===null)return;ideaUpd(id,{note:t})}
+function ideaDel(id){post({kind:'idea',action:'del',item:{id:id}})}
+function brain(){var q=document.getElementById('bq').value.trim();if(!q)return;var b=document.getElementById('bgo');b.disabled=true;b.textContent='Pensando…';
+  fetch('/api/hq/brain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:q})}).then(function(r){return r.json()}).then(function(j){
+    b.disabled=false;b.textContent='Pensar con mis números →';var o=document.getElementById('bout');o.style.display='block';o.textContent=j.text||j.error||'Error';
+  }).catch(function(){b.disabled=false;b.textContent='Pensar con mis números →';alert('Error de red')})}
+</script></body></html>`);
 });
 
 await db.initDb();

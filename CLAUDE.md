@@ -13,10 +13,10 @@ re-deriving any process.
 ## Map
 
 - `tradetechpro/server/index.mjs` — the monolith: APIs, portals (/admin, /cs,
-  /closer, /onboarding), sales landing (/ventas — also served at the bare
-  ROOT_DOMAIN), sales deck (/demo), client widgets (/w/:slug), sample site
-  (/ejemplo), shared client reports (/r), Stripe + Cloudflare + GHL
-  integrations.
+  /closer, /onboarding, /hq — owner-only cockpit gated by HQ_KEY exclusively),
+  sales landing (/ventas — also served at the bare ROOT_DOMAIN), sales deck
+  (/demo), client widgets (/w/:slug), sample site (/ejemplo), shared client
+  reports (/r), Stripe + Cloudflare + Render + GHL integrations.
 - `tradetechpro/server/templates.mjs` — the website factory: client-site
   templates rendered from data.
 - `tradetechpro/server/valuation.mjs` — the comp engine: normalizes RentCast
@@ -68,6 +68,12 @@ re-deriving any process.
   `forwardLead` → per-account GHL webhook (`data.webhook`, https only).
   Channel leads (WhatsApp/IG/Messenger) come IN from GHL via `/api/hl/lead`
   (HL_WEBHOOK_SECRET, phone dedupe 24h) and are NOT re-forwarded (no loop).
+- **Site bot**: every published client site ships the AI chat bubble
+  (templates.mjs `chatHtml`); `/api/widget/chat` answers as that realtor using
+  `site.botFacts` (composed from the structured `site.botTrain` by the /cs
+  trainer) as the ONLY extra truth; a phone typed in chat becomes a real lead
+  (saved + forwarded + push). Staff preview (?preview=1) = test mode, no leads.
+  Fair Housing rules are hard-coded in every bot prompt.
 - **Stripe**: 3 payment links (env: STRIPE_PAYMENT_LINK[_PRO|_WIDGET]),
   webhook tags plan by exact amount paid ($67→pro, $197→widget,
   $297→complete, ±$10 tolerance), handles pay-before-account via
@@ -78,6 +84,12 @@ re-deriving any process.
   non-disclosure states; the range + confidence + county tax record IS the
   pitch. A signed-in agent must never receive simulated comps (demo fallback
   is anonymous-only).
+- **Domain buy**: CF Registrar API (`/api/onboarding/domaincheck` shows real
+  prices when CF_ACCOUNT_ID is set; `/api/onboarding/domain/buy` is admin-only,
+  resumable via `dombuy:<domain>` kv checkpoint, CF_REG_* contact, phone format
+  `+1.9565551234`) → new zone CNAME → Render custom domain + SSL
+  (RENDER_API_KEY/RENDER_SERVICE_ID). Dormant until those env vars are set —
+  search falls back to free RDAP with no buy button.
 - **Realtor branding**: one brand hex in the profile drives every client-facing
   document (reports, invoices, /r shared pages). Client documents carry the
   REALTOR's brand, not Quick Comp's.

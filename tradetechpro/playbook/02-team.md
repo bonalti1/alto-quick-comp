@@ -74,9 +74,18 @@ natural once leads start landing.
 
 ## 4) Customer service
 
-**Their board:** /cs — tasks that drop in on their own when a client asks for
-changes, plus payment-event tasks (send access link after self-serve
-signups). Check the board 2× a day.
+**Their board:** /cs — tickets drop in on their own when a client asks for a
+change from the app (🌐 page / 🏡 widget / 😕 complaint / 🙋 other), plus
+payment-event tasks (send access link after self-serve signups). Check the
+board 2× a day.
+
+**The loop per ticket:** read what they asked → **✨ Ver arreglo automático**
+(the AI SHOWS before→after, nothing saved yet) → **✅ Sí, aplicar** if it
+makes sense (or ⚡ Editar datos to do it by hand) → **🔔 Avisarle** (push
+straight to their phone; WhatsApp fallback if they never enabled
+notifications) → **✓ Hecho**. Complaints get a call or WhatsApp, never
+buttons. The 🚨 attention list above the tickets is the morning worklist —
+work it top to bottom.
 
 ## The conversation bot (the leash)
 

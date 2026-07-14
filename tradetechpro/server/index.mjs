@@ -1265,6 +1265,56 @@ app.post("/api/admin/status", async (req, res) => {
   res.json({ ok: true, status: paused ? "paused" : "active" });
 });
 
+// Admin: change a client's plan manually (the Stripe webhook normally tags it
+// from the amount paid; this is the cash/Zelle/mistake override).
+app.post("/api/admin/plan", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "bad admin key" });
+  const c = await db.getContractor(String(req.query.id || req.body?.id || ""));
+  if (!c) return res.status(404).json({ error: "no contractor" });
+  const plan = String(req.query.plan || req.body?.plan || "");
+  if (!PLANS[plan]) return res.status(400).json({ error: "bad plan" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), plan, planAmount: PLANS[plan].price });
+  res.json({ ok: true, plan });
+});
+
+// Admin: free-text private notes on a client (never shown to the client)
+app.post("/api/admin/notes", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ ok: false, error: "bad admin key" });
+  const c = await db.getContractor(String(req.body?.id || ""));
+  if (!c) return res.status(404).json({ ok: false, error: "no contractor" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), adminNotes: String(req.body?.notes || "").slice(0, 4000) });
+  res.json({ ok: true });
+});
+
+// Admin: fire a test push to every device a client has subscribed — the
+// truth-teller when "no me llegan los avisos".
+app.get("/api/admin/pushtest", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "no auth" });
+  if (!pushLive) return res.json({ ok: false, error: "push apagado en el servidor (faltan VAPID keys)" });
+  const c = await db.getContractor(String(req.query.id || ""));
+  if (!c) return res.status(404).json({ error: "no contractor" });
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (!subs.length) return res.json({ ok: false, error: "0 dispositivos suscritos — en su app: Leads → 🔔 Activar alertas" });
+  const body = JSON.stringify({ title: "🔔 Prueba de avisos", body: `Si ves esto, los avisos de ${c.name} funcionan.`, tag: "pushtest", url: "/" });
+  const results = [];
+  for (const s of subs) {
+    try { await webpush.sendNotification(s, body); results.push({ device: `…${String(s.endpoint).slice(-10)}`, ok: true }); }
+    catch (e) { results.push({ device: `…${String(s.endpoint).slice(-10)}`, ok: false, status: e.statusCode || 0, msg: String(e.body || e.message || "").slice(0, 140) }); }
+  }
+  res.json({ ok: results.some((r) => r.ok), devices: results });
+});
+
+// Delete a client and all their data — admin only, slug must be re-typed
+app.post("/api/admin/delete", async (req, res) => {
+  if (!adminOk(req)) return res.status(403).json({ error: "solo admin" });
+  const c = await db.getContractor(String(req.body?.id || ""));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  if (["alto-demo", "alto-ventas"].includes(c.slug)) return res.status(400).json({ error: "cuenta interna — no se puede borrar" });
+  if (String(req.body?.confirm || "") !== c.slug) return res.status(400).json({ error: "el texto de confirmación no coincide con el slug" });
+  await db.deleteContractor(c.id, c.slug);
+  res.json({ ok: true });
+});
+
 /* Admin: one-click full data backup (ALTO ownership pattern) — everything the
  * business can't rebuild, in one dated JSON: clients with their app state and
  * leads, plus meetings and tasks. Session tokens and invite links are excluded
@@ -2241,7 +2291,21 @@ td{padding:13px 10px;border-bottom:1px solid #F2F4F7;font-weight:600;color:#1B24
   <a class="b-line" href="/api/admin/invite?key=${KEY}&id=${c.id}">🔑 Link de acceso</a>
   <button class="b-line" onclick="revoke()">🔒 Renovar acceso</button>
   <button class="b-line" onclick="hook()">🤖 GHL ${d.webhook ? "(conectado)" : ""}</button>
+  <button class="b-line" onclick="pushTest(this)">🔔 Probar avisos</button>
+  <select onchange="if(this.value)act('/api/admin/plan?key=${KEY}&id=${c.id}&plan='+this.value,'¿Cambiar su plan a '+this.options[this.selectedIndex].text+'? (El webhook de Stripe lo vuelve a etiquetar si paga otro monto.)')" style="font-family:inherit;padding:10px 12px;border-radius:11px;border:1.5px solid #E4E7EC;font-weight:700;font-size:13px;background:#fff;color:#101B30">
+    <option value="">📦 Plan: ${esc(PLANS[planOf(c)].name)}</option>
+    ${Object.entries(PLANS).map(([k, pl]) => `<option value="${k}">${pl.name} — $${pl.price}/mes</option>`).join("")}
+  </select>
+  <button class="b-red" onclick="delClient()">🗑️ Eliminar</button>
 </div></div>
+
+<div class="panel"><h2>📝 Notas privadas (solo tú las ves)</h2>
+  <textarea id="adminNotes" rows="3" placeholder="Acuerdos, contexto, recordatorios de este cliente…" style="width:100%;font-family:inherit;padding:12px 14px;border-radius:12px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;resize:vertical">${esc(d.adminNotes || "")}</textarea>
+  <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+    <button class="b-dark" onclick="saveNotes(this)">💾 Guardar notas</button>
+    <span id="notesMsg" style="color:#10803C;font-weight:700;font-size:13px"></span>
+  </div>
+</div>
 
 <div class="panel"><h2>Enlaces</h2>
   <div class="kv"><span>Widget</span><a href="/w/${c.slug}" target="_blank">/w/${c.slug}</a></div>
@@ -2284,6 +2348,23 @@ function cpEmb(b){ navigator.clipboard.writeText(document.getElementById('emb').
 function pub(v){ fetch('/api/onboarding/publish?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:'${c.slug}',publish:v})}).then(r=>r.json()).then(()=>location.reload()); }
 function hook(){ var u=prompt('Webhook de HighLevel (vacío = desconectar):'); if(u===null)return; fetch('/api/admin/webhook?key=${KEY}&id=${c.id}&url='+encodeURIComponent(u),{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.ok?'✓ Guardado':'Error');location.reload();}); }
 function revoke(){ if(!confirm('¿Renovar acceso? TODOS sus links y dispositivos actuales quedan desconectados y se genera un link nuevo (mándaselo).'))return; var f=document.createElement('form'); f.method='POST'; f.action='/api/admin/revoke?key=${KEY}&id=${c.id}'; document.body.appendChild(f); f.submit(); }
+function pushTest(btn){btn.disabled=true;var o=btn.textContent;btn.textContent='🔔 Enviando…';
+  fetch('/api/admin/pushtest?key=${KEY}&id=${c.id}').then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent=o;
+    if(j.ok)alert('✓ Aviso de prueba enviado a '+(j.devices||[]).filter(function(x){return x.ok}).length+' dispositivo(s) — pídele que revise su teléfono.');
+    else alert(j.error||'No se pudo enviar');
+  }).catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});}
+function saveNotes(btn){btn.disabled=true;
+  fetch('/api/admin/notes?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${c.id}',notes:document.getElementById('adminNotes').value})})
+  .then(function(r){return r.json()}).then(function(j){btn.disabled=false;document.getElementById('notesMsg').textContent=j.ok?'✓ Guardado':'Error';setTimeout(function(){document.getElementById('notesMsg').textContent=''},2000);})
+  .catch(function(){btn.disabled=false;document.getElementById('notesMsg').textContent='Error de conexión';});}
+function delClient(){
+  var typed=prompt('⚠️ ELIMINAR "${esc(c.name)}" borra su cuenta, su página, sus leads y su app PARA SIEMPRE.\\n\\nPara confirmar, escribe exactamente: ${c.slug}');
+  if(typed===null)return;
+  if(typed!=='${c.slug}'){alert('No coincide — no se borró nada.');return;}
+  fetch('/api/admin/delete?key=${KEY}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'${c.id}',confirm:typed})})
+  .then(function(r){return r.json()}).then(function(j){if(j.ok){alert('Cuenta eliminada.');location.href='/admin';}else alert(j.error||'Error');})
+  .catch(function(){alert('Error de conexión');});}
 </script>
 </body></html>`);
 });

@@ -316,6 +316,30 @@ export async function useInvite(token) {
 /* Kill every existing way into an account — all sessions (devices) and all
  * invite links. For leaked links, lost phones, ex-employees. Pair with
  * createInvite to hand the client a fresh key. */
+// Delete a contractor and EVERYTHING theirs — sessions, invites, app state,
+// leads, reviews, tasks. Irreversible; the endpoint demands a typed slug.
+export async function deleteContractor(id, slug) {
+  if (pool) {
+    await pool.query("DELETE FROM sessions WHERE contractor_id=$1", [id]);
+    await pool.query("DELETE FROM invites WHERE contractor_id=$1", [id]);
+    await pool.query("DELETE FROM app_state WHERE contractor_id=$1", [id]);
+    await pool.query("DELETE FROM leads WHERE contractor_id=$1", [id]);
+    await pool.query("DELETE FROM kv WHERE key=$1", [`rev:${id}`]);
+    if (slug) await pool.query("DELETE FROM tasks WHERE slug=$1", [slug]);
+    await pool.query("DELETE FROM contractors WHERE id=$1", [id]);
+    return true;
+  }
+  mem.sessions = Object.fromEntries(Object.entries(mem.sessions || {}).filter(([, v]) => v !== id));
+  mem.invites = Object.fromEntries(Object.entries(mem.invites || {}).filter(([, v]) => v?.contractor_id !== id));
+  if (mem.states) delete mem.states[id];
+  mem.leads = (mem.leads || []).filter((l) => l.contractor_id !== id);
+  if (mem.kv) delete mem.kv[`rev:${id}`];
+  mem.tasks = (mem.tasks || []).filter((t) => t.slug !== slug);
+  mem.contractors = (mem.contractors || []).filter((c) => c.id !== id);
+  persistMem();
+  return true;
+}
+
 export async function revokeAccess(contractorId) {
   if (pool) {
     await pool.query("DELETE FROM sessions WHERE contractor_id=$1", [contractorId]);

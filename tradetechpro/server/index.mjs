@@ -4013,6 +4013,39 @@ function reset(){
 </body></html>`);
 });
 
+/* Realtors don't edit their own website — they ask, and the request lands
+ * in the CS queue as a ticket (human or ✨AI resolves it). ALTO pattern. */
+app.post("/api/change-request", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  if (overQuota(`chreq:${c.id}`, 5)) return res.status(429).json({ error: "quota" });
+  const text = String(req.body?.text || "").trim().slice(0, 600);
+  if (!text) return res.status(400).json({ error: "text required" });
+  // The realtor tags what it's about on the phone — the ticket lands in /cs
+  // pre-sorted, with the right suggestion and the right buttons.
+  const TITLES = {
+    web: "🌐 Cliente pide cambio de su PÁGINA",
+    widget: "🏡 Cliente pide cambio del VALUADOR",
+    queja: "😕 QUEJA del cliente",
+    any: "🙋 Solicitud del cliente",
+  };
+  const kind = TITLES[String(req.body?.kind || "")] ? String(req.body.kind) : "any";
+  const id = await db.addTask({ slug: c.slug, title: TITLES[kind], note: text });
+  res.json({ ok: true, id });
+});
+
+// The realtor's own ticket history — ONLY tickets they sent from the app
+// (kind-prefixed titles), never internal CS tasks about them.
+app.get("/api/my-requests", async (req, res) => {
+  const c = await auth(req);
+  if (!c) return res.status(401).json({ error: "no session" });
+  const mine = (await db.listTasks(500))
+    .filter((t) => t.slug === c.slug && /^(🌐 Cliente|🏡 Cliente|😕|🙋)/.test(String(t.title || "")))
+    .slice(0, 20)
+    .map((t) => ({ id: t.id, note: String(t.note || "").slice(0, 200), status: t.status, at: t.created_at }));
+  res.json({ tickets: mine });
+});
+
 /* ── Customer-service command center (/cs) ──
  * Tasks + a client directory with one-click edit (the onboarding wizard).
  * Gated by CS_KEY (admin key also works). No money/MRR shown. */
@@ -4032,6 +4065,107 @@ app.post("/api/cs/task/:id", async (req, res) => {
   const status = ["open", "doing", "done"].includes(req.body?.status) ? req.body.status : "open";
   await db.setTaskStatus(id, status);
   res.json({ ok: true });
+});
+
+// Plain-language names for the only fields the AI is allowed to touch —
+// shown to the CS agent so "✨ Arreglar en automático" is never a black box.
+const SITEFIX_CAPS = { hero: 160, tagline: 300, about: 1400, warranty: 120, area: 200, city: 80, diff: 300 };
+const SITEFIX_LABELS = {
+  hero: "Título grande de la página",
+  tagline: "Frase debajo del título",
+  about: "Historia / quiénes somos",
+  warranty: "Promesa al cliente (se muestra en la página)",
+  area: "Zonas que cubre",
+  city: "Ciudad principal",
+  diff: "Qué lo hace diferente",
+};
+
+/* ✨ Step 1 — PREVIEW: the AI proposes a patch to ONLY the whitelisted site
+ * fields. Nothing is saved and the ticket isn't touched — the agent sees
+ * exactly what would change, in plain language, before deciding. Anything
+ * outside the whitelist (photos, domain, template, billing) comes back
+ * handled=false with why, so a human takes over. */
+app.post("/api/cs/aifix", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug || !t.note) return res.status(400).json({ error: "la tarea necesita cliente y detalle" });
+  if (t.title.startsWith("😕")) return res.json({ ok: true, handled: false, summary: "Es una queja — se arregla hablando con el cliente (WhatsApp o llamada), no editando la página." });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  if (!aiLive) return res.status(503).json({ error: "IA no configurada en el servidor" });
+  const st = c.data?.site || {};
+  const cur = { hero: st.hero || "", tagline: st.tagline || "", about: st.about || "", warranty: st.warranty || "", area: st.area || "", city: st.city || "", diff: st.diff || "" };
+  const kindHint = t.title.startsWith("🌐") ? " El cliente marcó que la solicitud es sobre su PÁGINA web: revisa hero, tagline, about, warranty, area, city, diff."
+    : t.title.startsWith("🏡") ? " El cliente marcó que es sobre su VALUADOR (el widget de valor de casa): el widget no tiene textos editables aparte — si pide otra cosa (colores, dominio, funcionamiento), handled=false para que lo vea un especialista."
+    : "";
+  try {
+    const raw = await aiChat({
+      maxTokens: 600,
+      system: `Eres el editor del sitio web de un agente de bienes raíces. Te doy la SOLICITUD del cliente y sus campos editables actuales. Responde SOLO con JSON: {"handled": true/false, "summary": "en una frase, en español simple, qué cambiarías y por qué (o por qué debe hacerlo un especialista)", "patch": {…solo los campos que cambias, entre: hero, tagline, about, warranty, area, city, diff}}. Reglas: hero máximo 8 palabras. No inventes datos que el cliente no dio. Cumple Fair Housing: nunca escribas afirmaciones sobre la calidad de vecindarios, escuelas o tipos de personas. Si piden algo fuera de esos campos (fotos, dominio, plantilla, precios, facturación, logo, el valuador), handled=false.${kindHint}`,
+      messages: [{ role: "user", content: `SOLICITUD DEL CLIENTE: ${String(t.note).slice(0, 600)}\n\nCAMPOS ACTUALES: ${JSON.stringify(cur)}` }],
+    });
+    const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    const patch = {};
+    for (const k of Object.keys(SITEFIX_CAPS)) if (j.patch && typeof j.patch[k] === "string") patch[k] = j.patch[k].slice(0, SITEFIX_CAPS[k]);
+    const handled = !!j.handled && Object.keys(patch).length > 0;
+    const changes = Object.keys(patch).map((k) => ({ key: k, label: SITEFIX_LABELS[k] || k, before: cur[k] || "(vacío)", after: patch[k] || "(vacío)" }));
+    res.json({ ok: true, handled, summary: String(j.summary || "").slice(0, 300), changes, patch });
+  } catch (e) {
+    console.error("cs aifix preview failed:", e.message);
+    res.status(502).json({ error: "la IA no pudo — hazlo manual con ✏️ Editar" });
+  }
+});
+
+/* ✨ Step 2 — APPLY: the agent reviewed the exact patch from the preview
+ * above and approved it. We re-validate it server-side (whitelist + length
+ * caps) rather than trusting the client blindly, then save and close the
+ * ticket. No second AI call — what you saw is exactly what gets written. */
+app.post("/api/cs/aifix/apply", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug) return res.status(400).json({ error: "tarea no encontrada" });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const patch = {};
+  const given = req.body?.patch;
+  for (const k of Object.keys(SITEFIX_CAPS)) if (given && typeof given[k] === "string") patch[k] = given[k].slice(0, SITEFIX_CAPS[k]);
+  if (!Object.keys(patch).length) return res.status(400).json({ error: "nada que aplicar" });
+  await db.saveContractorData(c.id, { ...(c.data || {}), site: { ...(c.data?.site || {}), ...patch } });
+  await db.setTaskStatus(id, "done");
+  res.json({ ok: true });
+});
+
+/* 🔔 "Avisarle": tell the realtor their request is done — INSIDE their own
+ * app (a real push notification via their lead-alert subscription), not a
+ * WhatsApp text that leaves our product. Falls back to WhatsApp only for
+ * realtors who never enabled push. */
+app.post("/api/cs/notify", async (req, res) => {
+  if (!csOk(req)) return res.status(403).json({ error: "no auth" });
+  const id = String(req.body?.id || "");
+  const t = (await db.listTasks(500)).find((x) => String(x.id) === id);
+  if (!t || !t.slug) return res.status(400).json({ error: "tarea no encontrada" });
+  const c = await db.getContractorBySlug(t.slug);
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const subs = Array.isArray(c.data?.push) ? c.data.push : [];
+  if (pushLive && subs.length) {
+    const es = (c.data?.profile?.lang || "") === "es";
+    const payload = JSON.stringify({
+      title: es ? "✅ Tu solicitud ya está lista" : "✅ Your request is done",
+      body: String(t.note || (es ? "Hicimos el cambio que pediste" : "We made the change you asked for")).slice(0, 140),
+      tag: "ticket-" + id,
+      url: "/",
+    });
+    let sent = 0;
+    await Promise.all(subs.map((s) => webpush.sendNotification(s, payload).then(() => { sent++; }).catch(() => {})));
+    if (sent) return res.json({ ok: true, pushed: true });
+  }
+  // No push device on file — hand CS a WhatsApp link as the fallback so the
+  // client still hears back, just not through the in-app channel.
+  const phone = String(c.data?.profile?.phone || c.phone || "").replace(/\D/g, "").replace(/^1/, "");
+  const wa = phone.length === 10 ? `https://wa.me/1${phone}?text=${encodeURIComponent("¡Listo! Ya quedó el cambio que pediste 🙌 Revísalo y me dices.")}` : null;
+  res.json({ ok: true, pushed: false, waFallback: wa, error: wa ? undefined : "Sin teléfono ni notificaciones activas para este cliente" });
 });
 
 app.get("/cs", async (req, res) => {

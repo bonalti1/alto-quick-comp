@@ -6457,8 +6457,8 @@ app.get("/closer", async (req, res) => {
     ["Complete", 297, stripeLink],
   ].filter(([, , lnk]) => lnk);
   const wMsg = en
-    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
-    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website or your Instagram-bio link:\n${base}/w/alto-demo`
+    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const welcome = en
     ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
     : `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
@@ -6482,9 +6482,10 @@ app.get("/closer", async (req, res) => {
       ["03 · The problem", "“Quick question: how many sellers do you lose because they don't know their home already went up in value? … Most list with whoever shows them a number first. You don't lack contacts — you lack a system that brings sellers to you.”"],
       ["04 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME, type a real address. (wait for the wow — say nothing) That feeling? That's what your sellers will feel. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
       ["05 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
-      ["06 · Your website", "“And this is what YOUR site would look like — phone and computer, with that same valuator inside working for you 24/7. Everybody has a website; almost nobody has one that values homes and captures the seller's number by itself.”"],
-      ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
-      ["08 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
+      ["06 · Your social link", "“You don't even need a website for this part: this same link goes in your Instagram bio and on your Facebook page. (tap the link on the phone) Every follower who wonders what their house is worth taps it — and their name and number land in your app. Your social media finally has a job.”"],
+      ["07 · Your website", "“And this is what YOUR site would look like — phone and computer, with that same valuator inside working for you 24/7. Everybody has a website; almost nobody has one that values homes and captures the seller's number by itself.”"],
+      ["08 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
+      ["09 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
     ],
     keysT: "⌨️ Secret shortcuts in the presentation (/demo)",
     keys: ["<b>Double-click the counter</b> or press <b>C</b> → closer panel", "<b>P</b> payment link · <b>B</b> welcome · <b>D</b> demo message · <b>O</b> open checkout"],
@@ -6522,9 +6523,10 @@ app.get("/closer", async (req, res) => {
       ["03 · El problema", "“Te pregunto algo: ¿cuántos vendedores pierdes porque no saben que su casa ya subió de valor? … La mayoría lista con el primero que les enseña un número. No te faltan contactos — te falta un sistema que te traiga vendedores.”"],
       ["04 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA, pon una dirección real. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
       ["05 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
-      ["06 · Tu página", "“Y así se vería TU página — en celular y computadora, con ese mismo valuador adentro trabajando 24/7. Todos tienen página; casi nadie tiene una que valúe casas y capture el teléfono del vendedor solita.”"],
-      ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
-      ["08 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
+      ["06 · Tu link en redes", "“Para esta parte ni necesitas página: este mismo link va en tu bio de Instagram y en tu página de Facebook. (toca el link en el teléfono) Cada seguidor que se pregunta cuánto vale su casa lo toca — y su nombre y teléfono llegan a tu app. Tus redes por fin tienen un trabajo.”"],
+      ["07 · Tu página", "“Y así se vería TU página — en celular y computadora, con ese mismo valuador adentro trabajando 24/7. Todos tienen página; casi nadie tiene una que valúe casas y capture el teléfono del vendedor solita.”"],
+      ["08 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
+      ["09 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
     ],
     keysT: "⌨️ Atajos secretos en la presentación (/demo)",
     keys: ["<b>Doble clic en el contador</b> o tecla <b>C</b> → panel del closer", "<b>P</b> link de pago · <b>B</b> bienvenida · <b>D</b> mensaje demo · <b>O</b> abrir el pago"],
@@ -6831,7 +6833,7 @@ app.get("/cierre", (req, res) => {
   if (!closerOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Cierre (privado)", "/cierre", !!req.query.key));
   const base = canonBase(req);
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
-  const wMsg = `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+  const wMsg = `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const welcome = `¡Felicidades y bienvenido a Quick Comp! 🎉 Toca este link desde tu teléfono y guárdalo — es tu llave personal a tu app: [PEGA AQUÍ SU LINK DE ACCESO]. Hoy mismo puedes valuar casas y armar CMAs. Nos vemos en tu llamada de onboarding 💪`;
   const esc = (s) => String(s).replace(/</g, "&lt;");
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6896,8 +6898,8 @@ app.get("/demo", (req, res) => {
   // The public deck stays capped on purpose — that cap is a conversion moment.
   const appPass = DEMO_PASS && closerOk(req) ? `&pass=${encodeURIComponent(DEMO_PASS)}` : "";
   const wMsg = en
-    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website:\n${base}/w/alto-demo`
-    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web:\n${base}/w/alto-demo`;
+    ? `Check this out 👀 — type your address and see what your customers would see on YOUR website or your Instagram-bio link:\n${base}/w/alto-demo`
+    : `Mira esto 👀 — escribe tu dirección y ve lo que tus clientes verían en TU página web o en tu link de Instagram:\n${base}/w/alto-demo`;
   const stripeLink = process.env.STRIPE_PAYMENT_LINK || "";
   const welcome = en
     ? `Congratulations and welcome to Quick Comp! 🎉 Tap this link from your phone and save it — it's your personal key to your app: [PASTE THEIR ACCESS LINK HERE]. You can value homes and build CMAs starting today. See you at your onboarding call 💪`
@@ -6913,7 +6915,7 @@ app.get("/demo", (req, res) => {
   const L = en ? {
     title: "Quick Comp · Presentation", presentation: "PRESENTATION", forClients: "Client presentation",
     menu: "☰ Menu", prev: "‹ Previous", next: "Next ›", langBtn: "🇲🇽 Español", langHref: "?lang=es",
-    t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin",
+    t1: "Welcome", t2: "Who we are", t3: "The problem", t4: "Your website", t5: "Your app", t6: "Your AI secretary", t7: "Your investment", t8: "Let's begin", ts: "Your social link",
     k1: "QUICK COMP · MARKETING & TECHNOLOGY FOR REALTORS", h1a: "More sellers,", h1b: "without chasing them.",
     b1: "Thanks for booking. In the next 10 minutes you'll see a home valued from real comparable sales — and how your website can bring you sellers 24 hours a day.",
     g1: "10 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
@@ -6927,24 +6929,29 @@ app.get("/demo", (req, res) => {
     p3c: 'A pretty website with no system behind it is <b style="color:#fff">an expensive business card</b>.',
     p3d: 'Big companies already answer with artificial intelligence — in seconds, around the clock. <b style="color:#fff">The question isn\'t whether this is coming. It\'s which side you\'ll be on.</b>',
     c3: "You work hard. What you're missing is a system that works when you can't.",
-    k4: "06 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
+    k4: "07 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
     b4: "It looks excellent on the phone and on the computer — with your logo, your colors and the home-value tool inside. This one is a sample; yours is delivered in 10–14 days. Both are live: scroll, and type YOUR address into the valuator.",
     k5: "04 · YOUR APP", h5a: "Your office,", h5b: "in your pocket.",
     p5a: "Value any home wherever you are: address or GPS, from real comparable sales", p5b: "Every lead hits your phone with a WhatsApp button and the message pre-written", p5c: "An AI texts your lead instantly and books the appointment for you", p5d: "Professional CMA reports with your brand",
     live5: '🔴 <b style="color:#fff">The app on the right is LIVE</b> — explore it: tap VALUE A HOME, type a real address and value it right here, with the client.',
     k6: "05 · ARTIFICIAL INTELLIGENCE", h6a: "Your own secretary,", h6b: "who never sleeps.",
+    ks: "06 · YOUR LINK ON SOCIAL MEDIA", hsa: "One link in your bio,", hsb: "sellers from every post.",
+    bs: "The same home-value tool lives at your own link — put it in your Instagram bio, your Facebook page, your WhatsApp status. Every follower who wonders what their house is worth taps it, and becomes a seller lead in your app.",
+    psa: "Instagram bio, Facebook page, WhatsApp status — one link, everywhere", psb: "The homeowner taps, types their address and sees their number in seconds", psc: "Their name and phone land in your app — with WhatsApp ready", psd: "Every post you publish now has a job: bringing you listings",
+    lives: '🔴 <b style="color:#fff">The phone is LIVE</b> — tap the link in the bio, exactly like your followers would.',
+    igStats: ["posts", "followers", "following"], igBioName: "Casa Bella Realty", igBioLine: "Your trusted South Texas realtor 🏡", igLink: "🔗 whats-my-home-worth", igBack: "‹ Back to the profile",
     b6: "We all know artificial intelligence is here — what better way than starting now? Your own secretary answers the messages from customers landing on your website, at any hour of the day.",
     p6a: "Replies instantly — even at 11 at night", p6b: "Books the appointment for you. You just show up.", p6c: "You can read every conversation whenever you want", p6d: "Ready in 10–14 days — carrier registration of your number takes a few days",
     chHead: "🔴 LIVE DEMO — text it like you're the homeowner", chGreet: "Hi! 👋 I'm the assistant at Casa Bella Realty. How can I help you buy or sell a home?",
     chPh: "Type as the homeowner… (e.g., I want to sell my house)", chFoot: "This same AI will answer YOUR leads' texts", chRetry: "Give me one moment 🙏 (try again)",
-    k7: "07 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
+    k7: "08 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
     b7: "What this would cost separately (typical market prices):",
     s7a: "🌐 Professional website with your brand", s7b: "🏡 Home-value tool on your site", s7c: "🤖 AI secretary that texts and books", s7d: "📲 Values, CMAs & leads app", s7e: "🇺🇸 Domain, hosting & bilingual support",
     s7tot: "Separately", roi7: '💰 <b style="color:#fff">One commission is thousands of dollars.</b> One single extra deal pays for your whole year.',
     pk7: "WITH QUICK COMP · PICK YOUR PLAN", mo: "/mo", setup7: "No setup fees — just the monthly.",
     tiers7: [["PRO — just the app", 67, 0], ["WIDGET — on the site you already have", 197, 1], ["COMPLETE — website + everything", 297, 0]],
     pr7a: "✓ No long contracts", pr7b: "✓ Cancel anytime", pr7c: "✓ Your domain is YOURS — by contract",
-    k8: "08 · LET'S BEGIN", h8a: "Let's start", h8b: "today.",
+    k8: "09 · LET'S BEGIN", h8a: "Let's start", h8b: "today.",
     b8: "Getting started is this easy — everything begins on this very call:",
     d8a: "STEP 1", t8a: "Secure your spot", x8a: "We send a secure payment link to your WhatsApp. You pay by card, protected by Stripe 🔒.",
     d8b: "STEP 2 · TODAY", t8b: "Your app, today", x8b: "Your access arrives by WhatsApp before we hang up. You're valuing homes today.",
@@ -6954,7 +6961,7 @@ app.get("/demo", (req, res) => {
   } : {
     title: "Quick Comp · Presentación", presentation: "PRESENTACIÓN", forClients: "Presentación para clientes",
     menu: "☰ Menú", prev: "‹ Anterior", next: "Siguiente ›", langBtn: "🇺🇸 English", langHref: "?lang=en",
-    t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos",
+    t1: "Bienvenida", t2: "Quiénes somos", t3: "El problema", t4: "Tu página", t5: "Tu app", t6: "Tu secretaria IA", t7: "Tu inversión", t8: "Empecemos", ts: "Tu link en redes",
     k1: "QUICK COMP · MARKETING Y TECNOLOGÍA PARA AGENTES", h1a: "Más vendedores,", h1b: "sin perseguirlos.",
     b1: "Gracias por agendar. En los próximos 10 minutos vas a ver una casa valuada con ventas comparables reales — y cómo tu página puede traerte vendedores las 24 horas.",
     g1: "10 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
@@ -6968,24 +6975,29 @@ app.get("/demo", (req, res) => {
     p3c: 'Una página bonita sin un sistema detrás es <b style="color:#fff">una tarjeta de presentación cara</b>.',
     p3d: 'Las compañías grandes ya responden con inteligencia artificial — en segundos, a toda hora. <b style="color:#fff">La pregunta no es si esto llega. Es de qué lado vas a estar.</b>',
     c3: "Trabajas duro. Lo que te falta es un sistema que trabaje cuando tú no puedes.",
-    k4: "06 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
+    k4: "07 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
     b4: "Se mira excelente en el celular y en la computadora — con tu logo, tus colores y el valuador adentro. Esta es de ejemplo; la tuya se entrega en 10–14 días. Las dos están vivas: haz scroll, y pon TU dirección en el valuador.",
     k5: "04 · TU APP", h5a: "Tu oficina,", h5b: "en tu bolsillo.",
     p5a: "Valúa cualquier casa donde estés: dirección o GPS, con ventas comparables reales", p5b: "Cada lead llega a tu teléfono con botón de WhatsApp y el mensaje ya escrito", p5c: "Una IA le textea a tu lead al momento y agenda la cita por ti", p5d: "Reportes CMA profesionales con tu marca",
     live5: '🔴 <b style="color:#fff">La app de la derecha está EN VIVO</b> — explórala: toca VALUAR CASA, pon una dirección real y valúala aquí mismo, con el cliente.',
     k6: "05 · INTELIGENCIA ARTIFICIAL", h6a: "Tu propia secretaria,", h6b: "que nunca duerme.",
+    ks: "06 · TU LINK EN REDES", hsa: "Un link en tu bio,", hsb: "vendedores de cada post.",
+    bs: "El mismo valuador vive en tu propio link — ponlo en tu bio de Instagram, tu página de Facebook, tu estado de WhatsApp. Cada seguidor que se pregunta cuánto vale su casa lo toca, y se vuelve un seller lead en tu app.",
+    psa: "Bio de Instagram, página de Facebook, estado de WhatsApp — un link, en todas partes", psb: "El dueño lo toca, pone su dirección y ve su número en segundos", psc: "Su nombre y teléfono llegan a tu app — con WhatsApp listo", psd: "Cada post que publicas ahora tiene un trabajo: traerte listings",
+    lives: '🔴 <b style="color:#fff">El teléfono está VIVO</b> — toca el link de la bio, igual que lo harían tus seguidores.',
+    igStats: ["posts", "seguidores", "seguidos"], igBioName: "Casa Bella Realty", igBioLine: "Tu realtor de confianza en el sur de Texas 🏡", igLink: "🔗 cuanto-vale-mi-casa", igBack: "‹ Volver al perfil",
     b6: "Todos sabemos que la inteligencia artificial ya viene — ¿qué mejor que empezar desde ahora? Tu propia secretaria contesta los mensajes de los clientes que llegan de tu página, a cualquier hora del día.",
     p6a: "Contesta al momento — aunque sean las 11 de la noche", p6b: "Agenda la cita por ti. Tú solo llegas a hacerla.", p6c: "Puedes ver cada conversación cuando quieras", p6d: "Lista en 10–14 días — el registro de tu número con las telefónicas tarda unos días",
     chHead: "🔴 DEMO EN VIVO — escríbele como si fueras el dueño", chGreet: "¡Hola! 👋 Soy la asistente de Casa Bella Realty. ¿Le puedo ayudar a comprar o vender una casa?",
     chPh: "Escribe como dueño… (ej. quiero vender mi casa)", chFoot: "Esta misma IA contestará los textos de TUS leads", chRetry: "Dame un momentito y te contesto 🙏 (intenta de nuevo)",
-    k7: "07 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
+    k7: "08 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
     b7: "Lo que esto costaría por separado (precios típicos del mercado):",
     s7a: "🌐 Página web profesional con tu marca", s7b: "🏡 Valuador de casas en tu página", s7c: "🤖 Secretaria IA que textea y agenda", s7d: "📲 App de valores, CMAs y leads", s7e: "🇺🇸 Dominio, hosting y soporte en español",
     s7tot: "Por separado", roi7: '💰 <b style="color:#fff">Una comisión son miles de dólares.</b> Un solo cierre extra paga tu año entero.',
     pk7: "CON QUICK COMP · ELIGE TU PLAN", mo: "/mes", setup7: "Sin costo de inicio — solo la mensualidad.",
     tiers7: [["PRO — solo la app", 67, 0], ["WIDGET — en la página que ya tienes", 197, 1], ["COMPLETE — página web + todo", 297, 0]],
     pr7a: "✓ Sin contratos largos", pr7b: "✓ Cancelas cuando quieras", pr7c: "✓ Tu dominio es TUYO — por contrato",
-    k8: "08 · EMPECEMOS", h8a: "Empecemos", h8b: "hoy mismo.",
+    k8: "09 · EMPECEMOS", h8a: "Empecemos", h8b: "hoy mismo.",
     b8: "Así de fácil es arrancar — todo empieza en esta misma llamada:",
     d8a: "PASO 1", t8a: "Asegura tu lugar", x8a: "Te mandamos un link de pago seguro a tu WhatsApp. Pagas con tarjeta, protegido por Stripe 🔒.",
     d8b: "PASO 2 · HOY", t8b: "Tu app, hoy mismo", x8b: "Tu acceso te llega por WhatsApp antes de colgar. Hoy mismo ya estás valuando casas.",
@@ -7123,6 +7135,21 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 #ktoast{display:none;position:fixed;left:18px;bottom:70px;z-index:80;background:#34A853;color:#fff;border-radius:99px;width:34px;height:34px;align-items:center;justify-content:center;font-weight:800}
 #ktoast.on{display:flex}
 .ct{cursor:default;user-select:none}
+.inotch{pointer-events:none} /* decorative — must never swallow taps meant for the screen under it */
+.ig{background:#fff;color:#101B30;height:100%;overflow-y:auto;font-size:12px}
+.ig-top{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:14px;border-bottom:1px solid #EFEFEF}
+.ig-head{display:flex;align-items:center;gap:14px;padding:14px}
+.ig-av{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#C9973A,#15244C);display:flex;align-items:center;justify-content:center;font-size:28px;flex-shrink:0;border:2.5px solid #E1306C}
+.ig-stats{display:flex;flex:1;justify-content:space-around;text-align:center}
+.ig-stats b{display:block;font-size:15px}
+.ig-stats span{color:#67718A;font-size:11px}
+.ig-bio{padding:0 14px 12px;line-height:1.55}
+.ig-bio a{color:#1B6FB8;font-weight:800;cursor:pointer;display:inline-block;margin-top:4px;background:#EAF2FB;border-radius:8px;padding:6px 10px}
+.ig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px}
+.ig-grid div{aspect-ratio:1;background:linear-gradient(135deg,#F0F2F6,#DDE3EE);display:flex;align-items:center;justify-content:center;font-size:26px}
+.ig-wrap{height:100%;display:none;flex-direction:column;background:#fff}
+.ig-back{background:#101B30;color:#fff;border:none;padding:9px;font-weight:800;font-size:12px;cursor:pointer;flex-shrink:0}
+.ig-wrap iframe{border:0;width:100%;flex:1}
 </style></head><body>
 <a class="langpill" href="${L.langHref}">${L.langBtn}</a>
 <div class="layout">
@@ -7243,6 +7270,46 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
   </div>
 </section>
 
+<section class="slide" data-t="${L.ts}">
+  <div class="s-veil"></div>
+  <div class="s-in" style="max-width:1120px">
+    <p class="kick">${L.ks}</p>
+    <h1>${L.hsa}<br><em>${L.hsb}</em></h1>
+    <div class="rule"></div>
+    <div class="duo">
+      <div>
+        <p class="body">${L.bs}</p>
+        <ul class="pts">
+          <li><b>📸</b><span>${L.psa}</span></li>
+          <li><b>🏡</b><span>${L.psb}</span></li>
+          <li><b>📥</b><span>${L.psc}</span></li>
+          <li><b>🔁</b><span>${L.psd}</span></li>
+        </ul>
+        <p class="body" style="margin-top:22px;font-size:14px">${L.lives}</p>
+      </div>
+      <div class="iphone big"><div class="inotch"></div><div class="mscr">
+        <div class="ig" id="igmock">
+          <div class="ig-top"><span>‹</span><b>casabella.realty</b><span>⋯</span></div>
+          <div class="ig-head">
+            <div class="ig-av">🏡</div>
+            <div class="ig-stats">
+              <div><b>212</b><span>${L.igStats[0]}</span></div>
+              <div><b>3,481</b><span>${L.igStats[1]}</span></div>
+              <div><b>512</b><span>${L.igStats[2]}</span></div>
+            </div>
+          </div>
+          <div class="ig-bio"><b>${L.igBioName}</b><br>${L.igBioLine}<br><a onclick="igGo()">${L.igLink}</a></div>
+          <div class="ig-grid">${["🏠", "🌇", "🔑", "🏡", "🌳", "📸", "🛋️", "🏘️", "🌅"].map((e) => `<div>${e}</div>`).join("")}</div>
+        </div>
+        <div class="ig-wrap" id="igwrap">
+          <button class="ig-back" onclick="igBack()">${L.igBack}</button>
+          <iframe id="igfr" data-src="/w/alto-demo" title="Widget"></iframe>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
 <section class="slide" data-t="${L.t4}">
   <div class="s-veil"></div>
   <div class="s-in" style="max-width:1180px">
@@ -7308,7 +7375,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 </div>
 <div class="bbar">
   <div class="pn"><button class="prev" onclick="go(-1)">${L.prev}</button><button class="next" onclick="go(1)">${L.next}</button></div>
-  <span class="ct" id="ct">1 / 8</span>
+  <span class="ct" id="ct">1 / 9</span>
 </div>
 </main>
 </div>
@@ -7374,6 +7441,16 @@ function sendChat(){
       else{addBub('me',${JSON.stringify(en ? "Give me one moment 🙏 (try again)" : "Dame un momentito y te contesto 🙏 (intenta de nuevo)")})}
     })
     .catch(function(){ty.remove();chatBusy=false;addBub('me',${JSON.stringify(en ? "Give me one moment 🙏 (try again)" : "Dame un momentito y te contesto 🙏 (intenta de nuevo)")})});
+}
+/* Instagram-bio demo phone: profile → tap the bio link → the live widget */
+function igGo(){
+  document.getElementById('igmock').style.display='none';
+  document.getElementById('igwrap').style.display='flex';
+  var f=document.getElementById('igfr');if(!f.src)f.src=f.dataset.src;
+}
+function igBack(){
+  document.getElementById('igwrap').style.display='none';
+  document.getElementById('igmock').style.display='block';
 }
 document.addEventListener('keydown',function(e){if(e.key==='ArrowRight')go(1);if(e.key==='ArrowLeft')go(-1)});
 show(parseInt(location.hash.slice(1))-1||0);

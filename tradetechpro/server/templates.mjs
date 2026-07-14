@@ -53,7 +53,7 @@ const STR = {
   es: {
     metaDesc: (biz, city) => `${biz} — bienes raíces${city ? " en " + city : ""}. Conoce el valor de tu casa en 60 segundos, con ventas reales cercanas.`,
     kick: "BIENES RAÍCES", years: "años de experiencia", dedication: "dedicación", both: "hablamos los dos",
-    madeWith: "Página hecha con ⚡ Quick Comp", lic: "Lic.",
+    madeWith: "Página hecha con ⚡ Quick Comp", lic: "Lic.", zones: "Zonas que servimos",
     call: "Llámanos", callShort: "📞 Llámanos",
     heroCta: "VALÚA TU CASA EN 60 SEGUNDOS",
     trustLicensed: "Agente licenciado", trustLocal: "Agente local", trustComps: "Ventas reales comparables",
@@ -80,7 +80,7 @@ const STR = {
   en: {
     metaDesc: (biz, city) => `${biz} — real estate${city ? " in " + city : ""}. See your home's value in 60 seconds, from real nearby sales.`,
     kick: "REAL ESTATE", years: "years of experience", dedication: "dedication", both: "English & Español",
-    madeWith: "Site made with ⚡ Quick Comp", lic: "Lic.",
+    madeWith: "Site made with ⚡ Quick Comp", lic: "Lic.", zones: "Areas we serve",
     call: "Call us", callShort: "📞 Call us",
     heroCta: "VALUE YOUR HOME IN 60 SECONDS",
     trustLicensed: "Licensed agent", trustLocal: "Local agent", trustComps: "Real comparable sales",
@@ -108,10 +108,14 @@ const STR = {
 
 /* Shared pieces */
 function headBase(d, css, L) {
+  // City landing pages (/zona/<city>) carry the city in title/meta and a
+  // canonical of their own; the home page canonicalizes to the site root.
+  const seoCity = d.pageCity || d.city;
+  const canon = d.canonical ? `\n<link rel="canonical" href="${esc(d.canonical + (d.pagePath || ""))}">` : "";
   return `<!doctype html><html lang="${d.lang}"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(d.biz)}${d.city ? " · " + esc(d.city) : ""}</title>
-<meta name="description" content="${esc(L.metaDesc(d.biz, d.city))}">
+<title>${esc(d.biz)}${seoCity ? " · " + esc(seoCity) : ""}</title>
+<meta name="description" content="${esc(L.metaDesc(d.biz, seoCity))}">${canon}
 <style>${css}</style></head><body>`;
 }
 
@@ -125,8 +129,14 @@ function backAltoHtml(opts) {
   return `<a style="position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:50;background:#15244C;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:13px 22px;border-radius:99px;box-shadow:0 14px 36px rgba(16,27,48,.5);font-family:Inter,Arial,sans-serif;white-space:nowrap" href="/ventas#precio">← Volver a <span style="color:#C9973A">QUICK COMP</span></a>`;
 }
 
+const zSlug = (x) => String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 function footerBits(d, L) {
-  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · ${L.lic} ${esc(d.license)}` : ""}<br>${L.madeWith}`;
+  // City-page links in the footer — internal links Google follows to index
+  // every /zona page (hidden for demo/sample renders via zonaLinks:false).
+  const zones = Array.isArray(d.zonaCities) && d.zonaCities.length > 1 && d.zonaLinks !== false
+    ? `<br><span style="opacity:.85">${L.zones}: ${d.zonaCities.map((c) => `<a href="${esc((d.zonaBase || "") + "/zona/" + zSlug(c))}" style="color:inherit">${esc(c)}</a>`).join(" · ")}</span>`
+    : "";
+  return `<b>${esc(d.biz)}</b>${d.city ? ` · ${esc(d.city)}` : ""}${d.license ? ` · ${L.lic} ${esc(d.license)}` : ""}${zones}<br>${L.madeWith}`;
 }
 
 const statsCells = (d, L) => [

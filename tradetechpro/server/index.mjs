@@ -243,16 +243,41 @@ function reqHost(req) {
 app.use(async (req, res, next) => {
   const h = reqHost(req);
   if (OUR_HOSTS.has(h) || h.endsWith(".onrender.com")) return next();
-  // only take over real page navigations; let assets/api/widget pass through
-  if (req.method !== "GET" || (req.path !== "/" && req.path !== "/index.html")) return next();
+  // Only take over site page navigations (home, SEO files, city pages);
+  // assets, /api and /w pass straight through.
+  const p = req.path;
+  const wants = p === "/" || p === "/index.html" || p === "/sitemap.xml" || p === "/robots.txt" || /^\/zona\/[a-z0-9-]{1,60}$/.test(p);
+  if (req.method !== "GET" || !wants) return next();
   try {
     let slug = null;
     if (ROOT_DOMAIN && h.endsWith(`.${ROOT_DOMAIN}`)) slug = h.slice(0, -(ROOT_DOMAIN.length + 1)); // <slug>.ROOT_DOMAIN
     else { const c = await db.getContractorByDomain(h); slug = c?.slug || null; }
-    if (slug) { req.url = "/site/" + encodeURIComponent(slug); }
+    if (slug) {
+      const s = encodeURIComponent(slug);
+      if (p === "/" || p === "/index.html") req.url = `/site/${s}`;
+      else req.url = `/site/${s}${p}`; // /sitemap.xml, /robots.txt, /zona/<city>
+    }
   } catch (e) { console.error("host routing:", e.message); }
   next();
 });
+
+/* ── Site SEO helpers (ALTO pattern) ──
+ * A client's "area" field ("Starr, Hidalgo, Zapata") becomes per-city landing
+ * pages (/zona/starr), a sitemap and robots.txt — how client sites get found. */
+const areaCities = (area) => String(area || "").split(/[,·;]+/).map((x) => x.trim()).filter((x) => x && x.length <= 40).slice(0, 12);
+const citySlug = (x) => String(x).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+// Where this site canonically lives: the client's own domain when they have
+// one, their <slug>.ROOT_DOMAIN when that's how they arrived, else our
+// /site/<slug> path on the current host.
+function canonicalOf(c, req) {
+  const site = c.data?.site || {};
+  if (site.domain) return `https://${site.domain}`;
+  // keep the port (localhost:8787 in dev) — reqHost() strips it for matching
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "localhost").split(",")[0].trim().toLowerCase();
+  const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  if (ROOT_DOMAIN && host === `${c.slug}.${ROOT_DOMAIN}`) return `https://${host}`;
+  return `${proto}://${host}/site/${c.slug}`;
+}
 
 // Serve the built app (run `npm run build` first) so one process can host
 // everything in production; in dev, Vite serves the app and proxies /api here.
@@ -3910,11 +3935,18 @@ document.querySelectorAll('.fade').forEach(function(el){io.observe(el)});
 /* ── Client websites (the factory's output) ──
  * Rendered from the client's data card through template 1/2/3.
  * No code per client — improve a template, every site improves. */
-function siteDataOf(c) {
+function siteDataOf(c, req = null, extra = {}) {
   const p = c.data?.profile || {};
   const site = c.data?.site || {};
+  const canonical = req ? canonicalOf(c, req) : "";
+  // zonaBase: path prefix for city links ("" when the site lives at a domain
+  // root, "/site/<slug>" when it lives on our host)
+  const zonaBase = canonical.replace(/^https?:\/\/[^/]+/, "");
   return {
     slug: c.slug,
+    canonical,
+    zonaBase,
+    zonaCities: areaCities(site.area),
     lang: site.lang || p.lang || "es",
     biz: p.biz || c.name,
     phone: String(p.phone || c.phone || "").replace(/\D/g, "").replace(/^1/, ""),
@@ -3932,8 +3964,44 @@ function siteDataOf(c) {
     diff: site.diff || "",
     photos: Array.isArray(site.photos) ? site.photos : [],
     ...(Array.isArray(site.services) && site.services.length ? { services: site.services } : {}),
+    ...extra,
   };
 }
+
+/* ── Client-site SEO endpoints — per-city pages, sitemap, robots ── */
+app.get("/site/:slug/zona/:city", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).send("Not found");
+  const zPub = c.data?.site?.published === true || (req.query.preview != null && (closerOk(req) || csOk(req)));
+  if (c.data?.status === "paused" || c.data?.payStatus === "pending" || !zPub) {
+    return res.redirect(`/site/${encodeURIComponent(c.slug)}`);
+  }
+  const cities = areaCities(c.data?.site?.area);
+  const city = cities.find((x) => citySlug(x) === String(req.params.city));
+  if (!city) return res.redirect(`/site/${encodeURIComponent(c.slug)}`);
+  // The city page IS the site, retargeted: title/meta/kicker carry the city,
+  // and the canonical points at its own /zona URL.
+  res.send(renderSite(siteDataOf(c, req, { pageCity: city, city, pagePath: `/zona/${citySlug(city)}` })));
+});
+
+app.get("/site/:slug/sitemap.xml", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c || c.data?.site?.published !== true || c.data?.status === "paused") return res.status(404).send("Not found");
+  const d = siteDataOf(c, req);
+  const xesc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const urls = [d.canonical, ...areaCities(d.area).map((x) => `${d.canonical}/zona/${citySlug(x)}`)];
+  res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url><loc>${xesc(u)}</loc></url>`).join("\n")}
+</urlset>`);
+});
+
+app.get("/site/:slug/robots.txt", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).send("Not found");
+  const d = siteDataOf(c, req);
+  res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: ${d.canonical}/sitemap.xml\n`);
+});
 
 app.get("/site/:slug", async (req, res) => {
   const c = await db.getContractorBySlug(String(req.params.slug));
@@ -3998,7 +4066,7 @@ ${cLogo ? `<img class="logo" src="${cLogo}" alt="${cBiz}">` : `<div class="biz">
   }
   // Staff preview carries testMode into the chat bubble: same bot, same
   // wording, but no real lead and no push to the real agent.
-  res.send(renderSite({ ...siteDataOf(c), testMode: preview }));
+  res.send(renderSite(siteDataOf(c, req, { testMode: preview })));
 });
 // call so the client picks their look). ?embed=1 hides the demo chrome.
 app.get("/plantilla/:n", (req, res) => {

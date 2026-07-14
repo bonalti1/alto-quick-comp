@@ -1782,6 +1782,15 @@ export default function TradeTechPro() {
                   </div>
                 ))}
               </div>
+              {/* Driving directions — Maps uses the realtor's live location, so
+                  distance/ETA/traffic come free and nothing is billed to us */}
+              {(subj.address || R.addr || (sLat != null && sLng != null)) && (
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(subj.address || R.addr || `${sLat},${sLng}`)}&travelmode=driving`}
+                  target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 mt-3 active:translate-y-px transition-transform"
+                  style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>
+                  🧭 {lang === "es" ? "Cómo llegar — distancia y ruta" : "Directions — distance & route"}
+                </a>
+              )}
             </div>
           </div>
 

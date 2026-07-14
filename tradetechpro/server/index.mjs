@@ -2531,23 +2531,90 @@ app.post("/api/track", (req, res) => {
 
 /* Live AI-secretary demo for the sales presentation: the prospect chats
  * with the same AI that will answer their own customers' texts. */
+/* Site chat (ALTO pattern): every client site's floating bubble talks here.
+ * With a live client slug the bot answers AS that realtor's business, using
+ * ONLY staff-curated botFacts as extra truth — and a phone number typed in
+ * chat becomes a real lead (saved + GHL forward + push buzz). Without a live
+ * slug it stays the Casa Bella sales-demo persona the deck uses. */
 app.post("/api/widget/chat", async (req, res) => {
   const msgs = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
   if (!msgs.length) return res.status(400).json({ error: "messages required" });
   const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
   if (overQuota(`chat:${ip}`, 40) || overQuota("chat:all", 500)) return res.status(429).json({ error: "quota" });
-  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key.", source: "demo" });
+  const slug = String(req.body?.slug || "").slice(0, 60);
+  const demoSlug = slug === "alto-demo" || slug === "alto-ventas"; // sales personas — never create real leads
+  const c = slug && !demoSlug ? await db.getContractorBySlug(slug).catch(() => null) : null;
+  const live = c && c.data?.status !== "paused" ? c : null;
+
+  // Staff "Probar el chat" (?preview=1) marks every message test=true —
+  // same bot, same wording, but NO real lead, NO push to the real agent.
+  const testMode = req.body?.test === true;
+
+  // Lead capture: only the NEWEST visitor message is scanned (history is
+  // re-sent every turn), and the client sets leadSent after the first catch.
+  let captured = false;
+  if (live && !req.body?.leadSent && !testMode) {
+    const lastUser = [...msgs].reverse().find((m) => m.role !== "assistant");
+    const userText = String(lastUser?.content || "");
+    const m = userText.match(/\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+    const digits = m ? m[0].replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "") : "";
+    if (digits.length === 10) {
+      // Grab the name when they introduce themselves ("soy Pedro García…")
+      let name = "";
+      const nm = userText.match(/(?:me llamo|mi nombre es|soy|my name is|i am|i'm|this is)[\s:]+([a-zA-ZÀ-ſ]+(?:\s+[a-zA-ZÀ-ſ]+)?)/i);
+      if (nm && !/^(de|del|la|el|un|una|cliente|yo|the|a)$/i.test(nm[1].split(/\s/)[0])) name = nm[1].slice(0, 40);
+      try {
+        const convo = msgs.filter((x) => x.role !== "assistant").map((x) => String(x.content || "").slice(0, 200)).join(" · ").slice(0, 600);
+        const id = await db.addLead(live.id, { name, phone: digits, address: "", info: { src: "chat", chat: convo } });
+        forwardLead(live, { id, name, phone: digits, src: "chat" });
+        notifyLead(live, { name: name || "💬 Chat de tu página", phone: digits }).catch(() => {});
+        captured = true;
+      } catch (e) { console.error("chat lead failed:", e.message); }
+    }
+  }
+
+  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key.", source: "demo", captured });
   try {
     const inEnglish = req.body?.lang === "en";
+    const tone = `Responde SIEMPRE en ${inEnglish ? "inglés" : "español"}, estilo mensaje de texto: cálido, profesional, máximo 45 palabras, sin markdown.`;
+    // The one true story the bot tells: leaving a phone number notifies the
+    // realtor's phone INSTANTLY (real push). It captures the lead — it does
+    // NOT manage a calendar, so it never invents appointment slots.
+    const playbook = ` Tu meta #1: conseguir el NOMBRE y TELÉFONO del cliente. Si piden que alguien les llame o les urge: di que SÍ — pide su nombre y teléfono, y explica que al dejarlo le llega la notificación al agente EN ESE MOMENTO, directo a su celular. NO manejas calendario: nunca inventes horarios de cita ni prometas "mañana a las 10". Si piden cita, di que con gusto la confirman cuando le marquen de regreso. NUNCA des el valor de una casa ni precios: el valuador de esta misma página da el estimado en segundos, y el análisis completo (CMA) lo prepara el agente. Cumple Fair Housing: nunca afirmes nada sobre la calidad de vecindarios, escuelas o tipos de personas — si preguntan, di que el agente les comparte datos objetivos en su llamada. Lo que no sepas, di que el agente lo confirma cuando le llame — no inventes datos.`;
+    // Did the newest message include a phone number? (also true in the deck
+    // demo, where no lead is saved but the mock phone dings via postMessage)
+    const gaveContact = captured || /\d{3}[\s.\-()]*\d{3}[\s.\-]*\d{4}/.test(String([...msgs].reverse().find((x) => x.role !== "assistant")?.content || ""));
+    const confirmLine = " El cliente ACABA de dejar su teléfono: dale las gracias por su nombre y número, y confirma que EN ESTE MOMENTO le llegó la notificación al agente a su celular y que le marcan de regreso muy pronto.";
+    let system;
+    if (live) {
+      const p = live.data?.profile || {}, st = live.data?.site || {};
+      const clean = (s, n) => String(s || "").replace(/\s+/g, " ").slice(0, n);
+      const biz = clean(p.biz || live.name, 60) || "la agencia";
+      const svc = Array.isArray(st.services) ? st.services.map((s) => clean(Array.isArray(s) ? s[1] : s, 40)).filter(Boolean).slice(0, 9) : [];
+      system = `Eres el asistente virtual del sitio web de "${biz}", ${inEnglish ? "a real-estate agency" : "una agencia de bienes raíces"}${st.city ? ` en ${clean(st.city, 40)}` : ""}.`
+        + (st.years ? ` Llevan ${clean(st.years, 4)} años en el negocio.` : "")
+        + (svc.length ? ` Servicios: ${svc.join(", ")}.` : "")
+        + (st.warranty ? ` Promesa al cliente: ${clean(st.warranty, 80)}.` : "")
+        // Staff-curated facts (cs → "Entrenar bot"): the ONLY extra things
+        // the bot may assert — office/address, hours, languages, FAQs…
+        + (st.botFacts ? ` DATOS CONFIRMADOS del negocio — tu única fuente de verdad para dirección, horarios, idiomas, preguntas frecuentes y temas parecidos; lo que no esté aquí NO lo afirmes, di que lo confirman cuando le llamen: ${clean(st.botFacts, 1600)}.` : ` No tienes confirmados dirección de oficina ni horarios: si preguntan, di que el agente lo confirma cuando le llame.`)
+        + ` ${tone} Contesta dudas de comprar, vender o rentar casa (valor de su casa, cómo funciona vender, comisiones en general sin dar cifras, tiempos del proceso).`
+        + playbook
+        + (gaveContact ? confirmLine : "");
+    } else {
+      system = `Eres el asistente virtual de valuación de bienes raíces de "Casa Bella Realty" (la agente se llama María). Estás en una DEMO en vivo frente a un agente interesado en contratar este servicio. ${tone} Contesta dudas sobre el valor estimado de una propiedad (cómo se calcula con ventas comparables recientes — comps — cercanas, ajustadas por tamaño, recámaras/baños, año y recencia de venta). El estimado de la página es preliminar y se basa SOLO en ventas cerradas. NUNCA prometas un precio de venta garantizado ni des asesoría legal o financiera; un análisis completo (CMA) afina el número.` + playbook.replace(/el agente/g, "María")
+        + (gaveContact ? confirmLine.replace("al agente", "a María") : "")
+        + " Si preguntan algo fuera de tema, redirige con amabilidad hacia el valor de la propiedad.";
+    }
     const text = await aiChat({
       maxTokens: 180,
-      system: `Eres el asistente virtual de valuación de bienes raíces de un agente inmobiliario. Estás en una DEMO en vivo frente a un agente interesado en contratar este servicio. Responde SIEMPRE en ${inEnglish ? "inglés" : "español"}, estilo mensaje de texto: cálido, profesional, máximo 45 palabras, sin markdown. Tu meta: contestar dudas sobre el valor estimado de una propiedad (cómo se calcula con ventas comparables recientes — comps — cercanas, ajustadas por tamaño, recámaras/baños, año y recencia de venta) y AGENDAR una valuación detallada o consulta ofreciendo dos horarios concretos (por ejemplo "¿mañana 10am o 2pm?"). El estimado de la página es preliminar y se basa SOLO en ventas cerradas; las propiedades activas en el mercado son solo contexto, nunca el valor. NUNCA prometas un precio de venta garantizado ni des asesoría legal o financiera; un análisis de mercado completo (CMA) afina el número. Si confirman un horario, confirma con ✓ y menciona que les llegará un recordatorio. Si preguntan algo fuera de tema, redirige con amabilidad hacia el valor de la propiedad.`,
+      system,
       messages: msgs.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 400) })),
     });
-    res.json({ text, source: "live" });
+    res.json({ text, source: live ? "site" : "live", captured });
   } catch (e) {
     console.error("widget chat failed:", e.message);
-    res.status(502).json({ error: "ai_failed" });
+    res.status(502).json({ error: "ai_failed", captured });
   }
 });
 
@@ -3860,6 +3927,9 @@ function siteDataOf(c) {
     years: site.years || null,
     tagline: site.tagline || "",
     about: site.about || "",
+    area: site.area || "",
+    warranty: site.warranty || "",
+    diff: site.diff || "",
     photos: Array.isArray(site.photos) ? site.photos : [],
     ...(Array.isArray(site.services) && site.services.length ? { services: site.services } : {}),
   };
@@ -3926,7 +3996,9 @@ ${cLogo ? `<img class="logo" src="${cLogo}" alt="${cBiz}">` : `<div class="biz">
 <p class="ft">⚡ Hecho con Quick Comp</p>
 </div></body></html>`);
   }
-  res.send(renderSite(siteDataOf(c)));
+  // Staff preview carries testMode into the chat bubble: same bot, same
+  // wording, but no real lead and no push to the real agent.
+  res.send(renderSite({ ...siteDataOf(c), testMode: preview }));
 });
 // call so the client picks their look). ?embed=1 hides the demo chrome.
 app.get("/plantilla/:n", (req, res) => {

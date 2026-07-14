@@ -449,5 +449,76 @@ export function renderSite(data, opts = {}) {
   };
   if (!Array.isArray(d.services) || !d.services.length) d.services = DEFAULT_SERVICES[lang];
   const fn = TEMPLATES[String(d.template || "1")] || t1;
-  return fn(d, opts);
+  let html = fn(d, opts);
+  // Every client site ships with the AI chat assistant (the same engine the
+  // sales deck demos). It answers 24/7 and turns phone numbers into leads.
+  // Injected at the TOP of <body>: it's position:fixed anyway, and this way a
+  // slow stylesheet (fonts CDN) can never stall the parser before the widget.
+  if (d.slug && opts.chat !== false) html = html.replace(/(<body[^>]*>)/, `$1${chatHtml(d)}`);
+  return html;
+}
+
+/* Floating AI chat bubble injected into every client site (ALTO pattern,
+ * bilingual). Improve it here and every site upgrades at once. Talks to
+ * /api/widget/chat with the site's slug so the AI answers as THIS realtor. */
+export function chatHtml(d) {
+  const js = (v) => JSON.stringify(String(v || "")).replace(/</g, "\\u003c");
+  const en = d.lang === "en";
+  const T = en
+    ? { open: "Open chat", online: "🟢 Online — replies in seconds", ph: "Type your question…", send: "Send",
+        test: "🧪 TEST MODE — this chat creates no real leads and never notifies the agent",
+        hi: `Hi! 👋 I'm ${d.biz}'s assistant. Ask me anything about buying or selling your home — or leave your name and phone and we'll call you today.`,
+        retry: "Sorry, try again — or call us directly.", offline: "Offline — try again." }
+    : { open: "Abrir chat", online: "🟢 En línea — contesta en segundos", ph: "Escribe tu pregunta…", send: "Enviar",
+        test: "🧪 MODO PRUEBA — este chat no crea leads reales ni avisa al agente",
+        hi: `¡Hola! 👋 Soy el asistente de ${d.biz}. Pregúntame lo que sea de comprar o vender tu casa — o déjame tu nombre y teléfono y te llamamos hoy.`,
+        retry: "Perdón, intenta de nuevo — o llámanos directo.", offline: "Sin conexión — intenta de nuevo." };
+  return `<style>
+#apw-btn{position:fixed;right:16px;bottom:16px;z-index:70;width:58px;height:58px;border-radius:50%;border:none;background:${d.color};color:#fff;font-size:26px;cursor:pointer;box-shadow:0 10px 30px rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center}
+#apw-box{position:fixed;right:12px;bottom:84px;z-index:70;width:min(92vw,352px);background:#fff;border-radius:18px;box-shadow:0 24px 70px rgba(0,0,0,.35);display:none;flex-direction:column;overflow:hidden;font-family:Inter,Arial,sans-serif}
+#apw-box.on{display:flex}
+#apw-hd{background:${d.color};color:#fff;padding:13px 16px}
+#apw-hd b{font-size:15px;display:block}
+#apw-hd span{font-size:11.5px;opacity:.88;font-weight:600}
+#apw-test{background:#101B30;color:#C9973A;font-size:11px;font-weight:800;text-align:center;padding:6px 10px;letter-spacing:.3px}
+#apw-msgs{height:min(46vh,340px);overflow-y:auto;padding:14px 12px;display:flex;flex-direction:column;gap:8px;background:#F6F7FA}
+.apw-m{max-width:84%;padding:9px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+.apw-a{background:#fff;border:1px solid #E8EAF0;align-self:flex-start;border-bottom-left-radius:4px;color:#1A2233}
+.apw-u{background:${d.color};color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+#apw-in{display:flex;gap:8px;padding:10px;background:#fff;border-top:1px solid #EEF0F4}
+#apw-in input{flex:1;border:1.5px solid #E4E7EE;border-radius:11px;padding:10px 12px;font-size:14px;outline:none;font-family:inherit;min-width:0}
+#apw-in button{border:none;background:${d.color};color:#fff;border-radius:11px;padding:0 15px;font-size:16px;cursor:pointer}
+</style>
+<button id="apw-btn" aria-label="${T.open}">💬</button>
+<div id="apw-box" role="dialog" aria-label="Chat">
+  ${d.testMode ? `<div id="apw-test">${T.test}</div>` : ""}
+  <div id="apw-hd"><b>${esc(d.biz)}</b><span>${T.online}</span></div>
+  <div id="apw-msgs"></div>
+  <div id="apw-in"><input id="apw-t" placeholder="${T.ph}" maxlength="300"><button id="apw-s" aria-label="${T.send}">➤</button></div>
+</div>
+<script>(function(){
+// Embedded valuator announces a submitted lead (postMessage). When this site
+// is itself inside the sales deck, relay it up so the app mockup dings.
+window.addEventListener('message',function(e){var d=e.data;if(d&&d.alto==='lead'&&window.parent!==window){try{parent.postMessage(d,'*')}catch(err){}}});
+var slug=${js(d.slug)},lang=${js(d.lang)},hi=${js(T.hi)},retry=${js(T.retry)},offline=${js(T.offline)},hist=[],leadSent=false,busy=false,testMode=${d.testMode ? "true" : "false"};
+var box=document.getElementById('apw-box'),msgs=document.getElementById('apw-msgs'),inp=document.getElementById('apw-t');
+function add(role,text){var e=document.createElement('div');e.className='apw-m '+(role==='assistant'?'apw-a':'apw-u');e.textContent=text;msgs.appendChild(e);msgs.scrollTop=msgs.scrollHeight;return e;}
+document.getElementById('apw-btn').onclick=function(){box.classList.toggle('on');if(box.classList.contains('on')){if(!hist.length){hist.push({role:'assistant',content:hi});add('assistant',hi);}inp.focus();}};
+function send(){var t=inp.value.trim();if(!t||busy)return;busy=true;inp.value='';hist.push({role:'user',content:t});add('user',t);
+// Tell the embedding page (the sales deck) when a phone number lands, so its
+// app mockup can show the lead arriving live. No-op on a normal visit.
+var pm=t.match(/\\+?1?[\\s.\\-]?\\(?\\d{3}\\)?[\\s.\\-]?\\d{3}[\\s.\\-]?\\d{4}/);
+if(pm){var dg=pm[0].replace(/\\D/g,'').replace(/^1(?=\\d{10}$)/,'');if(dg.length===10){
+  var nm='';var nmm=t.match(/(?:me llamo|mi nombre es|soy|my name is|i am|i'm|this is)[\\s:]+([a-zA-Z\\u00c0-\\u017f]+(?:\\s+[a-zA-Z\\u00c0-\\u017f]+)?)/i);
+  if(nmm&&!/^(de|del|la|el|un|una|cliente|yo|the|a)$/i.test(nmm[1].split(/\\s/)[0]))nm=nmm[1].slice(0,40);
+  try{parent.postMessage({alto:'lead',phone:dg,name:nm,text:t},'*');}catch(e){}
+}}
+var w=add('assistant','\\u2026');
+fetch('/api/widget/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug,lang:lang,messages:hist.slice(-12),leadSent:leadSent,test:testMode})})
+.then(function(r){return r.json()}).then(function(j){var tx=j.text||retry;if(j.captured)leadSent=true;w.textContent=tx;hist.push({role:'assistant',content:tx});})
+.catch(function(){w.textContent=offline;}).then(function(){busy=false;msgs.scrollTop=msgs.scrollHeight;});}
+document.getElementById('apw-s').onclick=send;
+inp.addEventListener('keydown',function(e){if(e.key==='Enter')send();});
+if(/[?&]chat=(open|1)/.test(location.search)){setTimeout(function(){document.getElementById('apw-btn').click();},500);}
+})();</script>`;
 }

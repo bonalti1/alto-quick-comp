@@ -7578,6 +7578,201 @@ ${d.k === "est" && !d.paid ? `<div class="sec" style="font-size:12px;color:#6771
 </div></body></html>`);
 });
 
+/* ═════════ Quick Comp HEADQUARTERS (/hq) — the owner's private cockpit ═════════
+ * Portfolio of every product (live numbers for Quick Comp, manual cards for
+ * the others — ALTO, future launches), the mastermind idea board, and an AI
+ * thinking partner that knows the real numbers. Guarded by its OWN key
+ * (HQ_KEY) — no staff key opens it, not even ADMIN_KEY. Ported from ALTO. */
+const HQ_KEY = process.env.HQ_KEY || "";
+const hqOk = (req) => HQ_KEY && [req.query.key, req.body?.key, reqCookies(req).alto_hq].some((k) => safeEq(k, HQ_KEY));
+
+async function hqNumbers() {
+  const list = await db.listContractors();
+  const real = list.filter((c) => !["alto-demo", "alto-ventas"].includes(c.slug));
+  return {
+    quickcomp: {
+      clients: real.filter((c) => !(c.data && c.data.status === "paused")).length,
+      paying: real.filter((c) => (c.data?.payStatus || "") === "ok").length,
+      mrr: real.filter((c) => (c.data?.payStatus || "") === "ok").reduce((a, c) => a + PLANS[planOf(c)].price, 0),
+    },
+  };
+}
+const hqId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+// One endpoint mutates both stores: hq:portfolio (manual cards) + hq:ideas.
+app.post("/api/hq/save", async (req, res) => {
+  if (!hqOk(req)) return res.status(403).json({ error: "no" });
+  const { kind, action, item = {} } = req.body || {};
+  const key = kind === "card" ? "hq:portfolio" : kind === "idea" ? "hq:ideas" : null;
+  if (!key || !["add", "update", "del"].includes(action)) return res.status(400).json({ error: "bad request" });
+  const cur0 = await db.kvGet(key).catch(() => null);
+  let arr = Array.isArray(cur0) ? cur0 : [];
+  const S = (x, n) => String(x || "").slice(0, n);
+  if (action === "add") {
+    const it = kind === "card"
+      ? { id: hqId(), name: S(item.name, 60), clients: Math.max(0, parseInt(item.clients) || 0), mrr: Math.max(0, parseInt(item.mrr) || 0), note: S(item.note, 300) }
+      : { id: hqId(), lane: item.lane === "futuro" ? "futuro" : "mejora", title: S(item.title, 120), note: S(item.note, 600), stage: "idea", created_at: new Date().toISOString() };
+    if (kind === "card" ? !it.name : !it.title) return res.status(400).json({ error: "falta nombre" });
+    arr = [...arr, it].slice(-200);
+  } else if (action === "update") {
+    const STAGES = ["idea", "investigado", "planeado", "construyendo", "vivo"];
+    arr = arr.map((x) => x.id !== item.id ? x : {
+      ...x,
+      ...(item.name != null ? { name: S(item.name, 60) } : {}),
+      ...(item.title != null ? { title: S(item.title, 120) } : {}),
+      ...(item.note != null ? { note: S(item.note, 600) } : {}),
+      ...(item.clients != null ? { clients: Math.max(0, parseInt(item.clients) || 0) } : {}),
+      ...(item.mrr != null ? { mrr: Math.max(0, parseInt(item.mrr) || 0) } : {}),
+      ...(item.stage != null && STAGES.includes(item.stage) ? { stage: item.stage } : {}),
+    });
+  } else {
+    arr = arr.filter((x) => x.id !== item.id);
+  }
+  await db.kvSet(key, arr);
+  res.json({ ok: true });
+});
+
+// The thinking partner: brainstorms WITH the real portfolio in context.
+app.post("/api/hq/brain", async (req, res) => {
+  if (!hqOk(req)) return res.status(403).json({ error: "no" });
+  const q = String(req.body?.q || "").slice(0, 1200);
+  if (!q.trim()) return res.status(400).json({ error: "pregunta vacía" });
+  if (!aiLive) return res.json({ text: "(Demo) La IA se activa cuando el servidor tenga su API key." });
+  const [live, cards0, ideas0] = await Promise.all([
+    hqNumbers(),
+    db.kvGet("hq:portfolio").catch(() => null),
+    db.kvGet("hq:ideas").catch(() => null),
+  ]);
+  const cards = Array.isArray(cards0) ? cards0 : [];
+  const ideas = (Array.isArray(ideas0) ? ideas0 : []).map((i) => `[${i.lane}/${i.stage}] ${i.title}${i.note ? " — " + i.note.slice(0, 120) : ""}`);
+  try {
+    const text = await aiChat({
+      maxTokens: 700,
+      system: `Eres el socio estratégico personal de Rolando, dueño de Quick Comp: SaaS en inglés para realtors — comps/CMA instantáneos desde el teléfono + página web con widget de valuación que convierte dueños de casa en seller leads. Corre sobre el mismo motor de negocio que ALTO Pro (su otro producto, para contratistas hispanos): ventas + Stripe + onboarding + CS + GHL. Su modelo: 4 VAs por lanzamiento (closer, setter, onboarding, CS), un lanzamiento a la vez, anuncios en Meta. Piensa con él como un fundador experimentado: directo, números primero, sin humo. Cuando proponga ideas, evalúa contra: ¿usa el motor existente?, ¿mismo motion de ventas?, ¿tamaño del mercado de realtors?, ¿costo de APIs (RentCast/Google/IA)?, ¿carga para los VAs? Responde en español, máximo 250 palabras, con una recomendación clara al final.`,
+      messages: [{ role: "user", content: `MIS NÚMEROS HOY: ${JSON.stringify(live)}. OTROS PRODUCTOS (manual): ${JSON.stringify(cards)}. MI TABLERO DE IDEAS: ${JSON.stringify(ideas.slice(0, 40))}.\n\nQUIERO PENSAR ESTO: ${q}` }],
+    });
+    res.json({ text });
+  } catch (e) {
+    console.error("hq brain failed:", e.message);
+    res.status(502).json({ error: "ai_failed" });
+  }
+});
+
+app.get("/hq", async (req, res) => {
+  if (!HQ_KEY) return res.status(503).send("Set HQ_KEY env var to enable headquarters.");
+  if (req.query.logout != null) { clearKeyCookie(res, "alto_hq"); return res.redirect("/hq"); }
+  if (req.query.key && safeEq(req.query.key, HQ_KEY)) { setKeyCookie(res, "alto_hq", HQ_KEY); return res.redirect("/hq"); }
+  const hqIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (req.query.key && overQuota(`keyguess:${hqIp}`, 30)) return res.status(429).send("Demasiados intentos. Intenta más tarde.");
+  if (!hqOk(req)) return res.status(req.query.key ? 403 : 401).send(loginPage("Headquarters", "/hq", !!req.query.key));
+  const esc = (x) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const [live, cards0, ideas0] = await Promise.all([
+    hqNumbers(),
+    db.kvGet("hq:portfolio").catch(() => null),
+    db.kvGet("hq:ideas").catch(() => null),
+  ]);
+  const cards = Array.isArray(cards0) ? cards0 : [];
+  const ideas = Array.isArray(ideas0) ? ideas0 : [];
+  const STAGES = { idea: ["💭 Idea", "#8A93A5"], investigado: ["🔎 Investigado", "#1B6FB8"], planeado: ["📋 Planeado", "#D99E00"], construyendo: ["🔨 Construyendo", "#B3611B"], vivo: ["🟢 Vivo", "#1E7B3C"] };
+  const stageSel = (i) => `<select onchange="ideaUpd('${i.id}',{stage:this.value})" class="stg" style="color:${(STAGES[i.stage] || STAGES.idea)[1]}">${Object.entries(STAGES).map(([k, [lbl]]) => `<option value="${k}" ${i.stage === k ? "selected" : ""}>${lbl}</option>`).join("")}</select>`;
+  const ideaRow = (i) => `<div class="idea">
+    <div class="it"><b>${esc(i.title)}</b>${stageSel(i)}</div>
+    <div class="inote" onclick="ideaNote('${i.id}',this)">${i.note ? "📝 " + esc(i.note) : '<span style="color:#5A6478">📝 agregar notas…</span>'}</div>
+    <button class="x" onclick="if(confirm('¿Borrar esta idea?'))ideaDel('${i.id}')">✕</button>
+  </div>`;
+  const autoCard = (name, icon, n) => `<div class="pcard live">
+    <div class="pn">${icon} ${name} <span class="lv">EN VIVO</span></div>
+    <div class="big">$${n.mrr.toLocaleString("en-US")}<span class="mo">/mes</span></div>
+    <div class="ps">${n.paying} pagando · ${n.clients} activos</div>
+  </div>`;
+  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quick Comp · Headquarters</title><link rel="icon" href="/icon-192.png"><style>
+*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
+body{background:#0B1226;color:#fff;padding-bottom:60px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+header{padding:26px 0 18px;display:flex;align-items:center;justify-content:space-between}
+header b{font-size:22px;letter-spacing:.5px}header b em{color:#C9973A;font-style:normal}
+header a{color:#9DA8C4;font-size:12.5px;font-weight:700;text-decoration:none}
+h2{font-size:13px;letter-spacing:2.5px;color:#C9973A;margin:26px 0 12px;text-transform:uppercase}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.pcard{background:#121D36;border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:16px;position:relative}
+.pcard.live{border-color:rgba(201,151,58,.55)}
+.pn{font-weight:800;font-size:14px}.lv{font-size:9.5px;background:#C9973A;color:#101B30;font-weight:800;border-radius:99px;padding:2px 7px;margin-left:6px;letter-spacing:1px}
+.big{font-size:30px;font-weight:800;margin-top:8px;font-family:'Barlow Condensed',Arial}.mo{font-size:14px;color:#9DA8C4;font-weight:700}
+.ps{color:#9DA8C4;font-size:12.5px;font-weight:600;margin-top:2px}
+.pnote{color:#7E8AA6;font-size:12px;margin-top:6px}
+.x{position:absolute;top:10px;right:10px;background:none;border:none;color:#5A6478;font-size:14px;cursor:pointer;font-weight:700}
+.addrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.addrow input{background:#0E1730;border:1.5px solid rgba(255,255,255,.14);border-radius:10px;color:#fff;padding:10px 12px;font-size:13.5px;font-weight:600;outline:none}
+.addrow input:focus{border-color:#C9973A}
+.addrow button,.brain button{background:#C9973A;border:none;border-radius:10px;color:#101B30;font-weight:800;padding:10px 16px;font-size:13px;cursor:pointer}
+.lanes{display:grid;gap:14px}@media(min-width:860px){.lanes{grid-template-columns:1fr 1fr}}
+.lane{background:#0E1730;border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px}
+.lane h3{font-size:14.5px;margin-bottom:10px}
+.idea{background:#121D36;border:1px solid rgba(255,255,255,.09);border-radius:12px;padding:11px 34px 11px 12px;margin-bottom:8px;position:relative}
+.it{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:14px}
+.stg{background:#0E1730;border:1px solid rgba(255,255,255,.14);border-radius:8px;font-weight:800;font-size:11.5px;padding:4px 6px;cursor:pointer}
+.inote{color:#9DA8C4;font-size:12px;margin-top:6px;cursor:pointer;line-height:1.5}
+.brain{background:#0E1730;border:1px solid rgba(201,151,58,.4);border-radius:16px;padding:16px}
+.brain textarea{width:100%;background:#121D36;border:1.5px solid rgba(255,255,255,.14);border-radius:12px;color:#fff;padding:12px;font-size:14px;font-weight:600;outline:none;min-height:74px;font-family:inherit;resize:vertical}
+.brain textarea:focus{border-color:#C9973A}
+#bout{white-space:pre-wrap;background:#121D36;border-radius:12px;padding:14px;margin-top:12px;font-size:14px;line-height:1.65;color:#DCE4F5;display:none}
+</style></head><body><div class="wrap">
+<header><b>🏛 QUICK <em>COMP</em> · HEADQUARTERS</b><a href="/hq?logout=1">Salir</a></header>
+
+<h2>Portafolio</h2>
+<div class="pgrid">
+  ${autoCard("Quick Comp", "📊", live.quickcomp)}
+  ${cards.map((c) => `<div class="pcard">
+    <div class="pn">📦 ${esc(c.name)}</div>
+    <div class="big">$${(c.mrr || 0).toLocaleString("en-US")}<span class="mo">/mes</span></div>
+    <div class="ps">${c.clients || 0} clientes <button style="background:none;border:none;color:#5A6478;cursor:pointer;font-size:11px" onclick="cardEdit('${c.id}',${c.clients || 0},${c.mrr || 0})">✏️ actualizar</button></div>
+    ${c.note ? `<div class="pnote">${esc(c.note)}</div>` : ""}
+    <button class="x" onclick="if(confirm('¿Quitar este producto del portafolio?'))cardDel('${c.id}')">✕</button>
+  </div>`).join("")}
+</div>
+<div class="addrow">
+  <input id="cn" placeholder="Producto (ej. ALTO Pro)" style="flex:2;min-width:180px">
+  <input id="cc" placeholder="Clientes" type="number" style="width:90px">
+  <input id="cm" placeholder="$/mes" type="number" style="width:100px">
+  <button onclick="cardAdd()">＋ Agregar producto</button>
+</div>
+
+<h2>Mastermind</h2>
+<div class="lanes">
+  <div class="lane"><h3>💡 Mejoras a lo que ya existe</h3>
+    ${ideas.filter((i) => i.lane === "mejora").map(ideaRow).join("") || '<p style="color:#5A6478;font-size:13px">Nada todavía — agrega tu primera idea.</p>'}
+    <div class="addrow"><input id="im" placeholder="Nueva mejora…" style="flex:1"><button onclick="ideaAdd('mejora')">＋</button></div>
+  </div>
+  <div class="lane"><h3>🚀 Productos futuros</h3>
+    ${ideas.filter((i) => i.lane === "futuro").map(ideaRow).join("") || '<p style="color:#5A6478;font-size:13px">Nada todavía — ¿cuál es el siguiente negocio?</p>'}
+    <div class="addrow"><input id="if" placeholder="Nuevo producto/nicho…" style="flex:1"><button onclick="ideaAdd('futuro')">＋</button></div>
+  </div>
+</div>
+
+<h2>🧠 Piénsalo conmigo</h2>
+<div class="brain">
+  <textarea id="bq" placeholder="Ej.: ¿Subo el precio del plan Completo o agrego un tier más barato? / ¿Qué le falta a la app para que el realtor la abra a diario?"></textarea>
+  <div style="margin-top:10px"><button id="bgo" onclick="brain()">Pensar con mis números →</button></div>
+  <div id="bout"></div>
+</div>
+</div>
+<script>
+function post(body){return fetch('/api/hq/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.reload();else alert(j.error||'Error')})}
+function cardAdd(){var n=document.getElementById('cn').value.trim();if(!n)return;post({kind:'card',action:'add',item:{name:n,clients:document.getElementById('cc').value,mrr:document.getElementById('cm').value}})}
+function cardEdit(id,c,m){var nc=prompt('Clientes:',c);if(nc===null)return;var nm=prompt('$/mes:',m);if(nm===null)return;post({kind:'card',action:'update',item:{id:id,clients:nc,mrr:nm}})}
+function cardDel(id){post({kind:'card',action:'del',item:{id:id}})}
+function ideaAdd(lane){var el=document.getElementById(lane==='mejora'?'im':'if');var t=el.value.trim();if(!t)return;post({kind:'idea',action:'add',item:{lane:lane,title:t}})}
+function ideaUpd(id,patch){post({kind:'idea',action:'update',item:Object.assign({id:id},patch)})}
+function ideaNote(id,el){var t=prompt('Notas de la idea:',el.textContent.replace(/^📝 /,'').replace('agregar notas…','').trim());if(t===null)return;ideaUpd(id,{note:t})}
+function ideaDel(id){post({kind:'idea',action:'del',item:{id:id}})}
+function brain(){var q=document.getElementById('bq').value.trim();if(!q)return;var b=document.getElementById('bgo');b.disabled=true;b.textContent='Pensando…';
+  fetch('/api/hq/brain',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q:q})}).then(function(r){return r.json()}).then(function(j){
+    b.disabled=false;b.textContent='Pensar con mis números →';var o=document.getElementById('bout');o.style.display='block';o.textContent=j.text||j.error||'Error';
+  }).catch(function(){b.disabled=false;b.textContent='Pensar con mis números →';alert('Error de red')})}
+</script></body></html>`);
+});
+
 await db.initDb();
 
 /* Grace period: a failed payment older than 7 days pauses the client

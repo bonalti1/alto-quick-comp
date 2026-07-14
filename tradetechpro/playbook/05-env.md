@@ -13,6 +13,7 @@ what breaks without it. `server/.env.example` mirrors it in .env format;
 | `CS_KEY` | /cs (ADMIN_KEY also enters) |
 | `CLOSER_KEY` | /closer + /onboarding (ADMIN_KEY also enters) |
 | `DEMO_PASS` | Unlimited demo mode (`?pass=`). Not guessable — every free valuation costs API money. |
+| `HQ_KEY` | /hq — the owner's private cockpit (portfolio + idea board + AI partner). Nobody else's key opens it, not even ADMIN_KEY. |
 
 ⚠️ Rule: all keys distinct from each other and from any other account's
 password, rotated if one ever appears in a screenshot or chat.

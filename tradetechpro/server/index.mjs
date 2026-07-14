@@ -4194,13 +4194,67 @@ app.get("/cs", async (req, res) => {
   for (const c of clients) {
     const s = c.data?.site || {}, d = c.data || {};
     const dev = devCounts[String(c.id)] || 0;
-    if (d.status === "paused" || d.payStatus === "canceled") attention.push({ slug: c.slug, name: c.name, tag: "pausada", icon: "⏸", msg: "Cuenta pausada — confirma si quiere reactivar", act: "site", c });
-    else if (d.payStatus === "failed") attention.push({ slug: c.slug, name: c.name, tag: "pago falló", icon: "💳", msg: "Falló su pago — recuérdale actualizar su tarjeta", act: "site", c });
-    else if (d.payStatus === "pending") attention.push({ slug: c.slug, name: c.name, tag: "esperando pago", icon: "⏳", msg: "Aún no activa — se activa sola al pagar", act: "site", c });
-    else if (!(s.template || s.about)) attention.push({ slug: c.slug, name: c.name, tag: "falta onboarding", icon: "🆕", msg: "Cliente nuevo sin página — haz su onboarding", act: "edit", c });
-    else if (!s.published) attention.push({ slug: c.slug, name: c.name, tag: "sin publicar", icon: "🏗️", msg: "Su página está lista pero no publicada — revísala y publícala", act: "edit", c });
-    if (dev >= 4) attention.push({ slug: c.slug, name: c.name, tag: "link compartido", icon: "📱", msg: `${dev} dispositivos — ofrécele cuentas para su equipo`, act: "site", c });
+    if (d.status === "paused" || d.payStatus === "canceled") attention.push({ slug: c.slug, name: c.name, tag: "pausada", icon: "⏸", msg: "Cuenta pausada — confirma si quiere reactivar", c });
+    else if (d.payStatus === "failed") attention.push({ slug: c.slug, name: c.name, tag: "pago falló", icon: "💳", msg: "Falló su pago — recuérdale actualizar su tarjeta", c });
+    else if (d.payStatus === "pending") attention.push({ slug: c.slug, name: c.name, tag: "esperando pago", icon: "⏳", msg: "Aún no activa — se activa sola al pagar", c });
+    else if (!(s.template || s.about)) attention.push({ slug: c.slug, name: c.name, tag: "falta onboarding", icon: "🆕", msg: "Cliente nuevo sin página — haz su onboarding", c });
+    else if (!s.published) attention.push({ slug: c.slug, name: c.name, tag: "sin publicar", icon: "🏗️", msg: "Su página está lista pero no publicada — revísala y publícala", c });
+    if (dev >= 4) attention.push({ slug: c.slug, name: c.name, tag: "link compartido", icon: "📱", msg: `${dev} dispositivos — ofrécele cuentas para su equipo`, c });
   }
+  // Quick-edit: the raw data behind every client's onboarding, embedded so the
+  // rep can edit ANY text field in one place. Saving posts to
+  // /api/onboarding/save, which merges and keeps logo/photos/publish untouched.
+  const qeData = {};
+  for (const c of clients) {
+    const s = c.data?.site || {}, p = c.data?.profile || {};
+    qeData[c.slug] = {
+      name: c.name, biz: p.biz || "", phone: p.phone || c.phone || "", license: p.license || "",
+      template: s.template || "1", color: s.color || "#15244C", city: s.city || "", area: s.area || "",
+      years: s.years || "", services: (Array.isArray(s.services) ? s.services : []).join(", "),
+      warranty: s.warranty || "", diff: s.diff || "", tagline: s.tagline || "", hero: s.hero || "",
+      about: s.about || "", published: !!s.published,
+    };
+  }
+  // Tasks: pending is the morning worklist; done is history, tucked away.
+  const pendTasks = tasks.filter((t) => t.status !== "done");
+  const doneTasks = tasks.filter((t) => t.status === "done");
+  const taskRow = (t, badge) => {
+    // Client-request tickets arrive pre-tagged from the app; each kind gets
+    // its own one-line playbook and only the buttons that make sense.
+    const kind = t.title.startsWith("🌐 Cliente") ? "web" : t.title.startsWith("🏡 Cliente") ? "widget" : t.title.startsWith("😕") ? "queja" : t.title.startsWith("🙋") ? "any" : "";
+    const cli = kind && t.slug ? clients.find((x) => x.slug === t.slug) : null;
+    const cwa = cli ? waOf(phoneOf(cli)) : "";
+    const hint = kind === "web" ? "💡 Textos, zonas o datos → toca ✨ y revisa el cambio antes de aplicarlo. Fotos, plantilla o dominio → ✏️ Onboarding."
+      : kind === "widget" ? "💡 El valuador no tiene textos editables — lee qué pide: si es del funcionamiento o los valores, pásalo al admin; si en realidad es de su página, toca ✨."
+      : kind === "queja" ? "💡 Una queja se arregla hablando — mándale WhatsApp o llámalo hoy. Nada de botones."
+      : kind === "any" ? "💡 Léelo: si es de su página, toca ✨ y revisa antes de aplicar. Si es otra cosa, hazlo con ⚡ Editar datos u ✏️ Onboarding."
+      : "";
+    return `<details class="task ${t.status}">
+    <summary class="attsum">
+      <span class="an${t.status === "done" ? " dn" : ""}">${badge}</span>
+      <div class="am"><b>${esc(t.title)}</b><span class="x">${t.slug ? esc(nameOf(t.slug)) : "general"}${t.note ? ` — ${esc(String(t.note).slice(0, 90))}${String(t.note).length > 90 ? "…" : ""}` : ""}</span></div>
+      <span class="tstat ${t.status}">${stLabel[t.status] || t.status}</span>
+      ${t.status !== "done"
+        ? `<button class="tbtn go" onclick="event.preventDefault();tStat('${t.id}','done')">✓ Hecho</button>`
+        : `<button class="tbtn" onclick="event.preventDefault();tStat('${t.id}','open')">↩ Reabrir</button>`}
+      <span class="achev">▾</span>
+    </summary>
+    <div class="abody">
+      ${t.note ? `<div class="asec"><b>Lo que pidió</b><p class="qnote">${esc(t.note)}</p></div>` : ""}
+      ${hint && t.status !== "done" ? `<p class="qhint">${hint}</p>` : ""}
+      <div class="aacts">
+        ${t.status !== "done" && t.slug && t.note && kind !== "queja" ? `<button class="tbtn" style="border-color:#C9973A" onclick="aiFix('${t.id}',this)">${kind ? "✨ Ver arreglo automático" : "✨ IA"}</button>` : ""}
+        ${t.slug ? `<button class="tbtn" onclick="qeOpen('${esc(t.slug)}')">⚡ Editar datos</button>` : ""}
+        ${cwa && t.status !== "done" ? `<a class="wa" href="${cwa}" target="_blank" style="padding:6px 12px;border-radius:9px;font-size:12.5px">💬 WhatsApp</a>` : ""}
+        ${kind && kind !== "queja" && t.slug ? `<button class="tbtn" onclick="notifyClient('${t.id}',this)">🔔 Avisarle</button>` : ""}
+        ${t.status === "open" && !kind ? `<button class="tbtn" onclick="tStat('${t.id}','doing')">▶ Empezar</button>` : ""}
+        ${t.slug ? `<a class="tbtn" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ Onboarding</a><a class="tbtn" href="/site/${esc(t.slug)}" target="_blank">🌐 Página</a><a class="tbtn" href="/w/${esc(t.slug)}" target="_blank">🏡 Valuador</a>` : ""}
+        <button class="tbtn del" onclick="tDel('${t.id}')">🗑 Borrar</button>
+      </div>
+      <div class="tpreview" id="pv-${t.id}" style="display:none"></div>
+    </div>
+  </details>`;
+  };
   res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quick Comp · Servicio</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -4215,6 +4269,7 @@ body{background:#F5F6F8;color:#0B1220;letter-spacing:-0.011em}
 .card{background:#fff;border:1px solid rgba(16,27,48,.05);border-radius:18px;padding:18px 20px;box-shadow:0 1px 2px rgba(16,27,48,.04),0 8px 22px rgba(16,27,48,.045)}
 .card .v{font-size:28px;font-weight:700;letter-spacing:-0.035em}.card .l{font-size:11px;font-weight:700;color:#9097A3;letter-spacing:.5px;text-transform:uppercase;margin-top:6px}
 .card.gold{background:linear-gradient(155deg,#16243f,#0d1729);border:none}.card.gold .v{color:#C9973A}.card.gold .l{color:#9DA8C4}
+.card.cardred .v{color:#C5221F}
 .panel{background:#fff;border:1px solid rgba(16,27,48,.05);border-radius:20px;padding:22px 24px;margin-bottom:18px;box-shadow:0 1px 2px rgba(16,27,48,.04),0 10px 26px rgba(16,27,48,.05)}
 .panel h2{font-size:15px;font-weight:700;margin-bottom:14px}
 .tform{display:grid;gap:8px;grid-template-columns:1fr;margin-bottom:16px}
@@ -4222,18 +4277,42 @@ body{background:#F5F6F8;color:#0B1220;letter-spacing:-0.011em}
 .tform select,.tform input{font-family:inherit;padding:11px 13px;border-radius:11px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;background:#fff}
 .tform select:focus,.tform input:focus{border-color:#C9973A;box-shadow:0 0 0 3px rgba(201,151,58,.18)}
 .tform button{background:#C9973A;color:#101B30;border:none;border-radius:11px;padding:11px 20px;font-weight:800;cursor:pointer;white-space:nowrap}
-.task{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px solid #F2F4F7;flex-wrap:wrap}
-.task.done{opacity:.55}
-.task .tmain{flex:1;min-width:200px}
-.task .tt{font-weight:700;font-size:14.5px}
-.task.done .tt{text-decoration:line-through}
-.task .tc{display:inline-block;margin-left:8px;font-size:12.5px;font-weight:700;color:#B07A00;text-decoration:none}
-.task .tn{color:#67718A;font-size:12.5px;font-weight:500;margin-top:3px}
-.task .tact{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.task{border-bottom:1px solid #F2F4F7}
+.task:last-of-type{border-bottom:none}
+.task.done .am b{text-decoration:line-through;color:#9097A3}
+.task.done{opacity:.75}
+.an.dn{background:#E7F7ED;color:#10803C}
+.qnote{font-size:13px;font-weight:600;color:#3A4250;background:#fff;border:1px solid #E7EAF0;border-radius:10px;padding:9px 12px;line-height:1.6;margin:0}
+.qhint{color:#9A6E00;background:#FFF8E1;border-radius:10px;padding:8px 11px;font-size:12.5px;font-weight:600;margin:10px 0 0;line-height:1.6}
+.qe .qegrid{display:grid;gap:12px;grid-template-columns:1fr}
+@media(min-width:820px){.qe .qegrid{grid-template-columns:1fr 1fr}}
+.qe label{display:block}
+.qe .qel{display:block;font-size:11px;color:#8A94A8;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:5px}
+.qe input,.qe textarea,.qe select{width:100%;font-family:inherit;padding:10px 12px;border-radius:10px;border:1px solid #E4E7EC;font-size:13.5px;font-weight:600;color:#16202E;outline:none;background:#fff}
+.qe input:focus,.qe textarea:focus{border-color:#C9973A;box-shadow:0 0 0 3px rgba(201,151,58,.16)}
+.qe textarea{resize:vertical}
+.qe .full{grid-column:1/-1}
+.qemsg{font-size:13px;font-weight:700;color:#10803C}
+.tdone{margin-top:14px;border-top:1px solid #F2F4F7}
+.tdsum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 4px;color:#8A94A8;font-weight:700;font-size:13px}
+.tdsum::-webkit-details-marker{display:none}
+.tdsum:hover{color:#5A6478}
+.tdone[open] .tdsum .achev{transform:rotate(180deg)}
 .tstat{border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;white-space:nowrap}
-.tstat.open{background:#F7EFD8;color:#8A6A00}.tstat.doing{background:#E5EFFE;color:#21438A}.tstat.done{background:#E7F7ED;color:#10803C}
+.tstat.open{background:#F7EFD8;color:#946400}.tstat.doing{background:#E5EFFE;color:#21438A}.tstat.done{background:#E7F7ED;color:#10803C}
 .tbtn{border:1px solid #E4E7EC;background:#fff;border-radius:9px;padding:6px 11px;font-weight:700;font-size:12px;cursor:pointer;text-decoration:none;color:#101B30}
 .tbtn.go{background:#101B30;color:#fff;border:none}.tbtn.del{color:#C5221F;border-color:#F3B4B0}
+.tpreview{width:100%;order:99}
+.pvbox{background:#FFFBEF;border:1.5px solid #C9973A;border-radius:14px;padding:14px 16px;margin-top:8px}
+.pvbox.pvno{background:#F4F6FA;border-color:#E4E7EC}
+.pvsum{font-weight:700;font-size:13.5px;color:#101B30;margin-bottom:10px;line-height:1.5}
+.pvrow{border-top:1px solid #F0E4B8;padding:9px 0}
+.pvrow:first-of-type{border-top:none}
+.pvrow b{display:block;font-size:12.5px;color:#8A6D00;margin-bottom:4px}
+.pvold{font-size:12.5px;color:#9097A3;text-decoration:line-through;margin-bottom:2px;word-break:break-word}
+.pvnew{font-size:13px;color:#101B30;font-weight:600;word-break:break-word}
+.pvbtns{display:flex;gap:8px;margin-top:12px}
+.pvbtns .tbtn{font-size:13px;padding:8px 16px}
 .search{width:100%;font-family:inherit;padding:11px 14px;border-radius:11px;border:1px solid #E4E7EC;font-size:14px;font-weight:500;outline:none;margin-bottom:12px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;color:#9097A3;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;font-weight:700;padding:9px 8px;border-bottom:1px solid #EEF0F4}
@@ -4241,16 +4320,39 @@ td{padding:11px 8px;border-bottom:1px solid #F2F4F7;font-weight:600;vertical-ali
 td a{color:#B07A00;font-weight:700;text-decoration:none}
 .edit{background:#C9973A;color:#101B30 !important;border-radius:9px;padding:6px 12px;font-weight:800;font-size:12.5px}
 .empty{color:#9097A3;font-weight:600;padding:14px 0}
-.card.cardred .v{color:#C5221F}
-.att{display:flex;gap:11px;align-items:center;padding:12px 0;border-bottom:1px solid #F2F4F7;flex-wrap:wrap}
+.att{border-bottom:1px solid #F2F4F7}
 .att:last-child{border-bottom:none}
+.attsum{display:flex;gap:11px;align-items:center;padding:13px 4px;cursor:pointer;list-style:none;flex-wrap:wrap}
+.attsum::-webkit-details-marker{display:none}
+.attsum:hover{background:#FBFBFD}
+.an{width:24px;height:24px;border-radius:8px;background:#101B30;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.achev{color:#9097A3;font-size:12px;flex-shrink:0;transition:transform .15s}
+.att[open] .achev,.task[open] .achev{transform:rotate(180deg)}
+.abody{background:#F7F9FC;border:1px solid #EDF0F5;border-radius:16px;padding:16px 18px 18px;margin:2px 4px 16px 39px}
+.agrid{display:grid;gap:16px}
+@media(min-width:920px){.agrid{grid-template-columns:1fr 1.25fr}}
+.asec>b{display:block;font-size:11px;color:#8A94A8;text-transform:uppercase;letter-spacing:.6px;font-weight:800;margin-bottom:8px}
+.asec ol{margin:0 0 0 18px;color:#3A4250;font-size:13px;font-weight:500;line-height:1.75}
+.ckbar{display:inline-block;width:84px;height:5px;background:#E9EDF3;border-radius:99px;margin-left:8px;vertical-align:2px}
+.ckbar i{display:block;height:100%;background:#C9973A;border-radius:99px}
+.ck{display:flex;flex-wrap:wrap;gap:7px}
+.ck span{font-size:12px;font-weight:700;border-radius:99px;padding:5px 11px;white-space:nowrap}
+.ck .y{background:#E7F7ED;color:#10803C}
+.ck .n{background:#fff;border:1px solid #EAD3D2;color:#A04441}
+.ck .o{background:transparent;border:1px dashed #D5DAE3;color:#9097A3}
+.ck .i{background:#fff;border:1px solid #E7EAF0;color:#3A4250}
+.asec+.asec,.agrid+.asec{margin-top:15px}
+.aacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid #EDF0F5}
+.aacts .tbtn{background:#fff}
+.aacts .tbtn.go{background:#101B30}
+@media(max-width:600px){.abody{margin-left:4px}}
 .att .ai{font-size:20px;flex-shrink:0}
-.att .am{flex:1;min-width:190px}
-.att .am b{font-size:14px}.att .am .x{display:block;color:#67718A;font-size:12.5px;font-weight:500;margin-top:1px}
+.am{flex:1;min-width:190px}
+.am b{font-size:14px}.am .x{display:block;color:#67718A;font-size:12.5px;font-weight:500;margin-top:1px}
 .att .atag{border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;background:#FDECEC;color:#C5221F;white-space:nowrap}
 .qchips{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px}
 .qchip{border:1px dashed #C9CDD6;background:#FBFBFD;border-radius:99px;padding:7px 13px;font-size:12.5px;font-weight:700;color:#475067;cursor:pointer}
-.qchip:hover{border-color:#C9973A;background:#F7EFD8}
+.qchip:hover{border-color:#C9973A;background:#FFFBEF}
 .wa{background:#25D366;color:#fff !important;border-radius:8px;padding:5px 11px;font-weight:800;font-size:12px;text-decoration:none;white-space:nowrap}
 .slug2{color:#9097A3;font-size:11.5px}
 .guide details{border:1px solid #EEF0F4;border-radius:12px;margin:8px 0;background:#FBFBFD}
@@ -4260,6 +4362,13 @@ td a{color:#B07A00;font-weight:700;text-decoration:none}
 .guide details[open] summary::before{content:"▾ "}
 .guide .gb{padding:0 14px 13px;color:#475067;font-size:12.5px;font-weight:500;line-height:1.7}
 .guide .gb ol{margin:6px 0 0 18px}.guide .gb li{margin:3px 0}
+/* Collapsible panels — closed by default so nothing sits in the way. */
+summary.psum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;margin:0}
+summary.psum::-webkit-details-marker{display:none}
+summary.psum::after{content:"▾";margin-left:auto;color:#9097A3;font-size:13px;transition:transform .15s}
+details[open]>summary.psum::after{transform:rotate(180deg)}
+.pbody{margin-top:16px}
+.guide summary.psum::before,.guide details[open] summary.psum::before{content:none}
 </style></head><body>
 <div class="appheader">
   <img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Servicio al cliente</b>
@@ -4269,53 +4378,133 @@ td a{color:#B07A00;font-weight:700;text-decoration:none}
 <div class="cards">
   <div class="card ${attention.length ? "cardred" : ""}"><div class="v">${attention.length}</div><div class="l">Necesita atención</div></div>
   <div class="card gold"><div class="v">${openCount}</div><div class="l">Tareas pendientes</div></div>
-  <div class="card"><div class="v">${clients.length}</div><div class="l">Clientes</div></div>
+  <div class="card"><div class="v">${clients.length}</div><div class="l">Agentes</div></div>
   <div class="card"><div class="v">${leads7}</div><div class="l">Leads · 7 días</div></div>
 </div>
 
-${attention.length ? `<div class="panel">
-  <h2>🚨 Necesita atención <span style="color:#9097A3;font-weight:600;font-size:13px">— trabaja esta lista de arriba a abajo</span></h2>
-  ${attention.map((a) => { const wa = waOf(phoneOf(a.c)); const editUrl = `/onboarding?key=${K}&slug=${esc(a.slug)}`; return `<div class="att">
-    <span class="ai">${a.icon}</span>
-    <div class="am"><b>${esc(a.name)}</b><span class="x">${a.msg}</span></div>
-    <span class="atag">${a.tag}</span>
-    <a class="tbtn go" href="${editUrl}">✏️ Editar</a>
-    <a class="tbtn" href="/site/${esc(a.slug)}" target="_blank">🌐</a>
-    ${wa ? `<a class="wa" href="${wa}" target="_blank">💬 WhatsApp</a>` : ""}
-  </div>`; }).join("")}
-</div>` : `<div class="panel"><h2>🎉 Todo al día</h2><p class="empty" style="padding:4px 0">Nada necesita atención ahora mismo. Buen trabajo.</p></div>`}
+${attention.length ? `<div class="panel"><details open><summary class="psum"><h2 style="margin:0">🚨 Necesita atención (${attention.length}) <span style="color:#9097A3;font-weight:600;font-size:13px">— trabaja de arriba a abajo; toca una para ver TODO lo del agente</span></h2></summary>
+  <div class="pbody">
+  ${attention.map((a, ai) => {
+    const wa = waOf(phoneOf(a.c));
+    const editUrl = `/onboarding?key=${K}&slug=${esc(a.slug)}`;
+    const s = a.c.data?.site || {}, d = a.c.data || {};
+    const devN = devCounts[String(a.c.id)] || 0;
+    const nPhotos = Array.isArray(s.photos) ? s.photos.length : 0;
+    const nServ = Array.isArray(s.services) ? s.services.length : 0;
+    // The FULL state of the client, not just what's broken — ✓ done,
+    // ✗ missing (blocks a good page), ○ optional. CS fixes any ✗ via onboarding.
+    const check = [
+      ["Logo / foto", !!d.profile?.logo],
+      ["Teléfono", !!phoneOf(a.c)],
+      ["Ciudad / área", !!(s.city || s.area)],
+      ["Plantilla elegida", !!s.template],
+      ["Textos (titular e historia)", !!(s.hero && s.about)],
+      [`Fotos (${nPhotos}/8)`, nPhotos > 0],
+      [`Servicios (${nServ})`, nServ > 0],
+      ["Página publicada", !!s.published],
+      ["Dominio propio", !!s.domain, true],
+    ];
+    const okCount = check.filter((x) => x[1]).length;
+    const STEPS = {
+      "pausada": ["Confírmale por WhatsApp si quiere seguir con el servicio.", "Si quiere volver: pídele al admin que la reactive en /admin.", "Si canceló de plano: no borres nada — sus datos quedan guardados por si regresa."],
+      "pago falló": ["Avísale por WhatsApp: su tarjeta no pasó.", "Que actualice su tarjeta con el mismo link de pago de su plan (te lo pasa el closer o el admin).", "En cuanto pague, su cuenta se reactiva sola — no hay que tocar nada."],
+      "esperando pago": ["Todavía no paga — su cuenta se activa sola al pagar; no hay nada técnico que hacer.", "¿Dice que ya pagó por Zelle o efectivo? El admin la marca como pagada en /admin y listo.", "Si no responde en 2 días, mándale un recordatorio amable por WhatsApp."],
+      "falta onboarding": ["Llama al agente y abre el onboarding (botón abajo) — se llena junto con él en ~20 min.", "El checklist de abajo te dice exactamente qué le falta.", "Al terminar, revisa el borrador y publica desde el mismo onboarding."],
+      "sin publicar": ["Abre el borrador (botón abajo) y revisa que todo se vea bien.", "Lo que falte, corrígelo en el onboarding — guíate con el checklist de abajo.", "Cuando esté lista, publícala desde el onboarding."],
+      "link compartido": ["Su equipo entra con el mismo link — señal de que la app les gusta 💪.", "Ofrécele cuentas para su equipo (el admin las crea).", "No es urgente: es oportunidad, no problema."],
+    };
+    return `<details class="att">
+    <summary class="attsum">
+      <span class="an">${ai + 1}</span>
+      <span class="ai">${a.icon}</span>
+      <div class="am"><b>${esc(a.name)}</b><span class="x">${a.msg}</span></div>
+      <span class="atag">${a.tag}</span>
+      <span class="achev">▾</span>
+    </summary>
+    <div class="abody">
+      <div class="agrid">
+      <div class="asec"><b>Qué hacer — ${a.tag}</b><ol>${(STEPS[a.tag] || []).map((step) => `<li>${step}</li>`).join("")}</ol></div>
+      <div class="asec"><b>Su página — ${okCount}/${check.length} listo<span class="ckbar"><i style="width:${Math.round((okCount / check.length) * 100)}%"></i></span></b>
+        <div class="ck">${check.map(([label, ok, opt]) => `<span class="${ok ? "y" : opt ? "o" : "n"}">${ok ? "✓" : opt ? "○" : "✗"} ${label}${!ok && opt ? " · opcional" : ""}</span>`).join("")}</div>
+      </div>
+      </div>
+      <div class="asec"><b>Datos del agente</b>
+        <div class="ck">
+          <span class="i">📦 ${esc(PLANS[planOf(a.c)].name)}</span>
+          <span class="i">📞 ${esc(phoneOf(a.c)) || "sin teléfono"}</span>
+          <span class="i">📱 ${devN} dispositivo${devN === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <div class="aacts">
+        <a class="tbtn go" href="${editUrl}">✏️ Abrir onboarding</a>
+        <a class="tbtn" href="/site/${esc(a.slug)}?preview=1" target="_blank">👁️ Borrador</a>
+        <a class="tbtn" href="/site/${esc(a.slug)}" target="_blank">🌐 Página</a>
+        <a class="tbtn" href="/w/${esc(a.slug)}" target="_blank">🏡 Valuador</a>
+        ${wa ? `<a class="wa" href="${wa}" target="_blank">💬 WhatsApp</a>` : ""}
+        <button class="tbtn" onclick="mkTask('${esc(a.slug)}','${esc(a.tag)}: ')">＋ Crear tarea</button>
+      </div>
+    </div>
+  </details>`; }).join("")}
+  </div>
+</details></div>` : `<div class="panel"><h2>🎉 Todo al día</h2><p class="empty" style="padding:4px 0">Nada necesita atención ahora mismo. Buen trabajo.</p></div>`}
 
-<div class="panel">
-  <h2>✅ Tareas</h2>
+<div class="panel"><details open><summary class="psum"><h2 style="margin:0">✅ Tareas${pendTasks.length ? ` (${pendTasks.length})` : ""} <span style="color:#9097A3;font-weight:600;font-size:13px">— tu trabajo del día</span></h2></summary>
+  <div class="pbody">
   <div class="qchips">
     <span class="qchip" onclick="quick('Cambiar teléfono')">📞 Cambiar teléfono</span>
     <span class="qchip" onclick="quick('Subir fotos nuevas')">📷 Subir fotos</span>
     <span class="qchip" onclick="quick('Publicar la página')">🚀 Publicar página</span>
     <span class="qchip" onclick="quick('Conectar su dominio')">🌐 Conectar dominio</span>
-    <span class="qchip" onclick="quick('Actualizar precios / info')">💲 Actualizar info</span>
+    <span class="qchip" onclick="quick('Actualizar zonas / info')">💲 Actualizar info</span>
   </div>
   <div class="tform">
-    <select id="t_slug"><option value="">— sin cliente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+    <select id="t_slug"><option value="">— sin agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
     <input id="t_title" placeholder="¿Qué hay que hacer? (ej. cambiar teléfono, subir fotos)">
     <button onclick="addTask()">+ Agregar tarea</button>
   </div>
-  ${tasks.length ? tasks.map((t) => `<div class="task ${t.status}">
-    <div class="tmain"><span class="tt">${esc(t.title)}</span>${t.slug ? `<a class="tc" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ ${esc(nameOf(t.slug))}</a>` : `<span class="tc" style="color:#9097A3">general</span>`}${t.note ? `<p class="tn">${esc(t.note)}</p>` : ""}</div>
-    <div class="tact">
-      <span class="tstat ${t.status}">${stLabel[t.status] || t.status}</span>
-      ${t.status === "open" ? `<button class="tbtn" onclick="tStat('${t.id}','doing')">▶ Empezar</button>` : ""}
-      ${t.status !== "done" ? `<button class="tbtn go" onclick="tStat('${t.id}','done')">✓ Hecho</button>` : `<button class="tbtn" onclick="tStat('${t.id}','open')">↩ Reabrir</button>`}
-      ${t.slug ? `<a class="tbtn" href="/onboarding?key=${K}&slug=${esc(t.slug)}">✏️ Editar</a><a class="tbtn" href="/site/${esc(t.slug)}" target="_blank">🌐</a>` : ""}
-      <button class="tbtn del" onclick="tDel('${t.id}')">🗑</button>
-    </div>
-  </div>`).join("") : `<p class="empty">Sin tareas. Agrega una arriba.</p>`}
-</div>
+  ${pendTasks.length ? pendTasks.map((t, i) => taskRow(t, String(i + 1))).join("") : `<p class="empty">🎉 Nada pendiente — todo el trabajo del día está hecho.</p>`}
+  ${doneTasks.length ? `<details class="tdone"><summary class="tdsum">📁 Hechas (${doneTasks.length}) — ver historial<span class="achev" style="margin-left:auto">▾</span></summary>
+    <div>${doneTasks.map((t) => taskRow(t, "✓")).join("")}</div>
+  </details>` : ""}
+  </div>
+</details></div>
 
-<div class="panel">
-  <h2>📋 Clientes</h2>
-  <input class="search" id="csearch" placeholder="Buscar cliente…" oninput="filt()">
+<div class="panel qe"><details id="qepanel"><summary class="psum"><h2 style="margin:0">⚡ Edición rápida <span style="color:#9097A3;font-weight:600;font-size:13px">— cambia cualquier dato de un agente aquí mismo, sin pasar por el onboarding</span></h2></summary>
+  <div class="pbody">
+  <select id="qe_slug" onchange="qeShow()" style="max-width:340px;margin-bottom:4px"><option value="">— elige un agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+  <div id="qe_form" style="display:none">
+    <div class="qegrid" style="margin-top:12px">
+      <label><span class="qel">Nombre / inmobiliaria</span><input id="qe_biz"></label>
+      <label><span class="qel">Teléfono</span><input id="qe_phone" inputmode="numeric"></label>
+      <label><span class="qel">Ciudad</span><input id="qe_city"></label>
+      <label><span class="qel">Zonas que cubre</span><input id="qe_area"></label>
+      <label><span class="qel">Años de experiencia</span><input id="qe_years" inputmode="numeric"></label>
+      <label><span class="qel">Licencia</span><input id="qe_license"></label>
+      <label><span class="qel">Plantilla</span><select id="qe_template"><option value="1">1 · Elegante</option><option value="2">2 · Con energía</option><option value="3">3 · De confianza</option></select></label>
+      <label><span class="qel">Color de la marca</span><input id="qe_color" placeholder="#15244C"></label>
+      <label class="full"><span class="qel">Servicios (separados por coma)</span><input id="qe_services" placeholder="Compra, Venta, Rentas, Inversión"></label>
+      <label><span class="qel">Titular de la página (hero)</span><input id="qe_hero"></label>
+      <label><span class="qel">Frase de apoyo (tagline)</span><input id="qe_tagline"></label>
+      <label class="full"><span class="qel">Su historia (about)</span><textarea id="qe_about" rows="3"></textarea></label>
+      <label class="full"><span class="qel">Qué lo hace diferente</span><textarea id="qe_diff" rows="2"></textarea></label>
+      <label><span class="qel">Promesa al cliente</span><input id="qe_warranty"></label>
+    </div>
+    <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0">📷 Logo y fotos se cambian en el onboarding (suben archivos). Todo lo demás se guarda desde aquí — y si su página ya está publicada, el cambio sale al instante.</p>
+    <div class="aacts" style="border-top:none;padding-top:0">
+      <button class="tbtn go" id="qe_save" onclick="qeSave(this)">💾 Guardar cambios</button>
+      <a class="tbtn" id="qe_prev" href="#" target="_blank">👁️ Ver borrador</a>
+      <a class="tbtn" id="qe_live" href="#" target="_blank">🌐 Ver página</a>
+      <span class="qemsg" id="qe_msg"></span>
+    </div>
+  </div>
+  </div>
+</details></div>
+
+<div class="panel"><details><summary class="psum"><h2 style="margin:0">📋 Agentes</h2></summary>
+  <div class="pbody">
+  <input class="search" id="csearch" placeholder="Buscar agente…" oninput="filt()">
   <div style="overflow-x:auto"><table id="ctab">
-    <tr><th>Negocio</th><th>Leads (7d / total)</th><th>Enlaces</th><th>Editar página</th></tr>
+    <tr><th>Agente</th><th>Leads (7d / total)</th><th>Enlaces</th><th>Editar página</th></tr>
     ${clients.length ? clients.map((c) => {
       const s = statOf(c.id); const wa = waOf(phoneOf(c)); const sd = c.data?.site || {}, dd = c.data || {};
       const pill = dd.status === "paused" ? '<span class="tstat" style="background:#FDECEC;color:#C5221F">pausada</span>'
@@ -4325,30 +4514,96 @@ ${attention.length ? `<div class="panel">
       return `<tr data-n="${esc(c.name).toLowerCase()} ${c.slug}">
       <td><b>${esc(c.name)}</b> ${pill}<br><span class="slug2">/${c.slug}</span></td>
       <td>${s.last7} / ${s.total}</td>
-      <td><a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/w/${c.slug}" target="_blank">🛰️</a>${wa ? ` · <a class="wa" href="${wa}" target="_blank">💬</a>` : ""}</td>
+      <td><a href="/site/${c.slug}" target="_blank">🌐</a> · <a href="/w/${c.slug}" target="_blank">🏡</a>${wa ? ` · <a class="wa" href="${wa}" target="_blank">💬</a>` : ""}</td>
       <td><a class="edit" href="/onboarding?key=${K}&slug=${c.slug}">✏️ Editar</a></td>
-    </tr>`; }).join("") : `<tr><td colspan="4" class="empty">Todavía no hay clientes.</td></tr>`}
+    </tr>`; }).join("") : `<tr><td colspan="4" class="empty">Todavía no hay agentes.</td></tr>`}
   </table></div>
-</div>
+  </div>
+</details></div>
 
-<div class="panel guide">
-  <h2>📘 Guía rápida — cómo hacer cada cosa</h2>
-  <details><summary>El cliente quiere cambiar su info (teléfono, nombre, color, historia)</summary><div class="gb"><ol><li>En "Clientes" o en la tarea, toca <b>✏️ Editar</b>.</li><li>Cambia lo que pide en los pasos.</li><li>En el último paso toca <b>Enviar / Guardar</b> y luego <b>🚀 Publicar página</b>.</li><li>Marca la tarea <b>✓ Hecho</b>.</li></ol></div></details>
+<div class="panel guide"><details><summary class="psum"><h2 style="margin:0">📘 Guía rápida — cómo hacer cada cosa</h2></summary>
+  <div class="pbody">
+  <details><summary>El cliente pide un cambio de su PÁGINA (textos, zonas, datos)</summary><div class="gb"><ol><li>En la tarea, toca <b>✨ Ver arreglo automático</b> — la IA te MUESTRA qué cambiaría (antes → después), sin guardar nada todavía.</li><li>Lee el cambio. Si tiene sentido, toca <b>✅ Sí, aplicar</b>. Si no, <b>✕ Cancelar</b> y hazlo tú con ⚡ Editar datos.</li><li>Toca <b>🔔 Avisarle</b> — le llega un aviso directo a su celular (push). Marca <b>✓ Hecho</b>.</li></ol></div></details>
+  <details><summary>El cliente pide algo del VALUADOR (el widget de su página)</summary><div class="gb">El valuador no tiene textos editables — funciona igual para todos. Lee qué pide: si es un dato de SU página, usa ✨ o ⚡. Si es del funcionamiento o de los valores que muestra, pásaselo al admin (es del motor, no de este cliente).</div></details>
+  <details><summary>El cliente quiere cambiar su info (teléfono, nombre, color, historia)</summary><div class="gb"><ol><li>En "Agentes" o en la tarea, toca <b>✏️ Editar</b> o <b>⚡ Editar datos</b>.</li><li>Cambia lo que pide.</li><li>Guarda — si su página está publicada, el cambio sale al instante.</li><li>Marca la tarea <b>✓ Hecho</b> y <b>🔔 Avísale</b>.</li></ol></div></details>
   <details><summary>El cliente quiere subir fotos nuevas</summary><div class="gb"><ol><li>Pídele las fotos por <b>💬 WhatsApp</b>.</li><li><b>✏️ Editar</b> → paso <b>Logo y fotos</b> → súbelas.</li><li>Guarda y <b>Publica</b>. Marca <b>Hecho</b>.</li></ol></div></details>
   <details><summary>La página está "en construcción" / sin publicar</summary><div class="gb"><ol><li><b>✏️ Editar</b> y revisa que esté completa.</li><li>En el último paso toca <b>🚀 Publicar página al cliente</b>.</li></ol></div></details>
-  <details><summary>El cliente quiere su propio dominio (ej. sucasa.com)</summary><div class="gb"><ol><li><b>✏️ Editar</b> → paso <b>Su dominio</b> → buscar/conectar.</li><li>Pásale el registro <b>CNAME</b> para que lo ponga en su dominio.</li></ol></div></details>
   <details><summary>Dice que su página "no aparece" en Google</summary><div class="gb">Su página ya está en línea (sitio + valuador). Salir en Google toma tiempo. Confírmale que su link funciona y que ya puede compartirlo por WhatsApp y redes.</div></details>
   <details><summary>Pago falló / cuenta pausada</summary><div class="gb">Recuérdale por <b>💬 WhatsApp</b> actualizar su tarjeta. Cuando pague, la cuenta se reactiva sola. Si pagó por otro medio, avísale al admin.</div></details>
   <details><summary>Aparece "📱 link compartido"</summary><div class="gb">Su cuenta se está abriendo en muchos teléfonos — su equipo la está compartiendo. Ofrécele por <b>💬 WhatsApp</b> cuentas para su equipo (más venta para nosotros).</div></details>
-</div>
+  </div>
+</details></div>
 </div>
 <script>
+var QE=${JSON.stringify(qeData)};
 function quick(t){var i=document.getElementById('t_title');i.value=t;document.getElementById('t_slug').focus();}
+function mkTask(slug,prefix){document.getElementById('t_slug').value=slug;var i=document.getElementById('t_title');i.value=prefix;i.focus();window.scrollTo({top:document.getElementById('t_title').getBoundingClientRect().top+window.scrollY-140,behavior:'smooth'});}
 function addTask(){var s=document.getElementById('t_slug').value,t=document.getElementById('t_title').value.trim();if(!t){document.getElementById('t_title').focus();return;}
-  fetch('/api/cs/task?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,title:t})}).then(function(r){return r.json()}).then(function(){location.reload()}).catch(function(){alert('Error')});}
+  fetch('/api/cs/task?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:s,title:t})}).then(function(){location.reload()});}
 function tStat(id,st){fetch('/api/cs/task/'+encodeURIComponent(id)+'?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:st})}).then(function(){location.reload()});}
 function tDel(id){if(!confirm('¿Borrar tarea?'))return;fetch('/api/cs/task/'+encodeURIComponent(id)+'?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delete:true})}).then(function(){location.reload()});}
 function filt(){var q=document.getElementById('csearch').value.toLowerCase();document.querySelectorAll('#ctab tr[data-n]').forEach(function(r){r.style.display=r.getAttribute('data-n').indexOf(q)>=0?'':'none';});}
+/* ✨ two-step: PREVIEW (nothing saved) → the agent reads before→after → APPLY */
+function aiFix(id,btn){
+  var pv=document.getElementById('pv-'+id);
+  btn.disabled=true;var o=btn.textContent;btn.textContent='✨ Pensando…';
+  fetch('/api/cs/aifix?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})
+    .then(function(x){
+      btn.disabled=false;btn.textContent=o;
+      var j=x.j;pv.style.display='block';
+      if(x.s!==200){pv.innerHTML='<div class="pvbox pvno"><p class="pvsum">😕 '+(j.error||'No se pudo')+'</p></div>';return;}
+      if(!j.handled){pv.innerHTML='<div class="pvbox pvno"><p class="pvsum">🙋 '+(j.summary||'Esto lo tiene que hacer una persona.')+'</p></div>';return;}
+      var rows=(j.changes||[]).map(function(c){return '<div class="pvrow"><b>'+c.label+'</b><div class="pvold">'+esc2(c.before)+'</div><div class="pvnew">'+esc2(c.after)+'</div></div>'}).join('');
+      pv.innerHTML='<div class="pvbox"><p class="pvsum">✨ '+esc2(j.summary||'')+'</p>'+rows+
+        '<div class="pvbtns"><button class="tbtn go" onclick=\\'aiApply("'+id+'",this)\\'>✅ Sí, aplicar</button><button class="tbtn" onclick="this.closest(\\'.tpreview\\').style.display=\\'none\\'">✕ Cancelar</button></div></div>';
+      pv.dataset.patch=JSON.stringify(j.patch||{});
+    })
+    .catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});
+}
+function aiApply(id,btn){
+  var pv=document.getElementById('pv-'+id);
+  var patch={};try{patch=JSON.parse(pv.dataset.patch||'{}')}catch(e){}
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/cs/aifix/apply?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,patch:patch})})
+    .then(function(r){return r.json()}).then(function(j){if(j.ok)location.reload();else{alert(j.error||'Error');btn.disabled=false;btn.textContent='✅ Sí, aplicar';}})
+    .catch(function(){alert('Error de conexión');btn.disabled=false;btn.textContent='✅ Sí, aplicar';});
+}
+function notifyClient(id,btn){
+  btn.disabled=true;var o=btn.textContent;btn.textContent='🔔 Avisando…';
+  fetch('/api/cs/notify?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})})
+    .then(function(r){return r.json()}).then(function(j){
+      btn.disabled=false;
+      if(j.pushed){btn.textContent='✓ Avisado';setTimeout(function(){btn.textContent=o},2500);}
+      else if(j.waFallback){btn.textContent=o;if(confirm('Este cliente no tiene notificaciones activas. ¿Avisarle por WhatsApp?'))window.open(j.waFallback,'_blank');}
+      else{btn.textContent=o;alert(j.error||'No se pudo avisar');}
+    })
+    .catch(function(){btn.disabled=false;btn.textContent=o;alert('Error de conexión');});
+}
+function esc2(x){var d=document.createElement('div');d.textContent=String(x==null?'':x);return d.innerHTML;}
+function qeOpen(slug){var p=document.getElementById('qepanel');p.open=true;document.getElementById('qe_slug').value=slug;qeShow();p.scrollIntoView({behavior:'smooth'});}
+function qeShow(){
+  var slug=document.getElementById('qe_slug').value,f=document.getElementById('qe_form');
+  if(!slug||!QE[slug]){f.style.display='none';return;}
+  var d=QE[slug];f.style.display='block';
+  ['biz','phone','city','area','years','license','template','color','services','hero','tagline','about','diff','warranty'].forEach(function(k){var el=document.getElementById('qe_'+k);if(el)el.value=d[k]||'';});
+  document.getElementById('qe_prev').href='/site/'+slug+'?preview=1';
+  document.getElementById('qe_live').href='/site/'+slug;
+  document.getElementById('qe_msg').textContent='';
+}
+function qeSave(btn){
+  var slug=document.getElementById('qe_slug').value;if(!slug)return;
+  var v=function(k){var el=document.getElementById('qe_'+k);return el?el.value:''};
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/onboarding/save?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    slug:slug,biz:v('biz'),phone:v('phone'),city:v('city'),area:v('area'),years:v('years'),license:v('license'),
+    template:v('template'),color:v('color'),services:v('services').split(',').map(function(x){return x.trim()}).filter(Boolean),
+    hero:v('hero'),tagline:v('tagline'),about:v('about'),diff:v('diff'),warranty:v('warranty')
+  })}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent='💾 Guardar cambios';
+    document.getElementById('qe_msg').textContent=j.ok?'✓ Guardado':'Error: '+(j.error||'?');
+  }).catch(function(){btn.disabled=false;btn.textContent='💾 Guardar cambios';document.getElementById('qe_msg').textContent='Error de conexión';});
+}
 </script>
 </body></html>`);
 });

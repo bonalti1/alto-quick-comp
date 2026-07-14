@@ -6478,11 +6478,11 @@ app.get("/closer", async (req, res) => {
     scriptT: "🎤 Talk track — what you say on each slide",
     script: [
       ["01 · Welcome", "“Thanks for booking. In 10 minutes you'll see a home valued from real comparable sales. If it's not for you, no problem. Sound good?”"],
-      ["02 · Who we are", "“Before I show you anything: the owner runs construction and tech companies in Texas. He built this tool for his own deals — and uses it today for his own company. We're not an agency reselling software.”"],
+      ["02 · Who we are", "“Before I show you anything: Quick Comp was born inside Alto Realty Group, a real estate company in South Texas that was tired of comping all the time. They built these tools for their own agents — and they worked so well they opened them to the public. We're not an agency reselling software; we run our own deals on this.”"],
       ["03 · The problem", "“Quick question: how many sellers do you lose because they don't know their home already went up in value? … Most list with whoever shows them a number first. You don't lack contacts — you lack a system that brings sellers to you.”"],
-      ["04 · Your website", "“This is what YOUR site would look like — phone and computer. Now the good part: type YOUR address in the valuator. (wait for the wow — say nothing) That feeling? That's what your sellers will feel.”"],
-      ["05 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
-      ["06 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
+      ["04 · Your app", "“This app is your office. The one on the right is LIVE — tap VALUE A HOME, type a real address. (wait for the wow — say nothing) That feeling? That's what your sellers will feel. Every lead hits your phone with WhatsApp ready. Neighbor asks what theirs is worth? You value it standing right there and send a CMA.”"],
+      ["05 · AI secretary", "“Text it like you're a homeowner thinking of selling. (let them try) This same AI answers YOUR leads at 11pm and books the appointment. You just show up.”"],
+      ["06 · Your website", "“And this is what YOUR site would look like — phone and computer, with that same valuator inside working for you 24/7. Everybody has a website; almost nobody has one that values homes and captures the seller's number by itself.”"],
       ["07 · Investment", "“Separately this runs $1,500 plus monthlies. With us there are three plans and ZERO setup fees: 67 for the app, 197 if you already have a website — we put the valuator in it — or 297 and we build the whole site for you. One commission is thousands of dollars — ONE extra deal pays your whole year. (silence — let them talk first)”"],
       ["08 · Let's begin", "“This starts today: you pay, I send your app by WhatsApp before we hang up, and we book your onboarding. Want me to send the payment link?”"],
     ],
@@ -6518,11 +6518,11 @@ app.get("/closer", async (req, res) => {
     scriptT: "🎤 Guion — qué dices en cada slide",
     script: [
       ["01 · Bienvenida", "“Gracias por agendar. En 10 minutos vas a ver una casa valuada con ventas comparables reales. Si no es para ti, no pasa nada. ¿Te parece?”"],
-      ["02 · Quiénes somos", "“Antes de enseñarte nada: el dueño tiene compañías de construcción y tecnología en Texas. Esta herramienta la hizo para sus propios negocios — y hoy la usa para su propia compañía. No somos una agencia revendiendo software.”"],
+      ["02 · Quiénes somos", "“Antes de enseñarte nada: Quick Comp nació dentro de Alto Realty Group, una compañía de bienes raíces del sur de Texas que estaba cansada de sacar comparables a cada rato. Hicieron estas herramientas para sus propios agentes — y funcionaron tan bien que las abrieron al público. No somos una agencia revendiendo software; nuestros propios cierres corren con esto.”"],
       ["03 · El problema", "“Te pregunto algo: ¿cuántos vendedores pierdes porque no saben que su casa ya subió de valor? … La mayoría lista con el primero que les enseña un número. No te faltan contactos — te falta un sistema que te traiga vendedores.”"],
-      ["04 · Tu página", "“Así se vería TU página — en celular y computadora. Ahora lo bueno: pon TU dirección en el valuador. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores.”"],
-      ["05 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
-      ["06 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
+      ["04 · Tu app", "“Esta app es tu oficina. La de la derecha está VIVA — toca VALUAR CASA, pon una dirección real. (espera el wow — no digas nada) ¿Eso que sentiste? Eso van a sentir tus vendedores. Cada lead te llega con WhatsApp listo. ¿El vecino te pregunta cuánto vale la suya? La valúas ahí parado y le mandas un CMA.”"],
+      ["05 · Secretaria IA", "“Escríbele como si fueras un dueño pensando en vender. (déjalo probar) Esta misma IA le contesta a TUS leads a las 11 de la noche y agenda la cita. Tú solo llegas.”"],
+      ["06 · Tu página", "“Y así se vería TU página — en celular y computadora, con ese mismo valuador adentro trabajando 24/7. Todos tienen página; casi nadie tiene una que valúe casas y capture el teléfono del vendedor solita.”"],
       ["07 · Inversión", "“Por separado esto cuesta $1,500 más mensualidades. Con nosotros hay tres planes y CERO costo de inicio: 67 por la app, 197 si ya tienes página — le ponemos el valuador — o 297 y te hacemos la página completa. Una comisión son miles de dólares — UN cierre extra paga tu año entero. (silencio — deja que hable él primero)”"],
       ["08 · Empecemos", "“Esto empieza hoy: pagas, te mando tu app por WhatsApp antes de colgar, y agendamos tu onboarding. ¿Te mando el link de pago?”"],
     ],
@@ -6917,22 +6917,22 @@ app.get("/demo", (req, res) => {
     k1: "QUICK COMP · MARKETING & TECHNOLOGY FOR REALTORS", h1a: "More sellers,", h1b: "without chasing them.",
     b1: "Thanks for booking. In the next 10 minutes you'll see a home valued from real comparable sales — and how your website can bring you sellers 24 hours a day.",
     g1: "10 sec", g1s: "home valuation", g2: "24/7", g2s: "your site working", g3: "100%", g3s: "bilingual support", tag: "Your business, on top",
-    k2: "02 · WHO WE ARE", h2a: "Built by a Texas builder,", h2b: "for realtors.",
-    b2: "Rolando, our founder, owns residential construction and technology companies in Texas. Buying and valuing his own properties, he lived how hard it was to get an accurate number fast — so he built this tool for himself. It worked so well he opened it to the public, and today he uses this same system to get leads for his own company.",
-    p2a: "Builder-founder: he buys and sells real property, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
-    cap2: "Rolando · Founder of Quick Comp", ph2a: "Photo of Rolando and the team", ph2b: "in Quick Comp shirts",
+    k2: "02 · WHO WE ARE", h2a: "Built by a real estate company,", h2b: "for realtors.",
+    b2: "Quick Comp was born inside Alto Realty Group, a real estate company in South Texas that was tired of comping all the time. We built these tools for our own agents — an accurate number in seconds instead of an afternoon of research. They worked so well we opened them to the public, and Alto Realty Group still runs on this exact system every day.",
+    p2a: "Born inside a working real estate company — real deals, not just software", p2b: "20+ people on the Quick Comp team working behind your account", p2c: "We use our own tools, every single day",
+    cap2: "Rolando · Alto Realty Group · Founder of Quick Comp", ph2a: "Photo of Rolando and the team", ph2b: "in Quick Comp shirts",
     k3: "03 · WHY IT MATTERS", h3a: "Sellers slip away", h3b: "without a number.",
     p3a: 'When you\'re showing a house, you can\'t answer. And most sellers list with <b style="color:#fff">whoever responds first</b>.',
     p3b: 'Every CMA you build by hand costs you: the research, the comps, the time. <b style="color:#fff">And many of those never turn into a listing.</b>',
     p3c: 'A pretty website with no system behind it is <b style="color:#fff">an expensive business card</b>.',
     p3d: 'Big companies already answer with artificial intelligence — in seconds, around the clock. <b style="color:#fff">The question isn\'t whether this is coming. It\'s which side you\'ll be on.</b>',
     c3: "You work hard. What you're missing is a system that works when you can't.",
-    k4: "04 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
+    k4: "06 · YOUR WEBSITE", h4a: "This is what", h4b: "your site would look like.",
     b4: "It looks excellent on the phone and on the computer — with your logo, your colors and the home-value tool inside. This one is a sample; yours is delivered in 10–14 days. Both are live: scroll, and type YOUR address into the valuator.",
-    k5: "05 · YOUR APP", h5a: "Your office,", h5b: "in your pocket.",
+    k5: "04 · YOUR APP", h5a: "Your office,", h5b: "in your pocket.",
     p5a: "Value any home wherever you are: address or GPS, from real comparable sales", p5b: "Every lead hits your phone with a WhatsApp button and the message pre-written", p5c: "An AI texts your lead instantly and books the appointment for you", p5d: "Professional CMA reports with your brand",
     live5: '🔴 <b style="color:#fff">The app on the right is LIVE</b> — explore it: tap VALUE A HOME, type a real address and value it right here, with the client.',
-    k6: "06 · ARTIFICIAL INTELLIGENCE", h6a: "Your own secretary,", h6b: "who never sleeps.",
+    k6: "05 · ARTIFICIAL INTELLIGENCE", h6a: "Your own secretary,", h6b: "who never sleeps.",
     b6: "We all know artificial intelligence is here — what better way than starting now? Your own secretary answers the messages from customers landing on your website, at any hour of the day.",
     p6a: "Replies instantly — even at 11 at night", p6b: "Books the appointment for you. You just show up.", p6c: "You can read every conversation whenever you want", p6d: "Ready in 10–14 days — carrier registration of your number takes a few days",
     chHead: "🔴 LIVE DEMO — text it like you're the homeowner", chGreet: "Hi! 👋 I'm the assistant at Casa Bella Realty. How can I help you buy or sell a home?",
@@ -6958,22 +6958,22 @@ app.get("/demo", (req, res) => {
     k1: "QUICK COMP · MARKETING Y TECNOLOGÍA PARA AGENTES", h1a: "Más vendedores,", h1b: "sin perseguirlos.",
     b1: "Gracias por agendar. En los próximos 10 minutos vas a ver una casa valuada con ventas comparables reales — y cómo tu página puede traerte vendedores las 24 horas.",
     g1: "10 seg", g1s: "valuación de casa", g2: "24/7", g2s: "tu página trabajando", g3: "100%", g3s: "en español", tag: "Tu negocio, en alto",
-    k2: "02 · QUIÉNES SOMOS", h2a: "Construido por un constructor de Texas,", h2b: "para agentes.",
-    b2: "Rolando, nuestro fundador, tiene compañías de construcción residencial y de tecnología en Texas. Comprando y valuando sus propias propiedades vivió lo difícil que era sacar un número correcto rápido — así que construyó esta herramienta para él mismo. Funcionó tan bien que la abrió al público, y hoy usa este mismo sistema para conseguir leads para su propia compañía.",
-    p2a: "Fundador constructor: compra y vende propiedades, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",
-    cap2: "Rolando · Fundador de Quick Comp", ph2a: "Foto de Rolando y el equipo", ph2b: "con la camisa Quick Comp",
+    k2: "02 · QUIÉNES SOMOS", h2a: "Construido por una compañía de bienes raíces,", h2b: "para agentes.",
+    b2: "Quick Comp nació dentro de Alto Realty Group, una compañía de bienes raíces del sur de Texas que estaba cansada de sacar comparables a cada rato. Construimos estas herramientas para nuestros propios agentes — un número correcto en segundos en vez de una tarde de investigación. Funcionaron tan bien que las abrimos al público, y Alto Realty Group sigue trabajando con este mismo sistema todos los días.",
+    p2a: "Nació dentro de una compañía de bienes raíces real — cierres reales, no solo software", p2b: "Más de 20 personas del equipo Quick Comp trabajando detrás de tu cuenta", p2c: "Usamos nuestras propias herramientas, todos los días",
+    cap2: "Rolando · Alto Realty Group · Fundador de Quick Comp", ph2a: "Foto de Rolando y el equipo", ph2b: "con la camisa Quick Comp",
     k3: "03 · POR QUÉ IMPORTA", h3a: "Los vendedores se pierden", h3b: "sin un número.",
     p3a: 'Cuando estás enseñando una casa, no puedes contestar. Y la mayoría de los vendedores lista con <b style="color:#fff">el primero que les responde</b>.',
     p3b: 'Cada CMA que haces a mano cuesta: la investigación, las comparables, el tiempo. <b style="color:#fff">Y muchas nunca se vuelven un listing.</b>',
     p3c: 'Una página bonita sin un sistema detrás es <b style="color:#fff">una tarjeta de presentación cara</b>.',
     p3d: 'Las compañías grandes ya responden con inteligencia artificial — en segundos, a toda hora. <b style="color:#fff">La pregunta no es si esto llega. Es de qué lado vas a estar.</b>',
     c3: "Trabajas duro. Lo que te falta es un sistema que trabaje cuando tú no puedes.",
-    k4: "04 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
+    k4: "06 · TU PÁGINA WEB", h4a: "Así se vería", h4b: "tu página.",
     b4: "Se mira excelente en el celular y en la computadora — con tu logo, tus colores y el valuador adentro. Esta es de ejemplo; la tuya se entrega en 10–14 días. Las dos están vivas: haz scroll, y pon TU dirección en el valuador.",
-    k5: "05 · TU APP", h5a: "Tu oficina,", h5b: "en tu bolsillo.",
+    k5: "04 · TU APP", h5a: "Tu oficina,", h5b: "en tu bolsillo.",
     p5a: "Valúa cualquier casa donde estés: dirección o GPS, con ventas comparables reales", p5b: "Cada lead llega a tu teléfono con botón de WhatsApp y el mensaje ya escrito", p5c: "Una IA le textea a tu lead al momento y agenda la cita por ti", p5d: "Reportes CMA profesionales con tu marca",
     live5: '🔴 <b style="color:#fff">La app de la derecha está EN VIVO</b> — explórala: toca VALUAR CASA, pon una dirección real y valúala aquí mismo, con el cliente.',
-    k6: "06 · INTELIGENCIA ARTIFICIAL", h6a: "Tu propia secretaria,", h6b: "que nunca duerme.",
+    k6: "05 · INTELIGENCIA ARTIFICIAL", h6a: "Tu propia secretaria,", h6b: "que nunca duerme.",
     b6: "Todos sabemos que la inteligencia artificial ya viene — ¿qué mejor que empezar desde ahora? Tu propia secretaria contesta los mensajes de los clientes que llegan de tu página, a cualquier hora del día.",
     p6a: "Contesta al momento — aunque sean las 11 de la noche", p6b: "Agenda la cita por ti. Tú solo llegas a hacerla.", p6c: "Puedes ver cada conversación cuando quieras", p6d: "Lista en 10–14 días — el registro de tu número con las telefónicas tarda unos días",
     chHead: "🔴 DEMO EN VIVO — escríbele como si fueras el dueño", chGreet: "¡Hola! 👋 Soy la asistente de Casa Bella Realty. ¿Le puedo ayudar a comprar o vender una casa?",
@@ -7191,19 +7191,6 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
   </div>
 </section>
 
-<section class="slide" data-t="${L.t4}">
-  <div class="s-veil"></div>
-  <div class="s-in" style="max-width:1180px">
-    <p class="kick">${L.k4}</p>
-    <h1>${L.h4a} <em>${L.h4b}</em></h1>
-    <p class="body" style="margin-top:14px">${L.b4}</p>
-    <div class="devices">
-      <div class="webframe"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">tunegocio.com</span></div><div class="dscr"><iframe data-src="/ejemplo?embed=1" title="Web"></iframe></div></div>
-      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/ejemplo?embed=1" title="Mobile"></iframe></div></div>
-    </div>
-  </div>
-</section>
-
 <section class="slide" data-t="${L.t5}">
   <div class="s-veil"></div>
   <div class="s-in" style="max-width:1120px">
@@ -7252,6 +7239,19 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </div>
         <div class="ch-foot">${L.chFoot}</div>
       </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-t="${L.t4}">
+  <div class="s-veil"></div>
+  <div class="s-in" style="max-width:1180px">
+    <p class="kick">${L.k4}</p>
+    <h1>${L.h4a} <em>${L.h4b}</em></h1>
+    <p class="body" style="margin-top:14px">${L.b4}</p>
+    <div class="devices">
+      <div class="webframe"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">tunegocio.com</span></div><div class="dscr"><iframe data-src="/ejemplo?embed=1" title="Web"></iframe></div></div>
+      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/ejemplo?embed=1" title="Mobile"></iframe></div></div>
     </div>
   </div>
 </section>

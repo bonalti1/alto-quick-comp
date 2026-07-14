@@ -13,10 +13,10 @@ re-deriving any process.
 ## Map
 
 - `tradetechpro/server/index.mjs` — the monolith: APIs, portals (/admin, /cs,
-  /closer, /onboarding), sales landing (/ventas — also served at the bare
-  ROOT_DOMAIN), sales deck (/demo), client widgets (/w/:slug), sample site
-  (/ejemplo), shared client reports (/r), Stripe + Cloudflare + GHL
-  integrations.
+  /closer, /onboarding, /hq — owner-only cockpit gated by HQ_KEY exclusively),
+  sales landing (/ventas — also served at the bare ROOT_DOMAIN), sales deck
+  (/demo), client widgets (/w/:slug), sample site (/ejemplo), shared client
+  reports (/r), Stripe + Cloudflare + Render + GHL integrations.
 - `tradetechpro/server/templates.mjs` — the website factory: client-site
   templates rendered from data.
 - `tradetechpro/server/valuation.mjs` — the comp engine: normalizes RentCast

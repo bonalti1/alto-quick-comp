@@ -68,6 +68,12 @@ re-deriving any process.
   `forwardLead` → per-account GHL webhook (`data.webhook`, https only).
   Channel leads (WhatsApp/IG/Messenger) come IN from GHL via `/api/hl/lead`
   (HL_WEBHOOK_SECRET, phone dedupe 24h) and are NOT re-forwarded (no loop).
+- **Site bot**: every published client site ships the AI chat bubble
+  (templates.mjs `chatHtml`); `/api/widget/chat` answers as that realtor using
+  `site.botFacts` (composed from the structured `site.botTrain` by the /cs
+  trainer) as the ONLY extra truth; a phone typed in chat becomes a real lead
+  (saved + forwarded + push). Staff preview (?preview=1) = test mode, no leads.
+  Fair Housing rules are hard-coded in every bot prompt.
 - **Stripe**: 3 payment links (env: STRIPE_PAYMENT_LINK[_PRO|_WIDGET]),
   webhook tags plan by exact amount paid ($67→pro, $197→widget,
   $297→complete, ±$10 tolerance), handles pay-before-account via

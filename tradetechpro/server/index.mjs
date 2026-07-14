@@ -3957,7 +3957,7 @@ ${pPhone ? `<a href="tel:+1${pPhone}">📞 Llámanos / Call us</a>` : ""}
   // Not published yet → branded "en construcción" page (the site is ready
   // internally; staff reveal it on delivery day). Staff preview with ?preview=1.
   const published = c.data?.site?.published === true;
-  const preview = req.query.preview != null && closerOk(req);
+  const preview = req.query.preview != null && (closerOk(req) || csOk(req));
   if (!published && !preview) {
     const cProf = c.data?.profile || {};
     const cBiz = String(cProf.biz || c.name).replace(/[&<>"]/g, "");
@@ -4096,6 +4096,7 @@ app.post("/api/change-request", async (req, res) => {
   // The realtor tags what it's about on the phone — the ticket lands in /cs
   // pre-sorted, with the right suggestion and the right buttons.
   const TITLES = {
+    bot: "🤖 Cliente pide cambio del BOT",
     web: "🌐 Cliente pide cambio de su PÁGINA",
     widget: "🏡 Cliente pide cambio del VALUADOR",
     queja: "😕 QUEJA del cliente",
@@ -4112,7 +4113,7 @@ app.get("/api/my-requests", async (req, res) => {
   const c = await auth(req);
   if (!c) return res.status(401).json({ error: "no session" });
   const mine = (await db.listTasks(500))
-    .filter((t) => t.slug === c.slug && /^(🌐 Cliente|🏡 Cliente|😕|🙋)/.test(String(t.title || "")))
+    .filter((t) => t.slug === c.slug && /^(🤖|🌐 Cliente|🏡 Cliente|😕|🙋)/.test(String(t.title || "")))
     .slice(0, 20)
     .map((t) => ({ id: t.id, note: String(t.note || "").slice(0, 200), status: t.status, at: t.created_at }));
   res.json({ tickets: mine });
@@ -4141,8 +4142,9 @@ app.post("/api/cs/task/:id", async (req, res) => {
 
 // Plain-language names for the only fields the AI is allowed to touch —
 // shown to the CS agent so "✨ Arreglar en automático" is never a black box.
-const SITEFIX_CAPS = { hero: 160, tagline: 300, about: 1400, warranty: 120, area: 200, city: 80, diff: 300 };
+const SITEFIX_CAPS = { botFacts: 1600, hero: 160, tagline: 300, about: 1400, warranty: 120, area: 200, city: 80, diff: 300 };
 const SITEFIX_LABELS = {
+  botFacts: "Lo que el bot del chat puede afirmar (oficina, horarios, idiomas, FAQs)",
   hero: "Título grande de la página",
   tagline: "Frase debajo del título",
   about: "Historia / quiénes somos",
@@ -4151,6 +4153,79 @@ const SITEFIX_LABELS = {
   city: "Ciudad principal",
   diff: "Qué lo hace diferente",
 };
+
+/* Bot training (ALTO pattern, realtor fields): structured truths the site
+ * bot may assert, composed into the single botFacts blob the chat reads. */
+function sanitizeTrain(t) {
+  const S = (x, n) => String(x || "").replace(/\s+/g, " ").trim().slice(0, n);
+  return {
+    addr: S(t.addr, 160), hours: S(t.hours, 160), languages: S(t.languages, 120),
+    lending: S(t.lending, 200), buyers: S(t.buyers, 200), promos: S(t.promos, 200), extra: S(t.extra, 400),
+    faqs: (Array.isArray(t.faqs) ? t.faqs : []).map((f) => ({ q: S(f?.q, 120), a: S(f?.a, 250) })).filter((f) => f.q && f.a).slice(0, 10),
+  };
+}
+function composeBotFacts(train) {
+  const parts = [
+    train.addr && `Oficina/dirección: ${train.addr}`,
+    train.hours && `Horarios: ${train.hours}`,
+    train.languages && `Idiomas: ${train.languages}`,
+    train.lending && `Crédito/prestamistas: ${train.lending}`,
+    train.buyers && `Compradores: ${train.buyers}`,
+    train.promos && `Promociones: ${train.promos}`,
+    train.extra,
+  ].filter(Boolean);
+  const faqs = Array.isArray(train.faqs) ? train.faqs : [];
+  const faqTxt = faqs.length ? ` Preguntas frecuentes (respuestas oficiales): ${faqs.map((f) => `P: ${f.q} R: ${f.a}`).join(" | ")}` : "";
+  return (parts.join(". ") + (parts.length ? "." : "") + faqTxt).replace(/\.{2,}/g, ".").trim().slice(0, 1600);
+}
+
+app.post("/api/cs/bottrain", async (req, res) => {
+  if (!csOk(req) && !closerOk(req)) return res.status(403).json({ error: "no auth" });
+  const b = req.body || {};
+  const c = b.slug && (await db.getContractorBySlug(String(b.slug)));
+  if (!c) return res.status(404).json({ error: "cliente no encontrado" });
+  const train = sanitizeTrain(b.train || {});
+  const facts = composeBotFacts(train);
+  await db.saveContractorData(c.id, { ...(c.data || {}), site: { ...(c.data?.site || {}), botTrain: train, botFacts: facts } });
+  res.json({ ok: true, chars: facts.length, max: 1600 });
+});
+
+/* FAQ suggestions for the bot — the rep reads them to the client, keeps the
+ * approved ones. With no AI key it returns a solid realtor starter pack
+ * personalized from the same facts. */
+app.post("/api/onboarding/botfaq", async (req, res) => {
+  if (!closerOk(req) && !csOk(req)) return res.status(403).json({ error: "no auth" });
+  const b = req.body || {};
+  const S = (x, n) => String(x || "").replace(/\s+/g, " ").trim().slice(0, n);
+  const zone = S(b.area, 80) || S(b.city, 60);
+  const fallback = [
+    { q: "¿Cobran por saber cuánto vale mi casa?", a: "No — el valuador de la página es gratis, y el análisis completo (CMA) también." },
+    { q: "¿Qué tan exacto es el estimado?", a: "Sale de ventas recientes comparables y se da en rango; el agente lo afina con un análisis completo gratis." },
+    { q: "¿También ayudan a comprar?", a: "Sí — compra, venta y renta. Déjenos su teléfono y le llamamos hoy." },
+    { q: "¿En qué zonas trabajan?", a: zone ? `Trabajamos en ${zone} y alrededores.` : "Trabajamos en toda la zona local — déjenos su dirección y le confirmamos." },
+    { q: "¿Hablan español?", a: "Sí — le atendemos en español o inglés, como usted prefiera." },
+    { q: "¿Qué tan rápido responden?", a: "El mismo día — deje su nombre y teléfono aquí en el chat y el agente le llama." },
+  ];
+  if (!aiLive) return res.json({ ok: true, source: "demo", faqs: fallback });
+  const facts = [
+    b.biz && `Agencia: ${S(b.biz, 80)}`,
+    zone && `Zona: ${zone}`,
+    b.warranty && `Promesa: ${S(b.warranty, 120)}`,
+    b.diff && `Los diferencia: ${S(b.diff, 200)}`,
+    b.botAddr && `Oficina: ${S(b.botAddr, 120)}`,
+    b.botHours && `Horarios: ${S(b.botHours, 120)}`,
+  ].filter(Boolean).join("\n");
+  try {
+    const raw = await aiChat({
+      maxTokens: 700,
+      system: `Eres el asistente del sitio web de una agencia de bienes raíces. Con los datos que te doy, escribe las 6 preguntas más frecuentes que un dueño de casa haría por chat, con su respuesta oficial corta (máx 30 palabras), en español sencillo y cálido. NO inventes datos que no te di (comisiones, tiempos exactos, zonas): si el dato no está, la respuesta debe ofrecer confirmarlo por teléfono. Nunca prometas precios ni citas con hora. Cumple Fair Housing: nada sobre calidad de vecindarios, escuelas o tipos de personas. Responde SOLO con un arreglo JSON: [{"q":"…","a":"…"}] — sin markdown.`,
+      messages: [{ role: "user", content: facts || "Agencia de bienes raíces local, sin datos extra." }],
+    });
+    const arr = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] || "[]");
+    const faqs = (Array.isArray(arr) ? arr : []).map((f) => ({ q: S(f?.q, 120), a: S(f?.a, 250) })).filter((f) => f.q && f.a).slice(0, 8);
+    res.json({ ok: true, source: "live", faqs: faqs.length ? faqs : fallback });
+  } catch { res.json({ ok: true, source: "demo", faqs: fallback }); }
+});
 
 /* ✨ Step 1 — PREVIEW: the AI proposes a patch to ONLY the whitelisted site
  * fields. Nothing is saved and the ticket isn't touched — the agent sees
@@ -4167,14 +4242,15 @@ app.post("/api/cs/aifix", async (req, res) => {
   if (!c) return res.status(404).json({ error: "cliente no encontrado" });
   if (!aiLive) return res.status(503).json({ error: "IA no configurada en el servidor" });
   const st = c.data?.site || {};
-  const cur = { hero: st.hero || "", tagline: st.tagline || "", about: st.about || "", warranty: st.warranty || "", area: st.area || "", city: st.city || "", diff: st.diff || "" };
-  const kindHint = t.title.startsWith("🌐") ? " El cliente marcó que la solicitud es sobre su PÁGINA web: revisa hero, tagline, about, warranty, area, city, diff."
+  const cur = { botFacts: st.botFacts || "", hero: st.hero || "", tagline: st.tagline || "", about: st.about || "", warranty: st.warranty || "", area: st.area || "", city: st.city || "", diff: st.diff || "" };
+  const kindHint = t.title.startsWith("🤖") ? " El cliente marcó que la solicitud es sobre el BOT del chat: casi seguro el cambio va en botFacts (oficina, horarios, idiomas, FAQs — todo lo que el bot afirma). REESCRIBE botFacts completo conservando lo actual que siga siendo cierto."
+    : t.title.startsWith("🌐") ? " El cliente marcó que la solicitud es sobre su PÁGINA web: revisa hero, tagline, about, warranty, area, city, diff — y botFacts si también aplica."
     : t.title.startsWith("🏡") ? " El cliente marcó que es sobre su VALUADOR (el widget de valor de casa): el widget no tiene textos editables aparte — si pide otra cosa (colores, dominio, funcionamiento), handled=false para que lo vea un especialista."
     : "";
   try {
     const raw = await aiChat({
       maxTokens: 600,
-      system: `Eres el editor del sitio web de un agente de bienes raíces. Te doy la SOLICITUD del cliente y sus campos editables actuales. Responde SOLO con JSON: {"handled": true/false, "summary": "en una frase, en español simple, qué cambiarías y por qué (o por qué debe hacerlo un especialista)", "patch": {…solo los campos que cambias, entre: hero, tagline, about, warranty, area, city, diff}}. Reglas: hero máximo 8 palabras. No inventes datos que el cliente no dio. Cumple Fair Housing: nunca escribas afirmaciones sobre la calidad de vecindarios, escuelas o tipos de personas. Si piden algo fuera de esos campos (fotos, dominio, plantilla, precios, facturación, logo, el valuador), handled=false.${kindHint}`,
+      system: `Eres el editor del sitio web de un agente de bienes raíces. Te doy la SOLICITUD del cliente y sus campos editables actuales. Responde SOLO con JSON: {"handled": true/false, "summary": "en una frase, en español simple, qué cambiarías y por qué (o por qué debe hacerlo un especialista)", "patch": {…solo los campos que cambias, entre: botFacts, hero, tagline, about, warranty, area, city, diff}}. Reglas: botFacts son los datos que el bot del chat afirma (oficina, horarios, idiomas, FAQs) — si la solicitud es de ese tipo, REESCRIBE botFacts completo conservando lo actual que siga siendo cierto. hero máximo 8 palabras. No inventes datos que el cliente no dio. Cumple Fair Housing: nunca escribas afirmaciones sobre la calidad de vecindarios, escuelas o tipos de personas. Si piden algo fuera de esos campos (fotos, dominio, plantilla, precios, facturación, logo, el valuador), handled=false.${kindHint}`,
       messages: [{ role: "user", content: `SOLICITUD DEL CLIENTE: ${String(t.note).slice(0, 600)}\n\nCAMPOS ACTUALES: ${JSON.stringify(cur)}` }],
     });
     const j = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || "{}");
@@ -4287,19 +4363,33 @@ app.get("/cs", async (req, res) => {
       about: s.about || "", published: !!s.published,
     };
   }
+  // Bot trainer data: structured botTrain when it exists; else seed "extra"
+  // with a hand-written botFacts so nothing already taught gets lost.
+  const btData = {};
+  for (const c of clients) {
+    const s = c.data?.site || {};
+    const bt = s.botTrain || null;
+    btData[c.slug] = {
+      addr: bt?.addr || "", hours: bt?.hours || "", languages: bt?.languages || "",
+      lending: bt?.lending || "", buyers: bt?.buyers || "", promos: bt?.promos || "",
+      extra: bt ? bt.extra || "" : (s.botFacts || ""),
+      faqs: Array.isArray(bt?.faqs) ? bt.faqs : [],
+    };
+  }
   // Tasks: pending is the morning worklist; done is history, tucked away.
   const pendTasks = tasks.filter((t) => t.status !== "done");
   const doneTasks = tasks.filter((t) => t.status === "done");
   const taskRow = (t, badge) => {
     // Client-request tickets arrive pre-tagged from the app; each kind gets
     // its own one-line playbook and only the buttons that make sense.
-    const kind = t.title.startsWith("🌐 Cliente") ? "web" : t.title.startsWith("🏡 Cliente") ? "widget" : t.title.startsWith("😕") ? "queja" : t.title.startsWith("🙋") ? "any" : "";
+    const kind = t.title.startsWith("🤖") ? "bot" : t.title.startsWith("🌐 Cliente") ? "web" : t.title.startsWith("🏡 Cliente") ? "widget" : t.title.startsWith("😕") ? "queja" : t.title.startsWith("🙋") ? "any" : "";
     const cli = kind && t.slug ? clients.find((x) => x.slug === t.slug) : null;
     const cwa = cli ? waOf(phoneOf(cli)) : "";
-    const hint = kind === "web" ? "💡 Textos, zonas o datos → toca ✨ y revisa el cambio antes de aplicarlo. Fotos, plantilla o dominio → ✏️ Onboarding."
+    const hint = kind === "bot" ? "💡 Toca ✨ para VER qué cambiaría antes de aplicarlo. Luego pruébalo tú mismo en su chat, y avísale con 🔔."
+      : kind === "web" ? "💡 Textos, zonas o datos → toca ✨ y revisa el cambio antes de aplicarlo. Fotos, plantilla o dominio → ✏️ Onboarding."
       : kind === "widget" ? "💡 El valuador no tiene textos editables — lee qué pide: si es del funcionamiento o los valores, pásalo al admin; si en realidad es de su página, toca ✨."
       : kind === "queja" ? "💡 Una queja se arregla hablando — mándale WhatsApp o llámalo hoy. Nada de botones."
-      : kind === "any" ? "💡 Léelo: si es de su página, toca ✨ y revisa antes de aplicar. Si es otra cosa, hazlo con ⚡ Editar datos u ✏️ Onboarding."
+      : kind === "any" ? "💡 Léelo: si es del bot o de la página, toca ✨ y revisa antes de aplicar. Si es otra cosa, hazlo con ⚡ Editar datos u ✏️ Onboarding."
       : "";
     return `<details class="task ${t.status}">
     <summary class="attsum">
@@ -4317,6 +4407,8 @@ app.get("/cs", async (req, res) => {
       <div class="aacts">
         ${t.status !== "done" && t.slug && t.note && kind !== "queja" ? `<button class="tbtn" style="border-color:#C9973A" onclick="aiFix('${t.id}',this)">${kind ? "✨ Ver arreglo automático" : "✨ IA"}</button>` : ""}
         ${t.slug ? `<button class="tbtn" onclick="qeOpen('${esc(t.slug)}')">⚡ Editar datos</button>` : ""}
+        ${t.slug && (kind === "bot" || kind === "any" || !kind) ? `<button class="tbtn" onclick="btOpen('${esc(t.slug)}')">🤖 Entrenar bot</button>` : ""}
+        ${kind && kind !== "queja" && t.slug ? `<a class="tbtn" href="/site/${esc(t.slug)}?preview=1&chat=open" target="_blank">💬 Probar su chat</a>` : ""}
         ${cwa && t.status !== "done" ? `<a class="wa" href="${cwa}" target="_blank" style="padding:6px 12px;border-radius:9px;font-size:12.5px">💬 WhatsApp</a>` : ""}
         ${kind && kind !== "queja" && t.slug ? `<button class="tbtn" onclick="notifyClient('${t.id}',this)">🔔 Avisarle</button>` : ""}
         ${t.status === "open" && !kind ? `<button class="tbtn" onclick="tStat('${t.id}','doing')">▶ Empezar</button>` : ""}
@@ -4365,6 +4457,8 @@ body{background:#F5F6F8;color:#0B1220;letter-spacing:-0.011em}
 .qe textarea{resize:vertical}
 .qe .full{grid-column:1/-1}
 .qemsg{font-size:13px;font-weight:700;color:#10803C}
+.btfaq{display:grid;grid-template-columns:1fr 1.4fr auto;gap:8px;margin:0 0 8px}
+@media(max-width:700px){.btfaq{grid-template-columns:1fr;border-bottom:1px dashed #E4E7EC;padding-bottom:10px}}
 .tdone{margin-top:14px;border-top:1px solid #F2F4F7}
 .tdsum{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 4px;color:#8A94A8;font-weight:700;font-size:13px}
 .tdsum::-webkit-details-marker{display:none}
@@ -4564,9 +4658,40 @@ ${attention.length ? `<div class="panel"><details open><summary class="psum"><h2
     <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0">📷 Logo y fotos se cambian en el onboarding (suben archivos). Todo lo demás se guarda desde aquí — y si su página ya está publicada, el cambio sale al instante.</p>
     <div class="aacts" style="border-top:none;padding-top:0">
       <button class="tbtn go" id="qe_save" onclick="qeSave(this)">💾 Guardar cambios</button>
+      <button class="tbtn" onclick="btOpen(document.getElementById('qe_slug').value)">🤖 Entrenar su bot</button>
       <a class="tbtn" id="qe_prev" href="#" target="_blank">👁️ Ver borrador</a>
       <a class="tbtn" id="qe_live" href="#" target="_blank">🌐 Ver página</a>
       <span class="qemsg" id="qe_msg"></span>
+    </div>
+  </div>
+  </div>
+</details></div>
+
+<div class="panel qe"><details id="btpanel"><summary class="psum"><h2 style="margin:0">🤖 Entrenamiento del bot <span style="color:#9097A3;font-weight:600;font-size:13px">— todo lo que el bot del chat puede afirmar; lo que no esté aquí, dice que se confirma por teléfono</span></h2></summary>
+  <div class="pbody">
+  <select id="bt_slug" onchange="btShow()" style="max-width:340px;margin-bottom:4px"><option value="">— elige un agente —</option>${clients.map((c) => `<option value="${esc(c.slug)}">${esc(c.name)}</option>`).join("")}</select>
+  <div id="bt_form" style="display:none">
+    <div class="qegrid" style="margin-top:14px">
+      <label><span class="qel">📍 Oficina / dirección</span><input id="bt_addr" placeholder='ej. "123 Main St, McAllen" o "sin oficina — atendemos a domicilio"'></label>
+      <label><span class="qel">🕐 Horarios</span><input id="bt_hours" placeholder="ej. Lun–Vie 9am–6pm, sábados con cita"></label>
+      <label><span class="qel">🗣️ Idiomas</span><input id="bt_languages" placeholder="ej. Español e inglés"></label>
+      <label><span class="qel">💳 Crédito / prestamistas</span><input id="bt_lending" placeholder='ej. "Trabajamos con varios prestamistas y le conectamos" o dejar vacío'></label>
+      <label><span class="qel">🔑 Compradores</span><input id="bt_buyers" placeholder="ej. Sí ayudamos a comprar — casas, terrenos e inversión"></label>
+      <label><span class="qel">🎁 Promociones vigentes</span><input id="bt_promos" placeholder="ej. Valuación completa (CMA) gratis este mes"></label>
+      <label class="full"><span class="qel">➕ Otros datos confirmados</span><textarea id="bt_extra" rows="2" placeholder="Cualquier otra verdad que el bot pueda afirmar de esta agencia…"></textarea></label>
+    </div>
+    <div class="asec" style="margin-top:14px"><b>Preguntas frecuentes — respuestas oficiales (máx. 10)</b>
+      <div id="bt_faqs"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+        <button class="tbtn" type="button" onclick="btAddFaq('','')">＋ Agregar pregunta</button>
+        <button class="tbtn" type="button" onclick="btSuggest(this)">✨ Sugerir con IA</button>
+      </div>
+    </div>
+    <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0;line-height:1.6">🧠 El bot solo afirma lo que esté aquí — lo demás contesta "se lo confirmamos por teléfono". Nunca da el valor de una casa (manda al valuador de la página) ni agenda citas, y cumple Fair Housing siempre.</p>
+    <div class="aacts" style="border-top:none;padding-top:2px">
+      <button class="tbtn go" id="bt_save" onclick="btSave(this)">💾 Guardar entrenamiento</button>
+      <a class="tbtn" id="bt_chat" href="#" target="_blank">💬 Probar el chat</a>
+      <span class="qemsg" id="bt_msg"></span>
     </div>
   </div>
   </div>
@@ -4595,6 +4720,7 @@ ${attention.length ? `<div class="panel"><details open><summary class="psum"><h2
 
 <div class="panel guide"><details><summary class="psum"><h2 style="margin:0">📘 Guía rápida — cómo hacer cada cosa</h2></summary>
   <div class="pbody">
+  <details><summary>El cliente quiere que el BOT diga algo (oficina, horarios, idiomas)</summary><div class="gb"><ol><li>En la tarea, toca <b>✨ Ver arreglo automático</b> — la IA te MUESTRA qué cambiaría (antes → después), sin guardar nada todavía.</li><li>Lee el cambio. Si tiene sentido, toca <b>✅ Sí, aplicar</b>. Si no, <b>✕ Cancelar</b> y hazlo tú con 🤖 Entrenar bot.</li><li>Toca <b>💬 Probar su chat</b> (es el chat REAL de ese agente, no uno genérico) y pregúntale lo que el cliente pidió — es un chat de prueba, no crea leads falsos.</li><li>Toca <b>🔔 Avisarle</b> — le llega un aviso directo a su celular (push). Marca <b>✓ Hecho</b>.</li></ol></div></details>
   <details><summary>El cliente pide un cambio de su PÁGINA (textos, zonas, datos)</summary><div class="gb"><ol><li>En la tarea, toca <b>✨ Ver arreglo automático</b> — la IA te MUESTRA qué cambiaría (antes → después), sin guardar nada todavía.</li><li>Lee el cambio. Si tiene sentido, toca <b>✅ Sí, aplicar</b>. Si no, <b>✕ Cancelar</b> y hazlo tú con ⚡ Editar datos.</li><li>Toca <b>🔔 Avisarle</b> — le llega un aviso directo a su celular (push). Marca <b>✓ Hecho</b>.</li></ol></div></details>
   <details><summary>El cliente pide algo del VALUADOR (el widget de su página)</summary><div class="gb">El valuador no tiene textos editables — funciona igual para todos. Lee qué pide: si es un dato de SU página, usa ✨ o ⚡. Si es del funcionamiento o de los valores que muestra, pásaselo al admin (es del motor, no de este cliente).</div></details>
   <details><summary>El cliente quiere cambiar su info (teléfono, nombre, color, historia)</summary><div class="gb"><ol><li>En "Agentes" o en la tarea, toca <b>✏️ Editar</b> o <b>⚡ Editar datos</b>.</li><li>Cambia lo que pide.</li><li>Guarda — si su página está publicada, el cambio sale al instante.</li><li>Marca la tarea <b>✓ Hecho</b> y <b>🔔 Avísale</b>.</li></ol></div></details>
@@ -4608,6 +4734,7 @@ ${attention.length ? `<div class="panel"><details open><summary class="psum"><h2
 </div>
 <script>
 var QE=${JSON.stringify(qeData)};
+var BT=${JSON.stringify(btData)};
 function quick(t){var i=document.getElementById('t_title');i.value=t;document.getElementById('t_slug').focus();}
 function mkTask(slug,prefix){document.getElementById('t_slug').value=slug;var i=document.getElementById('t_title');i.value=prefix;i.focus();window.scrollTo({top:document.getElementById('t_title').getBoundingClientRect().top+window.scrollY-140,behavior:'smooth'});}
 function addTask(){var s=document.getElementById('t_slug').value,t=document.getElementById('t_title').value.trim();if(!t){document.getElementById('t_title').focus();return;}
@@ -4654,6 +4781,54 @@ function notifyClient(id,btn){
 }
 function esc2(x){var d=document.createElement('div');d.textContent=String(x==null?'':x);return d.innerHTML;}
 function qeOpen(slug){var p=document.getElementById('qepanel');p.open=true;document.getElementById('qe_slug').value=slug;qeShow();p.scrollIntoView({behavior:'smooth'});}
+/* 🤖 Bot trainer — structured truths → composed botFacts on save */
+function btOpen(slug){if(!slug)return;var p=document.getElementById('btpanel');p.open=true;document.getElementById('bt_slug').value=slug;btShow();p.scrollIntoView({behavior:'smooth'});}
+function btShow(){
+  var slug=document.getElementById('bt_slug').value,f=document.getElementById('bt_form');
+  if(!slug||!BT[slug]){f.style.display='none';return;}
+  var d=BT[slug];f.style.display='block';
+  ['addr','hours','languages','lending','buyers','promos','extra'].forEach(function(k){var el=document.getElementById('bt_'+k);if(el)el.value=d[k]||'';});
+  document.getElementById('bt_faqs').innerHTML='';
+  (d.faqs||[]).forEach(function(fq){btAddFaq(fq.q,fq.a);});
+  document.getElementById('bt_chat').href='/site/'+slug+'?preview=1&chat=open';
+  document.getElementById('bt_msg').textContent='';
+}
+function btAddFaq(q,a){
+  var box=document.getElementById('bt_faqs');
+  if(box.children.length>=10)return;
+  var row=document.createElement('div');row.className='btfaq';
+  row.innerHTML='<input class="bfq" placeholder="Pregunta (ej. ¿Cobran por la valuación?)"><input class="bfa" placeholder="Respuesta oficial corta"><button class="tbtn del" type="button" onclick="this.parentNode.remove()">✕</button>';
+  row.querySelector('.bfq').value=q||'';row.querySelector('.bfa').value=a||'';
+  box.appendChild(row);
+}
+function btFaqs(){
+  return [].map.call(document.querySelectorAll('#bt_faqs .btfaq'),function(r){
+    return {q:r.querySelector('.bfq').value.trim(),a:r.querySelector('.bfa').value.trim()};
+  }).filter(function(f){return f.q&&f.a;});
+}
+function btSave(btn){
+  var slug=document.getElementById('bt_slug').value;if(!slug)return;
+  var v=function(k){var el=document.getElementById('bt_'+k);return el?el.value:''};
+  btn.disabled=true;btn.textContent='Guardando…';
+  fetch('/api/cs/bottrain?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:slug,train:{
+    addr:v('addr'),hours:v('hours'),languages:v('languages'),lending:v('lending'),buyers:v('buyers'),promos:v('promos'),extra:v('extra'),faqs:btFaqs()
+  }})}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent='💾 Guardar entrenamiento';
+    document.getElementById('bt_msg').textContent=j.ok?('✓ Guardado ('+j.chars+'/'+j.max+')'):'Error: '+(j.error||'?');
+  }).catch(function(){btn.disabled=false;btn.textContent='💾 Guardar entrenamiento';document.getElementById('bt_msg').textContent='Error de conexión';});
+}
+function btSuggest(btn){
+  var slug=document.getElementById('bt_slug').value;if(!slug)return;
+  var qe=QE[slug]||{};
+  btn.disabled=true;var o=btn.textContent;btn.textContent='✨ Pensando…';
+  fetch('/api/onboarding/botfaq?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    biz:qe.biz,city:qe.city,area:qe.area,warranty:qe.warranty,diff:qe.diff,
+    botAddr:document.getElementById('bt_addr').value,botHours:document.getElementById('bt_hours').value
+  })}).then(function(r){return r.json()}).then(function(j){
+    btn.disabled=false;btn.textContent=o;
+    (j.faqs||[]).forEach(function(f){btAddFaq(f.q,f.a);});
+  }).catch(function(){btn.disabled=false;btn.textContent=o;alert('No se pudo — agrega las preguntas a mano');});
+}
 function qeShow(){
   var slug=document.getElementById('qe_slug').value,f=document.getElementById('qe_form');
   if(!slug||!QE[slug]){f.style.display='none';return;}

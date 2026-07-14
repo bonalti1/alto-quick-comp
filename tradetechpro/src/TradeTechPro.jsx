@@ -3184,6 +3184,7 @@ export default function TradeTechPro() {
   const Help = () => {
     const KINDS = [
       ["web", "🌐", lang === "es" ? "Mi página" : "My website"],
+      ["bot", "🤖", lang === "es" ? "Mi asistente (chat)" : "My chat assistant"],
       ["widget", "🏡", lang === "es" ? "Mi valuador" : "My widget"],
       ["queja", "😕", lang === "es" ? "Algo salió mal" : "Something's wrong"],
       ["any", "🙋", lang === "es" ? "Otra cosa" : "Something else"],

@@ -2440,6 +2440,54 @@ function queueTask(slug, title, note) {
   return db.addTask({ slug: slug || "", title, note }).catch((e) => console.error("queue task failed:", e.message));
 }
 
+/* ── Crash reporter (ALTO pattern) ──
+ * index.html quietly posts real-device JS errors here; staff read them at
+ * /errors. Credential-like URL params are redacted on BOTH sides. */
+app.post("/api/clienterror", async (req, res) => {
+  try {
+    const ceIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+    if (!overQuota(`ce:${ceIp}`, 20)) {
+      const e = req.body || {};
+      // Belt-and-suspenders: strip credential-like params server-side too, so a
+      // stale cached index.html (pre-redaction) can't log a session token.
+      const redact = (u) => String(u || "").replace(/([?&#](s|key|pass|session|token|invite)=)[^&#]*/gi, "$1REDACTED");
+      const entry = {
+        t: String(e.t || new Date().toISOString()).slice(0, 30),
+        kind: String(e.kind || "").slice(0, 12),
+        msg: redact(e.msg).slice(0, 500),
+        line: e.line, src: redact(e.src).slice(0, 220),
+        stack: redact(e.stack).slice(0, 1400),
+        ua: String(e.ua || "").slice(0, 320),
+        url: redact(e.url).slice(0, 320),
+      };
+      console.error("CLIENT ERROR:", entry.msg, "|", entry.url, "|", entry.ua.slice(0, 50));
+      const list0 = await db.kvGet("clienterr").catch(() => null); const list = Array.isArray(list0) ? list0 : [];
+      list.push(entry);
+      await db.kvSet("clienterr", list.slice(-40)).catch(() => {});
+    }
+  } catch { /* reporting must never break anything */ }
+  res.json({ ok: true });
+});
+
+// Read the captured device errors (gated by the CS/admin key, same as /cs).
+app.get("/errors", async (req, res) => {
+  if (!CS_KEY && !ADMIN_KEY) return res.status(503).send("Set CS_KEY or ADMIN_KEY.");
+  if (!csOk(req)) return res.status(req.query.key ? 403 : 401).send("Agrega ?key=TU_CS_KEY a la URL.");
+  const list0 = await db.kvGet("clienterr").catch(() => null); const list = (Array.isArray(list0) ? list0 : []).slice().reverse();
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const rows = list.length
+    ? list.map((e) => `<div class="e"><div class="m">${esc(e.msg)}</div>${e.line ? `<div class="meta">línea ${esc(e.line)} · ${esc(e.src)}</div>` : ""}${e.stack ? `<div class="s">${esc(e.stack)}</div>` : ""}<div class="meta">${esc(e.t)} · ${esc(e.url)}<br>${esc(e.ua)}</div></div>`).join("")
+    : "<p>Sin errores 🎉</p>";
+  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Errores</title><style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#0F1726;color:#E6EBF3;margin:0;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.e{background:#16223A;border:1px solid #283656;border-radius:10px;padding:12px;margin:10px 0;font-size:13px}
+.m{color:#FFB3B3;font-weight:700;word-break:break-word}
+.s{color:#9AA7C0;white-space:pre-wrap;font-size:11px;margin-top:6px;overflow-x:auto}
+.meta{color:#7A8AA8;font-size:11px;margin-top:6px;word-break:break-word}
+</style></head><body><h1>📋 Errores del cliente (${list.length})</h1>${rows}</body></html>`);
+});
+
 /* ── Reviews funnel (ALTO /opina pattern) ──
  * The realtor sends happy clients here: 4-5★ reviews publish on their site
  * and hand the client a one-tap Google-review button (text pre-copied);

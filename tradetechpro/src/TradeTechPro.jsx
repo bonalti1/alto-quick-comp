@@ -2206,6 +2206,27 @@ export default function TradeTechPro() {
             );
           })()}
 
+          {/* Review funnel link — send it to happy clients after every closing */}
+          {session && mySlug && (() => {
+            const opinaUrl = `${window.location.origin}/opina/${mySlug}`;
+            const waShare = lang === "es"
+              ? `¡Gracias por confiar en nosotros! 🙏 ¿Nos regalas 1 minuto? Cuéntanos cómo te fue: ${opinaUrl}`
+              : `Thank you for trusting us! 🙏 Got 1 minute? Tell us how we did: ${opinaUrl}`;
+            return (
+              <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+                <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "Reseñas" : "Reviews"}</p>
+                <p className="font-extrabold mb-1" style={{ color: QC.navyDeep, fontSize: 14 }}>⭐ {lang === "es" ? "Pide una reseña" : "Ask for a review"}</p>
+                <p className="mb-2" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Mándalo después de cada cierre: 5 estrellas se publican en tu página y van a Google; las malas te llegan en privado, no al público." : "Send it after every closing: 5-star reviews publish on your site and flow to Google; bad ones come to you privately, not publicly."}</p>
+                <div className="flex gap-2">
+                  <a href={`https://wa.me/?text=${encodeURIComponent(waShare)}`} target="_blank" rel="noreferrer" className="flex-1 text-center"
+                    style={{ background: "#25D366", color: "#fff", borderRadius: 10, padding: 11, fontWeight: 800, fontSize: 13, textDecoration: "none" }}>💬 {lang === "es" ? "Mandar por WhatsApp" : "Send via WhatsApp"}</a>
+                  <button onClick={() => copyText(opinaUrl)} className="active:translate-y-px"
+                    style={{ background: "#fff", color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: "11px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>📋 {lang === "es" ? "Copiar link" : "Copy link"}</button>
+                </div>
+              </div>
+            );
+          })()}
+
           {sentReports.length > 0 && (
             <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
               <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Informes enviados" : "Reports sent"}</p>

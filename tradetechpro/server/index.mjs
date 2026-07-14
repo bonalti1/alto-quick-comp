@@ -246,7 +246,7 @@ app.use(async (req, res, next) => {
   // Only take over site page navigations (home, SEO files, city pages);
   // assets, /api and /w pass straight through.
   const p = req.path;
-  const wants = p === "/" || p === "/index.html" || p === "/sitemap.xml" || p === "/robots.txt" || /^\/zona\/[a-z0-9-]{1,60}$/.test(p);
+  const wants = p === "/" || p === "/index.html" || p === "/opina" || p === "/sitemap.xml" || p === "/robots.txt" || /^\/zona\/[a-z0-9-]{1,60}$/.test(p);
   if (req.method !== "GET" || !wants) return next();
   try {
     let slug = null;
@@ -255,6 +255,7 @@ app.use(async (req, res, next) => {
     if (slug) {
       const s = encodeURIComponent(slug);
       if (p === "/" || p === "/index.html") req.url = `/site/${s}`;
+      else if (p === "/opina") req.url = `/opina/${s}`;
       else req.url = `/site/${s}${p}`; // /sitemap.xml, /robots.txt, /zona/<city>
     }
   } catch (e) { console.error("host routing:", e.message); }
@@ -2439,6 +2440,177 @@ function queueTask(slug, title, note) {
   return db.addTask({ slug: slug || "", title, note }).catch((e) => console.error("queue task failed:", e.message));
 }
 
+/* ── Reviews funnel (ALTO /opina pattern) ──
+ * The realtor sends happy clients here: 4-5★ reviews publish on their site
+ * and hand the client a one-tap Google-review button (text pre-copied);
+ * 1-3★ go PRIVATELY to the realtor with an instant push — bad experiences
+ * become a phone call, not a public one-star. */
+const getReviews = async (cid) => { const v = await db.kvGet(`rev:${cid}`).catch(() => null); return Array.isArray(v) ? v : []; };
+
+app.post("/api/review/:slug", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c) return res.status(404).json({ error: "unknown" });
+  if (c.data?.status === "paused") return res.status(403).json({ error: "paused" });
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
+  if (overQuota(`rvw:${ip}`, 6) || overQuota(`rvs:${c.slug}`, 80)) return res.status(429).json({ error: "quota" });
+  const stars = Math.round(Number(req.body?.stars));
+  if (!(stars >= 1 && stars <= 5)) return res.status(400).json({ error: "stars 1-5" });
+  const clean = (s, n) => String(s || "").replace(/\s+/g, " ").trim().slice(0, n);
+  const r = {
+    id: crypto.randomUUID(),
+    s: stars,
+    n: clean(req.body?.name, 60),
+    t: clean(req.body?.text, 600),
+    ph: String(req.body?.phone || "").replace(/\D/g, "").slice(0, 11),
+    d: new Date().toISOString(),
+  };
+  const list = await getReviews(c.id);
+  list.push(r);
+  await db.kvSet(`rev:${c.id}`, list.slice(-100)).catch(() => {});
+  // Unhappy client → buzz the realtor NOW (their lead-alert subscription)
+  if (stars <= 3 && pushLive && Array.isArray(c.data?.push) && c.data.push.length) {
+    const payload = JSON.stringify({
+      title: "⚠️ Cliente insatisfecho",
+      body: `${r.n || "Un cliente"} dejó ${stars}★${r.t ? ": " + r.t.slice(0, 90) : ""}${r.ph ? " · " + r.ph : ""}`,
+      tag: "rev-" + r.id,
+      url: "/",
+    });
+    Promise.all(c.data.push.map((s) => webpush.sendNotification(s, payload).catch(() => {}))).catch(() => {});
+  }
+  const gmb = stars >= 4 ? String(c.data?.site?.gmb || c.data?.site?.facebook || "") : "";
+  res.json({ ok: true, gmb: /^https:\/\//.test(gmb) ? gmb : null });
+});
+
+app.get("/opina/:slug", async (req, res) => {
+  const c = await db.getContractorBySlug(String(req.params.slug));
+  if (!c || c.data?.status === "paused") return res.status(404).send("Not found");
+  const p = c.data?.profile || {};
+  const biz = String(p.biz || c.name).replace(/[&<>"'\\`]/g, "");
+  const logo = /^data:image\/(png|jpeg);base64,/.test(String(p.logo || "")) ? p.logo : null;
+  const color = /^#[0-9a-fA-F]{6}$/.test(String(c.data?.site?.color || "")) ? c.data.site.color : "#15244C";
+  const startEn = (c.data?.site?.lang || "es") === "en";
+  // Back-to-app button when the realtor previews from inside the app (?app=1).
+  const oBack = req.query.app != null ? `<div style="padding:12px 16px 0;max-width:430px;margin:0 auto"><a href="/" onclick="if(history.length>1){history.back();return false}" style="display:inline-flex;align-items:center;gap:5px;background:#fff;border:1.5px solid #E6E8EC;border-radius:999px;padding:8px 13px;font-weight:800;font-size:14px;color:#101B30;text-decoration:none;box-shadow:0 4px 14px rgba(16,27,48,.1)">‹ Volver a la app</a></div>` : "";
+  res.send(`<!doctype html><html lang="${startEn ? "en" : "es"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${startEn ? "Your feedback" : "Tu opinión"} — ${biz}</title><meta name="robots" content="noindex">
+<style>
+*{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;padding:18px;background:linear-gradient(160deg,${color} 0%,#101B30 90%)}
+.card{background:#fff;border-radius:26px;max-width:430px;width:100%;padding:34px 26px;text-align:center;box-shadow:0 30px 90px rgba(0,0,0,.4)}
+.logo{max-height:56px;max-width:190px;margin-bottom:6px}
+.biz{font-weight:800;font-size:20px;color:${color}}
+h1{font-size:21px;margin:14px 0 6px;color:#101B30;letter-spacing:-.3px}
+.sub{color:#67718A;font-weight:600;font-size:14px;line-height:1.55}
+.stars{display:flex;justify-content:center;gap:6px;margin:22px 0 4px}
+.stars button{font-size:44px;background:none;border:none;cursor:pointer;filter:grayscale(1);opacity:.45;transition:transform .12s,filter .12s,opacity .12s;padding:2px}
+.stars button.on{filter:none;opacity:1;transform:scale(1.12)}
+textarea,input{width:100%;border:1.5px solid #E4E7EE;border-radius:13px;padding:13px 14px;font-size:15px;font-family:inherit;outline:none;margin-top:10px;color:#101B30}
+textarea{min-height:96px;resize:vertical}
+textarea:focus,input:focus{border-color:${color}}
+.btn{display:inline-block;width:100%;border:none;cursor:pointer;background:${color};color:#fff;font-weight:800;font-size:16px;padding:15px;border-radius:13px;margin-top:14px;text-decoration:none}
+.hide{display:none}
+.big{font-size:52px;margin:6px 0}
+.lang{position:fixed;top:14px;right:16px;background:#ffffff2e;border:1px solid #ffffff55;color:#fff;font-weight:700;font-size:12.5px;padding:7px 13px;border-radius:99px;cursor:pointer}
+.foot{margin-top:18px;color:#9AA3B2;font-size:11.5px;font-weight:600}
+</style></head><body>${oBack}
+<button class="lang" id="lang"></button>
+<div class="card">
+  ${logo ? `<img class="logo" src="${logo}" alt="${biz}">` : `<div class="biz">${biz}</div>`}
+  <div id="p1">
+    <h1 data-i="q"></h1>
+    <p class="sub" data-i="qs"></p>
+    <div class="stars" id="stars">${[1, 2, 3, 4, 5].map((n) => `<button data-s="${n}" aria-label="${n}">⭐</button>`).join("")}</div>
+  </div>
+  <div id="p2" class="hide">
+    <h1 id="h2"></h1>
+    <p class="sub" id="s2"></p>
+    <textarea id="txt"></textarea>
+    <input id="nm">
+    <input id="ph" type="tel" class="hide">
+    <button class="btn" id="send"></button>
+  </div>
+  <div id="p3" class="hide">
+    <div class="big" id="emo">🙏</div>
+    <h1 id="h3"></h1>
+    <p class="sub" id="s3"></p>
+    <a class="btn hide" id="gbtn" target="_blank" rel="noopener"></a>
+  </div>
+  <p class="foot">${biz}</p>
+</div>
+<script>(function(){
+var slug=${JSON.stringify(c.slug)},stars=0,en=${startEn ? "true" : "false"},sent=false;
+var T={
+ q:["¿Cómo fue tu experiencia con ${biz}?","How was your experience with ${biz}?"],
+ qs:["Toca las estrellas — nos ayuda muchísimo.","Tap the stars — it helps us a lot."],
+ hGood:["¡Qué alegría! 🎉","So glad to hear it! 🎉"],
+ sGood:["¿Nos cuentas en unas palabras cómo te fue? (opcional)","Mind telling us a bit about it? (optional)"],
+ hBad:["Lo sentimos mucho 😔","We're really sorry 😔"],
+ sBad:["Cuéntanos qué pasó. Tu agente lo lee personalmente.","Tell us what happened. Your agent reads this personally."],
+ txtG:["Ej. Vendieron nuestra casa rápido y siempre nos mantuvieron informados…","E.g. They sold our home fast and kept us informed the whole way…"],
+ txtB:["Cuéntanos qué salió mal…","Tell us what went wrong…"],
+ nm:["Tu nombre (opcional)","Your name (optional)"],
+ ph:["Tu teléfono — te llamamos para arreglarlo (opcional)","Your phone — we'll call to make it right (optional)"],
+ send:["Enviar","Send"],
+ h3G:["¡Mil gracias!","Thank you so much!"],
+ s3G:["Tu opinión ya quedó publicada en nuestra página web. Nos ayuda muchísimo — gracias de verdad.","Your review is now published on our website. It helps us so much — thank you."],
+ s3GG:["¿Nos ayudas publicándola también ahí? Ya copiamos tu texto — solo pégalo. Es 1 minuto y nos cambia el negocio.","One more favor: post it there too? We already copied your text — just paste it. Takes 1 minute and changes everything for us."],
+ gbtnG:["⭐ Dejar reseña en Google","⭐ Leave the review on Google"],
+ gbtnF:["👍 Dejar reseña en Facebook","👍 Leave the review on Facebook"],
+ gbtnX:["⭐ Dejar tu reseña ahí","⭐ Leave your review there"],
+ h3B:["Gracias por decírnoslo","Thank you for telling us"],
+ s3B:["Tu agente lo verá hoy mismo y te contactará para arreglarlo. De verdad, gracias por darnos la oportunidad.","Your agent will see this today and reach out to make it right. Truly, thank you for giving us the chance."]
+};
+function t(k){return T[k][en?1:0];}
+function apply(){document.querySelectorAll('[data-i]').forEach(function(e){e.textContent=t(e.getAttribute('data-i'));});
+ document.getElementById('lang').textContent=en?'🇲🇽 Español':'🇺🇸 English';
+ document.getElementById('send').textContent=t('send');
+ if(stars){paint();}}
+document.getElementById('lang').onclick=function(){en=!en;apply();};
+var txt=document.getElementById('txt'),nm=document.getElementById('nm'),ph=document.getElementById('ph');
+function paint(){
+ if(!stars)return;
+ var good=stars>=4;
+ document.getElementById('h2').textContent=good?t('hGood'):t('hBad');
+ document.getElementById('s2').textContent=good?t('sGood'):t('sBad');
+ txt.placeholder=good?t('txtG'):t('txtB');
+ nm.placeholder=t('nm');ph.placeholder=t('ph');
+ ph.classList.toggle('hide',good);
+ document.getElementById('send').textContent=t('send');
+}
+document.getElementById('stars').addEventListener('click',function(e){
+ var b=e.target.closest('button');if(!b)return;
+ stars=+b.getAttribute('data-s');
+ [].forEach.call(document.querySelectorAll('#stars button'),function(x){x.classList.toggle('on',+x.getAttribute('data-s')<=stars);});
+ paint();
+ document.getElementById('p2').classList.remove('hide');
+ setTimeout(function(){txt.focus();},150);
+});
+document.getElementById('send').onclick=function(){
+ if(sent)return;sent=true;this.textContent='…';
+ fetch('/api/review/'+slug,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stars:stars,text:txt.value,name:nm.value,phone:ph.value})})
+ .then(function(r){return r.json()}).then(function(j){
+   var good=stars>=4;
+   document.getElementById('p1').classList.add('hide');
+   document.getElementById('p2').classList.add('hide');
+   document.getElementById('p3').classList.remove('hide');
+   document.getElementById('emo').textContent=good?'🙏':'🤝';
+   document.getElementById('h3').textContent=good?t('h3G'):t('h3B');
+   if(good&&j.gmb){
+     document.getElementById('s3').textContent=t('s3GG');
+     var h='';try{h=new URL(j.gmb).hostname}catch(e){}
+     var bk=/google\\.|g\\.page|goo\\.gl/.test(h)?'gbtnG':/facebook\\.|fb\\./.test(h)?'gbtnF':'gbtnX';
+     var g=document.getElementById('gbtn');g.textContent=t(bk);g.href=j.gmb;g.classList.remove('hide');
+     if(txt.value.trim()&&navigator.clipboard){navigator.clipboard.writeText(txt.value.trim()).catch(function(){});}
+   } else {
+     document.getElementById('s3').textContent=good?t('s3G'):t('s3B');
+   }
+ }).catch(function(){sent=false;document.getElementById('send').textContent=t('send');});
+};
+apply();
+})();</script>
+</body></html>`);
+});
+
 // Widget (and anything public) drops a lead for a contractor by slug
 app.post("/api/widget/lead", async (req, res) => {
   const wlIp = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket.remoteAddress || "?";
@@ -4066,7 +4238,9 @@ ${cLogo ? `<img class="logo" src="${cLogo}" alt="${cBiz}">` : `<div class="biz">
   }
   // Staff preview carries testMode into the chat bubble: same bot, same
   // wording, but no real lead and no push to the real agent.
-  res.send(renderSite(siteDataOf(c, req, { testMode: preview })));
+  // Only public-worthy reviews reach the page: 4-5★ with text, newest first.
+  const reviews = (await getReviews(c.id)).filter((r) => r.s >= 4 && r.t).slice(-6).reverse();
+  res.send(renderSite(siteDataOf(c, req, { testMode: preview, reviews })));
 });
 // call so the client picks their look). ?embed=1 hides the demo chrome.
 app.get("/plantilla/:n", (req, res) => {
@@ -4428,7 +4602,8 @@ app.get("/cs", async (req, res) => {
       template: s.template || "1", color: s.color || "#15244C", city: s.city || "", area: s.area || "",
       years: s.years || "", services: (Array.isArray(s.services) ? s.services : []).join(", "),
       warranty: s.warranty || "", diff: s.diff || "", tagline: s.tagline || "", hero: s.hero || "",
-      about: s.about || "", published: !!s.published,
+      about: s.about || "", gmb: s.gmb || "", facebook: s.facebook || "", instagram: s.instagram || "",
+      published: !!s.published,
     };
   }
   // Bot trainer data: structured botTrain when it exists; else seed "extra"
@@ -4722,6 +4897,9 @@ ${attention.length ? `<div class="panel"><details open><summary class="psum"><h2
       <label class="full"><span class="qel">Su historia (about)</span><textarea id="qe_about" rows="3"></textarea></label>
       <label class="full"><span class="qel">Qué lo hace diferente</span><textarea id="qe_diff" rows="2"></textarea></label>
       <label><span class="qel">Promesa al cliente</span><input id="qe_warranty"></label>
+      <label><span class="qel">Link de reseñas (Google)</span><input id="qe_gmb" placeholder="g.page/r/…"></label>
+      <label><span class="qel">Facebook</span><input id="qe_facebook" placeholder="facebook.com/…"></label>
+      <label><span class="qel">Instagram</span><input id="qe_instagram" placeholder="instagram.com/…"></label>
     </div>
     <p style="color:#9AA3B2;font-size:12px;font-weight:600;margin:12px 0 0">📷 Logo y fotos se cambian en el onboarding (suben archivos). Todo lo demás se guarda desde aquí — y si su página ya está publicada, el cambio sale al instante.</p>
     <div class="aacts" style="border-top:none;padding-top:0">
@@ -4901,7 +5079,7 @@ function qeShow(){
   var slug=document.getElementById('qe_slug').value,f=document.getElementById('qe_form');
   if(!slug||!QE[slug]){f.style.display='none';return;}
   var d=QE[slug];f.style.display='block';
-  ['biz','phone','city','area','years','license','template','color','services','hero','tagline','about','diff','warranty'].forEach(function(k){var el=document.getElementById('qe_'+k);if(el)el.value=d[k]||'';});
+  ['biz','phone','city','area','years','license','template','color','services','hero','tagline','about','diff','warranty','gmb','facebook','instagram'].forEach(function(k){var el=document.getElementById('qe_'+k);if(el)el.value=d[k]||'';});
   document.getElementById('qe_prev').href='/site/'+slug+'?preview=1';
   document.getElementById('qe_live').href='/site/'+slug;
   document.getElementById('qe_msg').textContent='';
@@ -4913,7 +5091,7 @@ function qeSave(btn){
   fetch('/api/onboarding/save?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     slug:slug,biz:v('biz'),phone:v('phone'),city:v('city'),area:v('area'),years:v('years'),license:v('license'),
     template:v('template'),color:v('color'),services:v('services').split(',').map(function(x){return x.trim()}).filter(Boolean),
-    hero:v('hero'),tagline:v('tagline'),about:v('about'),diff:v('diff'),warranty:v('warranty')
+    hero:v('hero'),tagline:v('tagline'),about:v('about'),diff:v('diff'),warranty:v('warranty'),gmb:v('gmb'),facebook:v('facebook'),instagram:v('instagram')
   })}).then(function(r){return r.json()}).then(function(j){
     btn.disabled=false;btn.textContent='💾 Guardar cambios';
     document.getElementById('qe_msg').textContent=j.ok?'✓ Guardado':'Error: '+(j.error||'?');
@@ -5463,6 +5641,14 @@ app.post("/api/onboarding/save", async (req, res) => {
     hero: String(b.hero || "").slice(0, 160),
     about: String(b.about || "").slice(0, 1400),
     photos: Array.isArray(b.photos) ? b.photos.filter((u) => /^\/api\/logo\/[a-f0-9]{16}\.(png|jpg)$/.test(u)).slice(0, 8) : (data.site?.photos || []),
+    // Review destination + socials (the /opina funnel's "post it on Google" button)
+    gmb: String(b.gmb ?? data.site?.gmb ?? "").trim().slice(0, 300),
+    facebook: String(b.facebook ?? data.site?.facebook ?? "").trim().slice(0, 300),
+    instagram: String(b.instagram ?? data.site?.instagram ?? "").trim().slice(0, 300),
+    // preserve fields owned by other flows (bot trainer)
+    ...(data.site?.botTrain ? { botTrain: data.site.botTrain } : {}),
+    ...(data.site?.botFacts ? { botFacts: data.site.botFacts } : {}),
+    ...(data.site?.domain ? { domain: data.site.domain } : {}),
     published: data.site?.published === true, // saving keeps current publish state
   };
   await db.saveContractorData(c.id, data);

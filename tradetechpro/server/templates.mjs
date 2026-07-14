@@ -53,7 +53,7 @@ const STR = {
   es: {
     metaDesc: (biz, city) => `${biz} — bienes raíces${city ? " en " + city : ""}. Conoce el valor de tu casa en 60 segundos, con ventas reales cercanas.`,
     kick: "BIENES RAÍCES", years: "años de experiencia", dedication: "dedicación", both: "hablamos los dos",
-    madeWith: "Página hecha con ⚡ Quick Comp", lic: "Lic.", zones: "Zonas que servimos",
+    madeWith: "Página hecha con ⚡ Quick Comp", lic: "Lic.", zones: "Zonas que servimos", revEyebrow: "Reseñas", revTitle: "Lo que dicen nuestros clientes",
     call: "Llámanos", callShort: "📞 Llámanos",
     heroCta: "VALÚA TU CASA EN 60 SEGUNDOS",
     trustLicensed: "Agente licenciado", trustLocal: "Agente local", trustComps: "Ventas reales comparables",
@@ -80,7 +80,7 @@ const STR = {
   en: {
     metaDesc: (biz, city) => `${biz} — real estate${city ? " in " + city : ""}. See your home's value in 60 seconds, from real nearby sales.`,
     kick: "REAL ESTATE", years: "years of experience", dedication: "dedication", both: "English & Español",
-    madeWith: "Site made with ⚡ Quick Comp", lic: "Lic.", zones: "Areas we serve",
+    madeWith: "Site made with ⚡ Quick Comp", lic: "Lic.", zones: "Areas we serve", revEyebrow: "Reviews", revTitle: "What our clients say",
     call: "Call us", callShort: "📞 Call us",
     heroCta: "VALUE YOUR HOME IN 60 SECONDS",
     trustLicensed: "Licensed agent", trustLocal: "Local agent", trustComps: "Real comparable sales",
@@ -460,12 +460,32 @@ export function renderSite(data, opts = {}) {
   if (!Array.isArray(d.services) || !d.services.length) d.services = DEFAULT_SERVICES[lang];
   const fn = TEMPLATES[String(d.template || "1")] || t1;
   let html = fn(d, opts);
+  // Real client reviews (collected via /opina, 4-5★ only) render right above
+  // the footer on every template. One shared block = every site upgrades at once.
+  if (Array.isArray(d.reviews) && d.reviews.length) html = html.replace(/<footer/, `${reviewsHtml(d)}<footer`);
   // Every client site ships with the AI chat assistant (the same engine the
   // sales deck demos). It answers 24/7 and turns phone numbers into leads.
   // Injected at the TOP of <body>: it's position:fixed anyway, and this way a
   // slow stylesheet (fonts CDN) can never stall the parser before the widget.
   if (d.slug && opts.chat !== false) html = html.replace(/(<body[^>]*>)/, `$1${chatHtml(d)}`);
   return html;
+}
+
+/* Client reviews strip — neutral styling that sits well on all 3 templates. */
+function reviewsHtml(d) {
+  const L = STR[d.lang] || STR.es;
+  const cards = d.reviews.slice(0, 6).map((r) => `<div style="background:#fff;border:1px solid #E8EAF0;border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(16,27,48,.06);text-align:left">
+    <div style="color:#E9A800;font-size:15px;letter-spacing:2px">${"⭐".repeat(Math.max(1, Math.min(5, r.s || 5)))}</div>
+    <p style="color:#2A3242;font-size:14px;font-weight:500;line-height:1.6;margin:10px 0 8px">"${esc(r.t)}"</p>
+    <p style="color:#8A94A8;font-size:12.5px;font-weight:700;margin:0">${esc(r.n || (d.lang === "en" ? "Verified client" : "Cliente verificado"))}</p>
+  </div>`).join("");
+  return `<section style="background:#F6F7FA;padding:56px 20px;font-family:Inter,Arial,sans-serif">
+  <div style="max-width:1020px;margin:0 auto;text-align:center">
+    <p style="color:${esc(d.color)};font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin:0 0 6px">${L.revEyebrow}</p>
+    <h2 style="color:#101B30;font-size:26px;margin:0 0 26px">${L.revTitle}</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">${cards}</div>
+  </div>
+</section>`;
 }
 
 /* Floating AI chat bubble injected into every client site (ALTO pattern,

@@ -908,6 +908,33 @@ export default function TradeTechPro() {
     }
     setScreen("listing");
   };
+  /* One tap fills the facts from the property record (RentCast — the same
+     source the comps/tax screens use). Everything stays editable after. */
+  const [listingFetching, setListingFetching] = useState(false);
+  const fetchListingFacts = async () => {
+    const addr = String(listingDraft.address || "").trim();
+    if (!addr) { showToast(lang === "es" ? "Escribe la dirección primero" : "Type the address first"); return; }
+    setListingFetching(true);
+    let subj = null;
+    try {
+      const r = await fetch("/api/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(session ? { Authorization: `Bearer ${session}` } : {}) },
+        body: JSON.stringify({ address: addr, ...(demoPass && !session ? { pass: demoPass } : {}) }),
+      });
+      if (r.status === 429) { setListingFetching(false); showToast("🔒 " + t.demoLimit); return; }
+      if (r.ok) { const j = await r.json(); if (j.found) subj = j.subject || null; }
+    } catch { /* backend unreachable */ }
+    if (!subj && !session) subj = (await mockLookup(addr)).subject; // demo keeps working offline
+    setListingFetching(false);
+    if (!subj) { showToast("🏠 " + (lang === "es" ? "No encontramos esa propiedad — revisa la dirección" : "Couldn't find that property — check the address")); return; }
+    setListingDraft((f) => ({
+      ...f,
+      beds: subj.beds ?? f.beds, baths: subj.baths ?? f.baths, sqft: subj.sqft ?? f.sqft,
+      year: subj.yearBuilt ?? f.year, lot: subj.lotSize ?? f.lot, type: subj.propertyType ?? f.type,
+    }));
+    showToast("✓ " + (lang === "es" ? "Datos encontrados — revisa y edita" : "Facts found — review and edit"));
+  };
   const generateListing = async () => {
     const d = listingDraft;
     if (!String(d.address).trim() && !String(d.highlights).trim()) {
@@ -3014,8 +3041,17 @@ export default function TradeTechPro() {
 
           <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
             <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 10 }}>{es ? "Datos de la propiedad" : "Property facts"}</p>
-            <input value={d.address} onChange={set("address")} placeholder={es ? "Dirección" : "Address"}
-              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={inputStyle} />
+            <div className="flex gap-2 mb-2">
+              <input value={d.address} onChange={set("address")} placeholder={es ? "Dirección" : "Address"}
+                onKeyDown={(e) => e.key === "Enter" && !listingFetching && fetchListingFacts()}
+                className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />
+              <button onClick={fetchListingFacts} disabled={listingFetching} className="shrink-0 active:translate-y-px transition-transform"
+                title={es ? "Buscar los datos de la propiedad" : "Look up the property facts"}
+                style={{ background: listingFetching ? QC.line : QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: "0 16px", fontWeight: 800, fontSize: 13, cursor: listingFetching ? "default" : "pointer", whiteSpace: "nowrap" }}>
+                {listingFetching ? "…" : "🔍 " + (es ? "Buscar datos" : "Find facts")}
+              </button>
+            </div>
+            <p className="mb-2" style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{es ? "Recámaras, baños, pies² y más se llenan solos del registro de la propiedad — y los puedes editar." : "Beds, baths, sq ft and more fill in from the property record — and you can edit anything."}</p>
             <div className="flex gap-2 mb-2">
               <input value={d.beds} onChange={set("beds")} placeholder={t.beds} inputMode="numeric"
                 className="flex-1 rounded-xl px-3.5 py-3 font-semibold outline-none" style={{ ...inputStyle, minWidth: 0 }} />

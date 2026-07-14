@@ -678,6 +678,33 @@ export default function TradeTechPro() {
       showToast("🔕 " + (lang === "es" ? "No se pudo activar — intenta de nuevo" : "Couldn't turn on alerts — try again"));
     }
   };
+  /* Change requests (ALTO CS loop): the realtor never edits their own site —
+   * they ask from here, the ticket lands pre-tagged in /cs, and the team
+   * (human or ✨AI) resolves it. History comes from /api/my-requests. */
+  const [helpDraft, setHelpDraft] = useState({ kind: "web", text: "" });
+  const [helpTickets, setHelpTickets] = useState(null);
+  const [helpBusy, setHelpBusy] = useState(false);
+  const loadHelpTickets = async () => {
+    try { const r = await api("/api/my-requests"); if (r.ok) setHelpTickets((await r.json()).tickets || []); } catch { /* offline — history just doesn't show */ }
+  };
+  const openHelp = () => { setScreen("help"); loadHelpTickets(); };
+  const sendHelp = async () => {
+    const text = helpDraft.text.trim();
+    if (!text) { showToast("✍️ " + (lang === "es" ? "Cuéntanos qué necesitas" : "Tell us what you need")); return; }
+    setHelpBusy(true);
+    try {
+      const r = await api("/api/change-request", { method: "POST", body: JSON.stringify({ kind: helpDraft.kind, text }) });
+      if (r.status === 429) showToast("🕐 " + (lang === "es" ? "Ya tenemos tus solicitudes de hoy — mañana puedes mandar más" : "We have today's requests — you can send more tomorrow"));
+      else if (r.ok) {
+        setHelpDraft((d) => ({ ...d, text: "" }));
+        showToast("🙌 " + (lang === "es" ? "¡Recibido! El equipo lo hace y te avisamos" : "Got it! The team is on it — we'll let you know"));
+        loadHelpTickets();
+      } else throw new Error("send failed");
+    } catch {
+      showToast("📡 " + (lang === "es" ? "Sin conexión — intenta de nuevo" : "Offline — try again"));
+    } finally { setHelpBusy(false); }
+  };
+
   // Install flow: null = closed · "ios" = Safari steps · "android" = Chrome
   // menu steps (prompt not available) · "inapp" = escape WhatsApp/IG first
   const [installGuide, setInstallGuide] = useState(null);
@@ -2132,6 +2159,19 @@ export default function TradeTechPro() {
             <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
           </button>
 
+          {/* Ask the team for a change — the ticket lands pre-tagged in /cs (ALTO CS loop) */}
+          {session && (
+            <button onClick={openHelp} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
+              style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)", cursor: "pointer" }}>
+              <span style={{ fontSize: 22 }}>🙋</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-extrabold" style={{ color: QC.navyDeep, fontSize: 14 }}>{lang === "es" ? "Pedir un cambio / ayuda" : "Request a change / help"}</span>
+                <span className="block" style={{ color: QC.muted2, fontSize: 11, fontWeight: 600 }}>{lang === "es" ? "Tu página, tu valuador, lo que sea — pídelo y el equipo lo hace." : "Your website, your widget, anything — ask and the team handles it."}</span>
+              </span>
+              <span style={{ color: QC.gold, fontSize: 18 }}>›</span>
+            </button>
+          )}
+
           {/* Install to home screen — hidden once running installed (ALTO install-together pattern) */}
           {!isStandalone() && (
             <button onClick={startInstall} className="w-full flex items-center gap-3 rounded-2xl p-4 mb-3 text-left active:scale-[0.99] transition-transform"
@@ -3140,6 +3180,72 @@ export default function TradeTechPro() {
     );
   };
 
+  /* ── 🙋 Help — request a change; the team (or the ✨AI in /cs) does it ── */
+  const Help = () => {
+    const KINDS = [
+      ["web", "🌐", lang === "es" ? "Mi página" : "My website"],
+      ["widget", "🏡", lang === "es" ? "Mi valuador" : "My widget"],
+      ["queja", "😕", lang === "es" ? "Algo salió mal" : "Something's wrong"],
+      ["any", "🙋", lang === "es" ? "Otra cosa" : "Something else"],
+    ];
+    const ST = lang === "es"
+      ? { open: ["Recibido", "#8A6A00", "#FDF3D7"], doing: ["En proceso", "#1A5CB0", "#E4F1FA"], done: ["Listo ✓", "#1E7B3C", "#EAF8EF"] }
+      : { open: ["Received", "#8A6A00", "#FDF3D7"], doing: ["In progress", "#1A5CB0", "#E4F1FA"], done: ["Done ✓", "#1E7B3C", "#EAF8EF"] };
+    const ago = (x) => {
+      const h = (Date.now() - new Date(x || 0).getTime()) / 36e5;
+      if (h < 1) return lang === "es" ? "hace minutos" : "minutes ago";
+      if (h < 24) return lang === "es" ? `hace ${Math.round(h)}h` : `${Math.round(h)}h ago`;
+      return lang === "es" ? `hace ${Math.round(h / 24)}d` : `${Math.round(h / 24)}d ago`;
+    };
+    return (
+      <div className="flex-1 overflow-y-auto pb-10" style={{ background: QC.bg }}>
+        <div className="px-5 pt-4">
+          <div className="rounded-2xl p-4 mb-3" style={{ background: "#fff", border: `2px solid ${QC.goldLine}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+            <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>{lang === "es" ? "¿Qué necesitas?" : "What do you need?"}</p>
+            <p className="mb-3" style={{ color: QC.muted2, fontSize: 11.5, fontWeight: 600, lineHeight: 1.5 }}>{lang === "es" ? "Dinos en tus palabras — el equipo lo hace por ti y te llega un aviso cuando esté listo." : "Tell us in your own words — the team does it for you and you get a notification when it's ready."}</p>
+            <div className="grid grid-cols-2 gap-1.5 mb-3">
+              {KINDS.map(([k, ico, lbl]) => {
+                const on = helpDraft.kind === k;
+                return (
+                  <button key={k} onClick={() => setHelpDraft((d) => ({ ...d, kind: k }))} className="active:translate-y-px"
+                    style={{ background: on ? QC.navy : "#fff", color: on ? "#fff" : QC.navy, border: `1.5px solid ${on ? QC.navy : QC.line}`, borderRadius: 10, padding: "10px 6px", fontWeight: 800, fontSize: 12, cursor: "pointer" }}>
+                    {ico} {lbl}
+                  </button>
+                );
+              })}
+            </div>
+            <textarea rows={3} value={helpDraft.text} onChange={(e) => setHelpDraft((d) => ({ ...d, text: e.target.value.slice(0, 600) }))}
+              placeholder={lang === "es" ? "Ej. Quiero que mi página diga que también cubro Starr County…" : "E.g. I want my site to say I also cover Starr County…"}
+              className="w-full rounded-xl px-3.5 py-3 mb-2 font-semibold outline-none" style={{ background: QC.bg, border: `1.5px solid ${QC.line}`, color: QC.navy, fontSize: 14, resize: "vertical" }} />
+            <button onClick={sendHelp} disabled={helpBusy} className="w-full active:translate-y-px transition-transform"
+              style={{ background: helpBusy ? QC.line : QC.navy, color: "#fff", border: "none", borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 800, cursor: helpBusy ? "default" : "pointer" }}>
+              {helpBusy ? "…" : (lang === "es" ? "📨 Mandar al equipo" : "📨 Send to the team")}
+            </button>
+          </div>
+
+          {/* Their ticket history — so "did you get my request?" never needs a call */}
+          {Array.isArray(helpTickets) && helpTickets.length > 0 && (
+            <div className="rounded-2xl p-4" style={{ background: "#fff", border: `1px solid ${QC.line}`, boxShadow: "0 2px 8px rgba(27,42,92,0.06)" }}>
+              <p style={{ color: QC.gold, fontSize: 10, fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 8 }}>{lang === "es" ? "Tus solicitudes" : "Your requests"}</p>
+              {helpTickets.map((t) => {
+                const [lbl, fg, bg] = ST[t.status] || ST.open;
+                return (
+                  <div key={t.id} className="flex items-start gap-2.5 py-2.5" style={{ borderTop: `1px solid ${QC.line}` }}>
+                    <span className="shrink-0 rounded-full px-2 py-0.5 font-extrabold" style={{ background: bg, color: fg, fontSize: 10.5 }}>{lbl}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block" style={{ color: QC.body, fontSize: 12.5, fontWeight: 600, lineHeight: 1.45 }}>{t.note}</span>
+                      <span style={{ color: QC.muted2, fontSize: 10.5, fontWeight: 600 }}>{ago(t.at)}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   /* ── Router ── */
   const titles = {
     report: "📄 " + (lang === "es" ? "Informe del cliente" : "Client report"),
@@ -3147,6 +3253,7 @@ export default function TradeTechPro() {
     social: "📲 " + (lang === "es" ? "Redactor para redes" : "Social media writer"),
     appraisal: "🛡️ " + (lang === "es" ? "Paquete para avalúo" : "Appraisal packet"),
     leads: "📥 Leads",
+    help: "🙋 " + (lang === "es" ? "Pedir un cambio" : "Request a change"),
   };
   const backMap = {
     report: "comps",
@@ -3154,6 +3261,7 @@ export default function TradeTechPro() {
     social: "workspace",
     appraisal: "workspace",
     leads: "comps",
+    help: "workspace",
   };
   const tabScreens = ["comps", "lending", "tax", "workspace"];
   const withNav = tabScreens;
@@ -3209,6 +3317,7 @@ export default function TradeTechPro() {
           {screen === "report" && Report()}
           {screen === "listing" && ListingWriter()}
           {screen === "social" && SocialWriter()}
+          {screen === "help" && Help()}
           {screen === "appraisal" && AppraisalPacket()}
         </div>
         {/* Pinned bottom tabs */}

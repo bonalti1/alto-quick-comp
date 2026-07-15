@@ -6277,7 +6277,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
         </ul>
         <p class="body" style="font-size:14px;margin-top:14px">👉 La app de la derecha está EN VIVO — tócala.</p>
       </div>
-      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app" title="App"></iframe></div></div>
+      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="${(ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}` : ""}/?demo=app" title="App"></iframe></div></div>
     </div>
   </div>
 </section>
@@ -7268,7 +7268,9 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </ul>
         <p class="body" style="margin-top:22px;font-size:14px">${L.live5}</p>
       </div>
-      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app${appPass}" title="App"></iframe></div></div>
+      <!-- The deck is viewed on the landing domain, where "/" is the sales page —
+           the phone must embed the APP host explicitly or it shows the website. -->
+      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="${(ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}` : ""}/?demo=app${appPass}" title="App"></iframe></div></div>
     </div>
   </div>
 </section>

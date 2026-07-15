@@ -7231,7 +7231,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
       </div>
       ${teamPhoto
         ? `<div class="photocard"><img src="/landing/team.jpg" alt=""><span class="cap">${L.cap2}</span></div>`
-        : `<div class="photocard empty"><span>📸</span><p>${L.ph2a}<br>${L.ph2b}</p></div>`}
+        : ""}
     </div>
   </div>
 </section>

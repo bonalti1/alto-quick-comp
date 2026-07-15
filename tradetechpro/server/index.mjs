@@ -17,7 +17,7 @@ import webpush from "web-push";
 import { fromArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import * as db from "./db.mjs";
-import { renderSite } from "./templates.mjs";
+import { renderSite, chatHtml } from "./templates.mjs";
 import { normalizeRentcastComps, calculateQuickCompValue } from "./valuation.mjs";
 
 const PORT = process.env.PORT || 8787;
@@ -3427,7 +3427,10 @@ function submit(){
   var req=fetch('/api/widget/quote',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({slug:SLUG,name:document.getElementById('nm').value.trim(),phone:ph,address:addr.value.trim(),placeId:placeId})
   }).then(function(r){return r.ok?r.json():null}).catch(function(){return null});
-  Promise.all([req,wait]).then(function(a){clearTimeout(pt);clearTimeout(pt2);fill.style.width='100%';markDoing(3);render(a[0])})}
+  Promise.all([req,wait]).then(function(a){clearTimeout(pt);clearTimeout(pt2);fill.style.width='100%';markDoing(3);render(a[0]);
+    // Announce the captured lead to the embedding page (the sales deck relays
+    // it into the app mockup so the prospect watches it land). No-op normally.
+    try{if(window.parent!==window)window.parent.postMessage({alto:'lead',src:'form',phone:ph,name:document.getElementById('nm').value.trim()},'*')}catch(e){}})}
 function render(j){track('w_result');if(window.parent!==window){try{window.parent.postMessage({qc:'lead'},'*')}catch(e){}}
   var s4=document.getElementById('s4'),h='';
   if(!j){s4.innerHTML='<p class="err">'+L.err+'</p>';show('s4');return}
@@ -4394,6 +4397,7 @@ ${embed ? "" : `<a class="backalto" href="/ventas${en ? "" : "?lang=es"}#precio"
 var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('on');io.unobserve(e.target)}})},{threshold:.15});
 document.querySelectorAll('.fade').forEach(function(el){io.observe(el)});
 </script>
+${chatHtml({ slug: "alto-demo", biz: "Casa Bella Realty", lang: en ? "en" : "es" })}
 </body></html>`);
 });
 
@@ -6277,7 +6281,7 @@ ul.pts li b{color:var(--gold);flex-shrink:0}
         </ul>
         <p class="body" style="font-size:14px;margin-top:14px">👉 La app de la derecha está EN VIVO — tócala.</p>
       </div>
-      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app" title="App"></iframe></div></div>
+      <div class="iphone"><div class="inotch"></div><div class="mscr"><iframe data-src="${(ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}` : ""}/?demo=app" title="App"></iframe></div></div>
     </div>
   </div>
 </section>
@@ -6976,6 +6980,7 @@ app.get("/demo", (req, res) => {
     igStats: ["posts", "followers", "following"], igBioName: "Casa Bella Realty", igBioLine: "Your trusted South Texas realtor 🏡", igLink: "🔗 whats-my-home-worth", igBack: "‹ Back to the profile",
     b6: "We all know artificial intelligence is here — what better way than starting now? Your own secretary answers the messages from customers landing on your website, at any hour of the day.",
     p6a: "Replies instantly — even at 11 at night", p6b: "Books the appointment for you. You just show up.", p6c: "You can read every conversation whenever you want", p6d: "Ready in 10–14 days — carrier registration of your number takes a few days",
+    live6: '🔴 <b style="color:#fff">ALL of this is LIVE</b> — open the chat and leave a phone number, or fill the home-value tool like a homeowner… either way, watch it land as a lead in the app, right here on the call. 👉',
     chHead: "🔴 LIVE DEMO — text it like you're the homeowner", chGreet: "Hi! 👋 I'm the assistant at Casa Bella Realty. How can I help you buy or sell a home?",
     chPh: "Type as the homeowner… (e.g., I want to sell my house)", chFoot: "This same AI will answer YOUR leads' texts", chRetry: "Give me one moment 🙏 (try again)",
     k7: "08 · YOUR INVESTMENT", h7a: "Pick your plan,", h7b: "no setup fees.",
@@ -7022,6 +7027,7 @@ app.get("/demo", (req, res) => {
     igStats: ["posts", "seguidores", "seguidos"], igBioName: "Casa Bella Realty", igBioLine: "Tu realtor de confianza en el sur de Texas 🏡", igLink: "🔗 cuanto-vale-mi-casa", igBack: "‹ Volver al perfil",
     b6: "Todos sabemos que la inteligencia artificial ya viene — ¿qué mejor que empezar desde ahora? Tu propia secretaria contesta los mensajes de los clientes que llegan de tu página, a cualquier hora del día.",
     p6a: "Contesta al momento — aunque sean las 11 de la noche", p6b: "Agenda la cita por ti. Tú solo llegas a hacerla.", p6c: "Puedes ver cada conversación cuando quieras", p6d: "Lista en 10–14 días — el registro de tu número con las telefónicas tarda unos días",
+    live6: '🔴 <b style="color:#fff">TODO esto está EN VIVO</b> — abre el chat y deja un teléfono, o llena el valuador como si fueras el dueño de casa… de las dos formas, míralo caer como lead en la app, aquí mismo en la llamada. 👉',
     chHead: "🔴 DEMO EN VIVO — escríbele como si fueras el dueño", chGreet: "¡Hola! 👋 Soy la asistente de Casa Bella Realty. ¿Le puedo ayudar a comprar o vender una casa?",
     chPh: "Escribe como dueño… (ej. quiero vender mi casa)", chFoot: "Esta misma IA contestará los textos de TUS leads", chRetry: "Dame un momentito y te contesto 🙏 (intenta de nuevo)",
     k7: "08 · TU INVERSIÓN", h7a: "Elige tu plan,", h7b: "sin costo de inicio.",
@@ -7170,6 +7176,27 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
 #ktoast.on{display:flex}
 .ct{cursor:default;user-select:none}
 .inotch{pointer-events:none} /* decorative — must never swallow taps meant for the screen under it */
+/* AI-secretary slide (ALTO slide-6 pattern): headline band on top, then ONE
+ * row — the client website (chat open) left, the live app phone right. */
+.si6{max-width:1560px;width:100%;justify-content:flex-start;padding-top:28px;padding-bottom:86px}
+.head6{text-align:center;margin-bottom:22px}
+.head6 .kick{margin-bottom:10px}
+.head6 h1{max-width:none;margin:0 auto;font-size:clamp(32px,3.2vw,54px)}
+.b6t{font-size:clamp(14px,1.1vw,17px);max-width:920px;margin:12px auto 0}
+.live6{display:block;background:rgba(215,182,101,.10);border:1.5px solid rgba(215,182,101,.4);border-radius:12px;padding:10px 16px;margin:12px auto 0;font-size:clamp(13px,1vw,15.5px);max-width:920px}
+.demo6{display:flex;gap:28px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.wf6{width:min(560px,100%)}
+.wf6 .dscr{height:361px}
+.wf6 .dscr iframe{width:1180px;height:760px;transform:scale(.4746)}
+.ip6 .mscr{width:234px;height:474px}
+.ip6 .mscr iframe{width:390px;height:790px;transform:scale(.6)}
+@media(min-width:1450px){
+  .wf6{width:min(640px,100%)}
+  .wf6 .dscr{height:412px}
+  .wf6 .dscr iframe{transform:scale(.5424)}
+  .ip6 .mscr{width:273px;height:553px}
+  .ip6 .mscr iframe{transform:scale(.7)}
+}
 .ig{background:#fff;color:#101B30;height:100%;overflow-y:auto;font-size:12px}
 .ig-top{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:14px;border-bottom:1px solid #EFEFEF}
 .ig-head{display:flex;align-items:center;gap:14px;padding:14px}
@@ -7231,7 +7258,7 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
       </div>
       ${teamPhoto
         ? `<div class="photocard"><img src="/landing/team.jpg" alt=""><span class="cap">${L.cap2}</span></div>`
-        : `<div class="photocard empty"><span>📸</span><p>${L.ph2a}<br>${L.ph2b}</p></div>`}
+        : ""}
     </div>
   </div>
 </section>
@@ -7268,38 +7295,25 @@ ul.pts.big li{font-size:clamp(16px,2.2vw,22px);padding:19px 0;line-height:1.6;ga
         </ul>
         <p class="body" style="margin-top:22px;font-size:14px">${L.live5}</p>
       </div>
-      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="/?demo=app${appPass}" title="App"></iframe></div></div>
+      <!-- The deck is viewed on the landing domain, where "/" is the sales page —
+           the phone must embed the APP host explicitly or it shows the website. -->
+      <div class="iphone big"><div class="inotch"></div><div class="mscr"><iframe data-src="${(ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}` : ""}/?demo=app${appPass}" title="App"></iframe></div></div>
     </div>
   </div>
 </section>
 
 <section class="slide" data-t="${L.t6}">
   <div class="s-veil"></div>
-  <div class="s-in" style="max-width:1120px">
-    <p class="kick">${L.k6}</p>
-    <h1>${L.h6a}<br><em>${L.h6b}</em></h1>
-    <div class="rule"></div>
-    <div class="duo">
-      <div>
-        <p class="body">${L.b6}</p>
-        <ul class="pts">
-          <li><b>🤖</b><span>${L.p6a}</span></li>
-          <li><b>📅</b><span>${L.p6b}</span></li>
-          <li><b>👀</b><span>${L.p6c}</span></li>
-          <li><b>⚙️</b><span>${L.p6d}</span></li>
-        </ul>
-      </div>
-      <div class="chat">
-        <div class="ch-head">${L.chHead}</div>
-        <div id="chatlog">
-          <div class="bub me">${L.chGreet}</div>
-        </div>
-        <div class="ch-in">
-          <input id="chq" placeholder="${L.chPh}" onkeydown="if(event.key==='Enter')sendChat()">
-          <button onclick="sendChat()">→</button>
-        </div>
-        <div class="ch-foot">${L.chFoot}</div>
-      </div>
+  <div class="s-in si6">
+    <div class="head6">
+      <p class="kick">${L.k6}</p>
+      <h1>${L.h6a} <em>${L.h6b}</em></h1>
+      <p class="body b6t">${L.b6}</p>
+      <p class="body live6">${L.live6}</p>
+    </div>
+    <div class="demo6">
+      <div class="webframe wf6"><div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">yourname.com</span></div><div class="dscr"><iframe data-src="/ejemplo?embed=1&chat=open&lang=${en ? "en" : "es"}" title="Web + chat"></iframe></div></div>
+      <div class="iphone ip6"><div class="inotch"></div><div class="mscr"><iframe id="appf6" data-src="${(ROOT_DOMAIN && APP_HOST) ? `https://${APP_HOST}` : ""}/?demo=app${appPass}" title="App"></iframe></div></div>
     </div>
   </div>
 </section>
@@ -7476,6 +7490,14 @@ function sendChat(){
     })
     .catch(function(){ty.remove();chatBusy=false;addBub('me',${JSON.stringify(en ? "Give me one moment 🙏 (try again)" : "Dame un momentito y te contesto 🙏 (intenta de nuevo)")})});
 }
+/* AI-secretary slide live wire: the website's chat/widget announces a captured
+   phone (postMessage) → relay it into the app mockup so the prospect watches
+   their own message become a lead on the phone. */
+window.addEventListener('message',function(e){
+  var d=e.data;if(!d||d.alto!=='lead')return;
+  var f=document.getElementById('appf6');
+  if(f&&f.contentWindow)f.contentWindow.postMessage(d,'*');
+});
 /* Instagram-bio demo phone: profile → tap the bio link → the live widget */
 function igGo(){
   document.getElementById('igmock').style.display='none';

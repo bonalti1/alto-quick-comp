@@ -1152,6 +1152,30 @@ export default function TradeTechPro() {
     setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, info: { ...(l.info || {}), note } } : l)));
     if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ note }) }).catch(() => { /* refetch heals it */ });
   };
+  /* Sales-deck magic (demo mode only, ALTO pattern): the deck's website
+     mockup announces a phone typed into its chat or home-value widget; it
+     appears here as a live lead so the prospect watches their own message
+     land on "their" phone. */
+  useEffect(() => {
+    if (session) return;
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d || d.alto !== "lead" || !d.phone) return;
+      const digits = String(d.phone).replace(/\D/g, "").slice(0, 11);
+      if (digits.length < 10) return;
+      setLeads((ls) => [{
+        id: "demo" + Date.now(), name: String(d.name || "").slice(0, 60), phone: digits, address: "",
+        status: "new", created_at: new Date().toISOString(),
+        info: d.src === "form" ? { source: "widget" } : { source: "chat", note: String(d.text || "").slice(0, 200) },
+      }, ...ls]);
+      showToast(d.src === "form"
+        ? (lang === "es" ? "🎉 ¡Nuevo lead de tu valuador!" : "🎉 New lead from your home-value tool!")
+        : (lang === "es" ? "🎉 ¡Nuevo lead del chat de tu página!" : "🎉 New lead from your website chat!"));
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, lang]);
   // Which lead months are expanded — null = default (latest month open, rest collapsed)
   const [monthsOpen, setMonthsOpen] = useState(null);
   /* The phone's back button/gesture navigates the app instead of exiting it:

@@ -5429,7 +5429,7 @@ h1{font-size:20px;margin-bottom:6px}.sub{color:#67718A;font-size:14px;font-weigh
 .row a{background:#C9973A;color:#101B30;text-decoration:none;font-weight:800;border-radius:10px;padding:9px 16px;font-size:13px}
 .empty{color:#8A94A8;font-weight:600;text-align:center;padding:30px}
 </style></head><body>
-<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Onboarding</b><a style="margin-left:auto;color:#fff;font-weight:800;font-size:12px;text-decoration:none;border:1px solid rgba(255,255,255,.3);border-radius:99px;padding:6px 12px" href="/onboarding?key=${K}&lang=${en ? "es" : "en"}">${en ? "🇲🇽 Español" : "🇺🇸 English"}</a></header>
+<header><img src="/brand-logo.png" alt="Quick Comp"><b>Onboarding</b><a style="margin-left:auto;color:#fff;font-weight:800;font-size:12px;letter-spacing:1px;text-decoration:none;border:1px solid rgba(255,255,255,.3);border-radius:99px;padding:6px 14px" href="/onboarding?key=${K}${en ? "" : "&lang=en"}">${en ? "ES" : "EN"}</a></header>
 <div class="wrap">
 <h1>${tr("¿Para qué cliente es la página?", "Which client is this site for?")}</h1>
 <p class="sub">${tr("Elige el cliente que ya creaste. Si no aparece, créalo primero en el portal del closer.", "Pick the client you already created. If they're not listed, create them in the closer portal first.")}</p>
@@ -5452,10 +5452,9 @@ ${list.length ? list.map((c) => `<div class="row"><span><b>${esc(c.name)}</b><sm
 body{background:var(--navy2);color:#fff;overflow:hidden}
 .layout{display:flex;height:100vh;height:100dvh}
 aside{width:268px;background:#fff;border-right:1px solid #E9EAEE;display:flex;flex-direction:column;flex-shrink:0}
-.sb-brand{display:flex;align-items:center;gap:10px;padding:22px 20px 14px}
-.sb-brand img{height:30px;background:#fff;border-radius:8px}
-.sb-brand b{color:#101B30;font-weight:800;font-size:15px}.sb-brand b em{color:#B07A00;font-style:normal}
-.sb-label{font-size:10px;letter-spacing:2px;color:#9AA0AC;font-weight:800;padding:8px 20px 6px;text-transform:uppercase}
+.sb-brand{display:flex;justify-content:center;padding:28px 16px 12px}
+.sb-brand img{height:64px}
+.sb-label{font-size:10px;letter-spacing:2px;color:#9AA0AC;font-weight:800;padding:6px 16px 12px;text-transform:uppercase;text-align:center}
 nav{flex:1;overflow-y:auto;padding-bottom:10px;display:flex;flex-direction:column}
 .nav-it{flex:1;display:flex;align-items:center;gap:13px;width:100%;background:none;border:none;color:#6A7384;font-weight:700;font-size:15px;padding:0 20px;cursor:pointer;text-align:left;border-left:4px solid transparent;min-height:46px}
 .nav-it .no{font-family:'Fraunces',Georgia,serif;font-size:13px;color:#B6BCC8;width:20px;flex-shrink:0}
@@ -5513,6 +5512,10 @@ input[type=file]{padding:10px;background:#F7F8FA;font-weight:600}
 .nb-btn{background:rgba(255,255,255,.08);color:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 20px;font-weight:800;cursor:pointer;font-size:14px}
 .nb-btn.next{background:var(--gold);color:#101B30;border:none;box-shadow:0 8px 20px rgba(201,151,58,.3)}
 .nb-btn:disabled{opacity:.35;cursor:default}
+.langsw{display:flex;gap:2px;align-items:center;font-size:12px;font-weight:800;letter-spacing:1px}
+.langsw a{color:var(--mut);text-decoration:none;padding:6px 8px;border-radius:8px}
+.langsw a.on{color:var(--gold);background:rgba(201,151,58,.14)}
+.langsw span{color:rgba(255,255,255,.25)}
 .save{width:100%;padding:16px;border:none;border-radius:14px;background:var(--gold);color:#101B30;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 10px 26px rgba(201,151,58,.35);transition:transform .12s,filter .15s;margin-top:6px}
 .save:hover{filter:brightness(1.03)}.save:active{transform:scale(.98)}.save:disabled{opacity:.6}
 .ok{display:none;background:#E7F7ED;border:1px solid #B6E3C6;color:#10803C;border-radius:14px;padding:14px;font-weight:600;text-align:center;margin-top:12px}
@@ -5557,8 +5560,8 @@ textarea.big{min-height:150px;font-size:16px}
 </style></head><body>
 <div class="layout">
 <aside>
-  <div class="sb-brand"><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em></b></div>
-  <div class="sb-label">Onboarding · ${esc(c.name)} · <a style="color:#B07A00;text-decoration:none" href="/onboarding?key=${K}&slug=${esc(c.slug)}&lang=${en ? "es" : "en"}">${en ? "🇲🇽 ES" : "🇺🇸 EN"}</a></div>
+  <div class="sb-brand"><img src="/brand-logo.png" alt="Quick Comp"></div>
+  <div class="sb-label">Onboarding · ${esc(c.name)}</div>
   <nav id="nav">
     <button class="nav-it on" onclick="go(0)"><span class="no">1</span>${tr("Bienvenida", "Welcome")}</button>
     <button class="nav-it" onclick="go(1)"><span class="no">2</span>${tr("Su negocio", "Your business")}</button>
@@ -5728,6 +5731,9 @@ textarea.big{min-height:150px;font-size:16px}
     <button class="nb-btn" id="prevb" onclick="go(STEP-1)">‹ ${tr("Atrás", "Back")}</button>
     <div class="progress"><i id="prog"></i></div>
     <button class="nb-btn next" id="nextb" onclick="go(STEP+1)">${tr("Siguiente", "Next")} ›</button>
+    <div class="langsw">
+      <a class="${en ? "on" : ""}" href="/onboarding?key=${K}&slug=${esc(c.slug)}&lang=en">EN</a><span>·</span><a class="${en ? "" : "on"}" href="/onboarding?key=${K}&slug=${esc(c.slug)}">ES</a>
+    </div>
   </div>
 </main>
 </div>

@@ -5408,11 +5408,16 @@ app.get("/onboarding", async (req, res) => {
   const K = encodeURIComponent(String(req.query.key || ck.alto_closer || ck.alto_cs || ck.alto_admin || ""));
   const esc = (x) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const slug = String(req.query.slug || "").trim();
+  // Screen-shared with English-first realtors: ?lang=en flips every visible
+  // string; the toggle button carries key+slug so nothing is lost.
+  const en = req.query.lang === "en";
+  const tr = (es2, en2) => (en ? en2 : es2);
+  const LQ = en ? "&lang=en" : "";
 
   // No client picked → show a picker
   if (!slug) {
     const list = (await db.listContractors()).filter((c) => !["alto-demo", "alto-ventas"].includes(c.slug));
-    return res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    return res.send(`<!doctype html><html lang="${en ? "en" : "es"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quick Comp · Onboarding</title><link rel="icon" href="/icon-192.png"><style>
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0}body{background:#F4F6FA;color:#101B30}
 header{background:#101B30;color:#fff;padding:14px 22px;display:flex;align-items:center;gap:12px}
@@ -5424,11 +5429,11 @@ h1{font-size:20px;margin-bottom:6px}.sub{color:#67718A;font-size:14px;font-weigh
 .row a{background:#C9973A;color:#101B30;text-decoration:none;font-weight:800;border-radius:10px;padding:9px 16px;font-size:13px}
 .empty{color:#8A94A8;font-weight:600;text-align:center;padding:30px}
 </style></head><body>
-<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Onboarding</b></header>
+<header><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em> · Onboarding</b><a style="margin-left:auto;color:#fff;font-weight:800;font-size:12px;text-decoration:none;border:1px solid rgba(255,255,255,.3);border-radius:99px;padding:6px 12px" href="/onboarding?key=${K}&lang=${en ? "es" : "en"}">${en ? "🇲🇽 Español" : "🇺🇸 English"}</a></header>
 <div class="wrap">
-<h1>¿Para qué cliente es la página?</h1>
-<p class="sub">Elige el cliente que ya creaste. Si no aparece, créalo primero en el portal del closer.</p>
-${list.length ? list.map((c) => `<div class="row"><span><b>${esc(c.name)}</b><small>/${esc(c.slug)}</small></span><a href="/onboarding?key=${K}&slug=${esc(c.slug)}">Personalizar →</a></div>`).join("") : `<p class="empty">Todavía no hay clientes. Créalos en <a href="/closer?key=${K}">/closer</a>.</p>`}
+<h1>${tr("¿Para qué cliente es la página?", "Which client is this site for?")}</h1>
+<p class="sub">${tr("Elige el cliente que ya creaste. Si no aparece, créalo primero en el portal del closer.", "Pick the client you already created. If they're not listed, create them in the closer portal first.")}</p>
+${list.length ? list.map((c) => `<div class="row"><span><b>${esc(c.name)}</b><small>/${esc(c.slug)}</small></span><a href="/onboarding?key=${K}&slug=${esc(c.slug)}${LQ}">${tr("Personalizar →", "Customize →")}</a></div>`).join("") : `<p class="empty">${tr("Todavía no hay clientes. Créalos en", "No clients yet. Create them in")} <a href="/closer?key=${K}">/closer</a>.</p>`}
 </div></body></html>`);
   }
 
@@ -5439,7 +5444,7 @@ ${list.length ? list.map((c) => `<div class="row"><span><b>${esc(c.name)}</b><sm
   const v = (x) => esc(x);
   const svc = Array.isArray(st.services) ? st.services : [];
   const chk = (x) => (svc.indexOf(x) >= 0 ? "checked" : "");
-  res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  res.send(`<!doctype html><html lang="${en ? "en" : "es"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Onboarding · ${esc(c.name)}</title><link rel="icon" href="/icon-192.png"><style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,600&family=Inter:wght@400;500;600;700;800&display=swap');
 *{box-sizing:border-box;font-family:Inter,Arial,sans-serif;margin:0;-webkit-tap-highlight-color:transparent}
@@ -5553,80 +5558,80 @@ textarea.big{min-height:150px;font-size:16px}
 <div class="layout">
 <aside>
   <div class="sb-brand"><img src="/brand-logo.png" alt=""><b>QUICK <em>COMP</em></b></div>
-  <div class="sb-label">Onboarding · ${esc(c.name)}</div>
+  <div class="sb-label">Onboarding · ${esc(c.name)} · <a style="color:#B07A00;text-decoration:none" href="/onboarding?key=${K}&slug=${esc(c.slug)}&lang=${en ? "es" : "en"}">${en ? "🇲🇽 ES" : "🇺🇸 EN"}</a></div>
   <nav id="nav">
-    <button class="nav-it on" onclick="go(0)"><span class="no">1</span>Bienvenida</button>
-    <button class="nav-it" onclick="go(1)"><span class="no">2</span>Su negocio</button>
-    <button class="nav-it" onclick="go(2)"><span class="no">3</span>Su plantilla</button>
-    <button class="nav-it" onclick="go(3)"><span class="no">4</span>Su historia</button>
-    <button class="nav-it" onclick="go(4)"><span class="no">5</span>Logo y fotos</button>
-    <button class="nav-it" onclick="go(5)"><span class="no">6</span>Su dominio</button>
-    <button class="nav-it" onclick="go(6)"><span class="no">7</span>Listo</button>
+    <button class="nav-it on" onclick="go(0)"><span class="no">1</span>${tr("Bienvenida", "Welcome")}</button>
+    <button class="nav-it" onclick="go(1)"><span class="no">2</span>${tr("Su negocio", "Your business")}</button>
+    <button class="nav-it" onclick="go(2)"><span class="no">3</span>${tr("Su plantilla", "Your template")}</button>
+    <button class="nav-it" onclick="go(3)"><span class="no">4</span>${tr("Su historia", "Your story")}</button>
+    <button class="nav-it" onclick="go(4)"><span class="no">5</span>${tr("Logo y fotos", "Logo & photos")}</button>
+    <button class="nav-it" onclick="go(5)"><span class="no">6</span>${tr("Su dominio", "Your domain")}</button>
+    <button class="nav-it" onclick="go(6)"><span class="no">7</span>${tr("Listo", "Done")}</button>
   </nav>
   <div class="sb-foot">🌐 ${esc(siteDisplay(req, c.slug))}</div>
 </aside>
 <main>
-  <div class="mtop"><img src="/brand-logo.png" alt=""><div><div class="mstep" id="mstep">Paso 1 de 7</div><div class="mtitle" id="mtitle">Bienvenida</div></div></div>
+  <div class="mtop"><img src="/brand-logo.png" alt=""><div><div class="mstep" id="mstep">${tr("Paso", "Step")} 1 ${tr("de", "of")} 7</div><div class="mtitle" id="mtitle">${tr("Bienvenida", "Welcome")}</div></div></div>
   <div class="stage">
 
     <section class="slide on">
       <div class="s-in">
         <p class="kick">Onboarding · ${esc(c.name)}</p>
-        <h1>Bienvenido a tu <em>onboarding.</em></h1>
+        <h1>${tr("Bienvenido a tu <em>onboarding.</em>", "Welcome to your <em>onboarding.</em>")}</h1>
         <div class="rule"></div>
-        <p class="body">En esta reunión vamos a juntar todo lo que hace único a tu negocio — tu estilo, tu historia, tu logo y tus fotos. Con eso, nuestro equipo de diseño construye tu página a mano. Tú solo contesta unas preguntas; nosotros nos encargamos del resto.</p>
+        <p class="body">${tr("En esta reunión vamos a juntar todo lo que hace único a tu negocio — tu estilo, tu historia, tu logo y tus fotos. Con eso, nuestro equipo de diseño construye tu página a mano. Tú solo contesta unas preguntas; nosotros nos encargamos del resto.", "In this meeting we'll gather everything that makes your business unique — your style, your story, your logo and your photos. With that, our design team builds your site by hand. You just answer a few questions; we handle the rest.")}</p>
         <div class="wflow">
-          <div class="wf"><div class="n">01</div><h4>Tus preferencias</h4><p>Juntamos tu estilo, tu historia y tus fotos en esta llamada.</p></div>
-          <div class="wf"><div class="n">02</div><h4>Nuestro equipo de diseño</h4><p>Lo arma todo a mano con tu marca — no es una plantilla genérica.</p></div>
-          <div class="wf"><div class="n">03</div><h4>Tu página, lista</h4><p>En 10–14 días, en ${esc(siteDisplay(req, c.slug))} o tu propio dominio.</p></div>
+          <div class="wf"><div class="n">01</div><h4>${tr("Tus preferencias", "Your preferences")}</h4><p>${tr("Juntamos tu estilo, tu historia y tus fotos en esta llamada.", "We gather your style, your story and your photos on this call.")}</p></div>
+          <div class="wf"><div class="n">02</div><h4>${tr("Nuestro equipo de diseño", "Our design team")}</h4><p>${tr("Lo arma todo a mano con tu marca — no es una plantilla genérica.", "Builds it all by hand with your brand — not a generic template.")}</p></div>
+          <div class="wf"><div class="n">03</div><h4>${tr("Tu página, lista", "Your site, ready")}</h4><p>${tr("En 10–14 días, en", "In 10–14 days, at")} ${esc(siteDisplay(req, c.slug))} ${tr("o tu propio dominio.", "or your own domain.")}</p></div>
         </div>
       </div>
     </section>
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 2 · Su negocio</p>
-        <h1>Cuéntanos de <em>tu negocio.</em></h1>
+        <p class="kick">${tr("Paso 2 · Su negocio", "Step 2 · Your business")}</p>
+        <h1>${tr("Cuéntanos de <em>tu negocio.</em>", "Tell us about <em>your business.</em>")}</h1>
         <div class="fcard">
-          <label>Nombre del negocio</label><input id="biz" value="${v(p.biz || c.name)}">
-          <label>Teléfono</label><input id="phone" type="tel" value="${v(p.phone || c.phone)}" placeholder="(956) 555-0100">
-          <label>Ciudad principal</label><input id="city" value="${v(st.city)}" placeholder="Rio Grande City, TX">
-          <label>Pueblos o condados que cubre</label><input id="area" value="${v(st.area)}" placeholder="Starr, Hidalgo, Zapata…">
-          <label>Años en el negocio</label><input id="years" type="number" value="${v(st.years)}" placeholder="15">
-          <label>Servicios que ofrece</label>
+          <label>${tr("Nombre del negocio", "Business name")}</label><input id="biz" value="${v(p.biz || c.name)}">
+          <label>${tr("Teléfono", "Phone")}</label><input id="phone" type="tel" value="${v(p.phone || c.phone)}" placeholder="(956) 555-0100">
+          <label>${tr("Ciudad principal", "Main city")}</label><input id="city" value="${v(st.city)}" placeholder="Rio Grande City, TX">
+          <label>${tr("Pueblos o condados que cubre", "Towns or counties you cover")}</label><input id="area" value="${v(st.area)}" placeholder="Starr, Hidalgo, Zapata…">
+          <label>${tr("Años en el negocio", "Years in the business")}</label><input id="years" type="number" value="${v(st.years)}" placeholder="15">
+          <label>${tr("Servicios que ofrece", "Services you offer")}</label>
           <div class="chips" id="services">
-            <label class="chip"><input type="checkbox" value="Venta de casas (listing)" ${chk("Venta de casas (listing)")}>Venta / listing</label>
-            <label class="chip"><input type="checkbox" value="Representación de compradores" ${chk("Representación de compradores")}>Compradores</label>
-            <label class="chip"><input type="checkbox" value="Valuación / CMA gratis" ${chk("Valuación / CMA gratis")}>Valuación / CMA</label>
-            <label class="chip"><input type="checkbox" value="Primera casa" ${chk("Primera casa")}>Primera casa</label>
-            <label class="chip"><input type="checkbox" value="Inversionistas" ${chk("Inversionistas")}>Inversionistas</label>
-            <label class="chip"><input type="checkbox" value="Casas de lujo" ${chk("Casas de lujo")}>Lujo</label>
-            <label class="chip"><input type="checkbox" value="Comercial" ${chk("Comercial")}>Comercial</label>
-            <label class="chip"><input type="checkbox" value="Renta / property management" ${chk("Renta / property management")}>Renta</label>
-            <label class="chip"><input type="checkbox" value="Crédito / financiamiento" ${chk("Crédito / financiamiento")}>Crédito</label>
+            <label class="chip"><input type="checkbox" value="Venta de casas (listing)" ${chk("Venta de casas (listing)")}>${tr("Venta / listing", "Sell / listing")}</label>
+            <label class="chip"><input type="checkbox" value="Representación de compradores" ${chk("Representación de compradores")}>${tr("Compradores", "Buyers")}</label>
+            <label class="chip"><input type="checkbox" value="Valuación / CMA gratis" ${chk("Valuación / CMA gratis")}>${tr("Valuación / CMA", "Home value / CMA")}</label>
+            <label class="chip"><input type="checkbox" value="Primera casa" ${chk("Primera casa")}>${tr("Primera casa", "First-time buyers")}</label>
+            <label class="chip"><input type="checkbox" value="Inversionistas" ${chk("Inversionistas")}>${tr("Inversionistas", "Investors")}</label>
+            <label class="chip"><input type="checkbox" value="Casas de lujo" ${chk("Casas de lujo")}>${tr("Lujo", "Luxury")}</label>
+            <label class="chip"><input type="checkbox" value="Comercial" ${chk("Comercial")}>${tr("Comercial", "Commercial")}</label>
+            <label class="chip"><input type="checkbox" value="Renta / property management" ${chk("Renta / property management")}>${tr("Renta", "Rentals")}</label>
+            <label class="chip"><input type="checkbox" value="Crédito / financiamiento" ${chk("Crédito / financiamiento")}>${tr("Crédito", "Lending")}</label>
           </div>
-          <label>Especialidad o enfoque (opcional)</label><input id="warranty" value="${v(st.warranty)}" placeholder="Ej. familias hispanas, primera casa, Starr County">
-          <label>¿Qué te hace diferente? (opcional)</label><input id="diff" value="${v(st.diff)}" placeholder="Ej. agente local, atención personal en cada cierre">
-          <label>Licencia / designaciones (opcional)</label><input id="license" value="${v(p.license)}" placeholder="TREC #123456 · Realtor®">
-          <label>Idioma de su página</label>
+          <label>${tr("Especialidad o enfoque (opcional)", "Specialty or focus (optional)")}</label><input id="warranty" value="${v(st.warranty)}" placeholder="${tr("Ej. familias hispanas, primera casa, Starr County", "E.g. first-time buyers, Starr County, relocation")}">
+          <label>${tr("¿Qué te hace diferente? (opcional)", "What makes you different? (optional)")}</label><input id="diff" value="${v(st.diff)}" placeholder="${tr("Ej. agente local, atención personal en cada cierre", "E.g. local agent, personal attention at every closing")}">
+          <label>${tr("Licencia / designaciones (opcional)", "License / designations (optional)")}</label><input id="license" value="${v(p.license)}" placeholder="TREC #123456 · Realtor®">
+          <label>${tr("Idioma de su página", "Site language")}</label>
           <select id="sitelang"><option value="es" ${(st.lang || "es") !== "en" ? "selected" : ""}>Español</option><option value="en" ${st.lang === "en" ? "selected" : ""}>English</option></select>
-          <p class="hint">Todo su sitio y su valuador se entregan en este idioma.</p>
+          <p class="hint">${tr("Todo su sitio y su valuador se entregan en este idioma.", "Their whole site and home-value tool are delivered in this language.")}</p>
         </div>
       </div>
     </section>
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 3 · Su plantilla</p>
-        <h1>¿Cuál se siente <em>más tú?</em></h1>
-        <p class="body" style="margin-top:8px">Tres estilos, cada uno con su propia personalidad. Toca el que más te guste — abajo lo ves en grande, en computadora.</p>
+        <p class="kick">${tr("Paso 3 · Su plantilla", "Step 3 · Your template")}</p>
+        <h1>${tr("¿Cuál se siente <em>más tú?</em>", "Which one feels <em>most you?</em>")}</h1>
+        <p class="body" style="margin-top:8px">${tr("Tres estilos, cada uno con su propia personalidad. Toca el que más te guste — abajo lo ves en grande, en computadora.", "Three styles, each with its own personality. Tap the one you like — below you see it big, on a computer.")}</p>
         <div class="tgrid" id="tpls">
-          <div class="tpl" data-t="1" onclick="pickTpl('1')"><div class="tphone"><div class="tscr"><iframe id="f1" src="/plantilla/1?embed=1" title="Clásico"></iframe></div></div><p class="tn">1 · <span>El Clásico</span></p><p class="td">Elegante y premium</p><span class="pick">Elegir</span></div>
-          <div class="tpl" data-t="2" onclick="pickTpl('2')"><div class="tphone"><div class="tscr"><iframe id="f2" src="/plantilla/2?embed=1" title="Fuerte"></iframe></div></div><p class="tn">2 · <span>El Fuerte</span></p><p class="td">Fuerte y con energía</p><span class="pick">Elegir</span></div>
-          <div class="tpl" data-t="3" onclick="pickTpl('3')"><div class="tphone"><div class="tscr"><iframe id="f3" src="/plantilla/3?embed=1" title="Limpio"></iframe></div></div><p class="tn">3 · <span>El Limpio</span></p><p class="td">Limpio y de confianza</p><span class="pick">Elegir</span></div>
+          <div class="tpl" data-t="1" onclick="pickTpl('1')"><div class="tphone"><div class="tscr"><iframe id="f1" src="/plantilla/1?embed=1" title="Clásico"></iframe></div></div><p class="tn">1 · <span>${tr("El Clásico", "The Classic")}</span></p><p class="td">${tr("Elegante y premium", "Elegant and premium")}</p><span class="pick">${tr("Elegir", "Choose")}</span></div>
+          <div class="tpl" data-t="2" onclick="pickTpl('2')"><div class="tphone"><div class="tscr"><iframe id="f2" src="/plantilla/2?embed=1" title="Fuerte"></iframe></div></div><p class="tn">2 · <span>${tr("El Fuerte", "The Bold")}</span></p><p class="td">${tr("Fuerte y con energía", "Strong and energetic")}</p><span class="pick">${tr("Elegir", "Choose")}</span></div>
+          <div class="tpl" data-t="3" onclick="pickTpl('3')"><div class="tphone"><div class="tscr"><iframe id="f3" src="/plantilla/3?embed=1" title="Limpio"></iframe></div></div><p class="tn">3 · <span>${tr("El Limpio", "The Clean")}</span></p><p class="td">${tr("Limpio y de confianza", "Clean and trustworthy")}</p><span class="pick">${tr("Elegir", "Choose")}</span></div>
         </div>
         <div class="bigwrap">
-          <p class="cap">Así se vería en computadora</p>
+          <p class="cap">${tr("Así se vería en computadora", "This is how it looks on a computer")}</p>
           <div class="webframe">
             <div class="wbar"><span class="wdot"></span><span class="wdot"></span><span class="wdot"></span><span class="wurl">${esc(siteDisplay(req, c.slug))}</span></div>
             <div class="dscr"><iframe id="bigframe" src="/plantilla/1?embed=1" title="Vista de computadora"></iframe></div>
@@ -5637,41 +5642,41 @@ textarea.big{min-height:150px;font-size:16px}
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 4 · Su historia</p>
-        <h1>Cuéntanos <em>su historia.</em></h1>
+        <p class="kick">${tr("Paso 4 · Su historia", "Step 4 · Your story")}</p>
+        <h1>${tr("Cuéntanos <em>su historia.</em>", "Tell us <em>your story.</em>")}</h1>
         <div class="fcard">
-          <label>Cuéntanos del negocio — habla o escribe</label>
-          <textarea id="rough" class="big" placeholder="¿Cómo empezó en bienes raíces? ¿Cuántas casas ha vendido? ¿En qué se especializa? ¿Qué lo hace diferente? Puedes hablar con el micrófono — no tiene que estar bonito, la IA lo acomoda."></textarea>
+          <label>${tr("Cuéntanos del negocio — habla o escribe", "Tell us about the business — speak or type")}</label>
+          <textarea id="rough" class="big" placeholder="${tr("¿Cómo empezó en bienes raíces? ¿Cuántas casas ha vendido? ¿En qué se especializa? ¿Qué lo hace diferente? Puedes hablar con el micrófono — no tiene que estar bonito, la IA lo acomoda.", "How did you get into real estate? How many homes have you sold? What do you specialize in? What makes you different? You can use the mic — it does not have to be pretty, the AI cleans it up.")}"></textarea>
           <div class="microw" style="margin-top:8px">
-            <button type="button" id="aibtn" onclick="aiWrite()" class="btn-dark">✨ Escribir con IA</button>
-            <button type="button" class="micbtn" onclick="dictate('rough',this)" title="Hablar en vez de escribir">🎤</button>
+            <button type="button" id="aibtn" onclick="aiWrite()" class="btn-dark">✨ ${tr("Escribir con IA", "Write with AI")}</button>
+            <button type="button" class="micbtn" onclick="dictate('rough',this)" title="${tr("Hablar en vez de escribir", "Speak instead of typing")}">🎤</button>
             <span class="hint" id="aihint" style="align-self:center"></span>
           </div>
           <hr style="border:none;border-top:1px solid #EDF0F5;margin:18px 0">
-          <label>Titular (opcional)</label><input id="hero" value="${v(st.hero)}" placeholder="Déjalo vacío para usar el de la plantilla">
-          <label>Frase corta</label><input id="tagline" value="${v(st.tagline)}" placeholder="Vende tu casa al mejor precio, con ventas reales de tu zona.">
-          <label>Su historia (lo que va en la página)</label>
+          <label>${tr("Titular (opcional)", "Headline (optional)")}</label><input id="hero" value="${v(st.hero)}" placeholder="${tr("Déjalo vacío para usar el de la plantilla", "Leave empty to use the template one")}">
+          <label>${tr("Frase corta", "Short tagline")}</label><input id="tagline" value="${v(st.tagline)}" placeholder="${tr("Vende tu casa al mejor precio, con ventas reales de tu zona.", "Sell your home for the right price, from real sales in your area.")}">
+          <label>${tr("Su historia (lo que va en la página)", "Your story (what goes on the site)")}</label>
           <div class="microw">
-            <textarea id="about" class="big" placeholder="2-3 oraciones sobre el negocio — la IA la llena desde tus notas de arriba.">${v(st.about)}</textarea>
-            <button type="button" class="micbtn" onclick="dictate('about',this)" title="Hablar en vez de escribir">🎤</button>
+            <textarea id="about" class="big" placeholder="${tr("2-3 oraciones sobre el negocio — la IA la llena desde tus notas de arriba.", "2-3 sentences about the business — the AI fills it from your notes above.")}">${v(st.about)}</textarea>
+            <button type="button" class="micbtn" onclick="dictate('about',this)" title="${tr("Hablar en vez de escribir", "Speak instead of typing")}">🎤</button>
           </div>
-          <p class="hint">La IA llena el titular, la frase y la historia desde tus notas — <b>revísalos y edítalos</b> antes de enviar.</p>
+          <p class="hint">${tr("La IA llena el titular, la frase y la historia desde tus notas — <b>revísalos y edítalos</b> antes de enviar.", "The AI fills the headline, tagline and story from your notes — <b>review and edit them</b> before sending.")}</p>
         </div>
       </div>
     </section>
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 5 · Logo y fotos</p>
-        <h1>Su <em>marca.</em></h1>
+        <p class="kick">${tr("Paso 5 · Logo y fotos", "Step 5 · Logo & photos")}</p>
+        <h1>${tr("Su <em>marca.</em>", "Your <em>brand.</em>")}</h1>
         <div class="fcard">
-          <label>Logo del negocio</label>
-          <p class="hint" style="margin-top:0">Sube el logo y de ahí sacamos los colores de tu página automáticamente.</p>
+          <label>${tr("Logo del negocio", "Business logo")}</label>
+          <p class="hint" style="margin-top:0">${tr("Sube el logo y de ahí sacamos los colores de tu página automáticamente.", "Upload the logo — we pull your site colors from it automatically.")}</p>
           <input type="file" id="logofile" accept="image/*">
           <img class="logoprev" id="logoprev" ${/^data:image/.test(String(p.logo || "")) ? `src="${p.logo}" style="display:block"` : ""}>
           <input type="hidden" id="color" value="${st.color && /^#[0-9a-fA-F]{6}$/.test(st.color) ? st.color : ""}">
-          <label style="margin-top:18px">Fotos de trabajos terminados</label>
-          <p class="hint" style="margin-top:0">📲 Pídele al cliente que mande sus mejores fotos por WhatsApp y tú las subes aquí durante la llamada. Fotos reales se ven mucho mejor que las de internet.</p>
+          <label style="margin-top:18px">${tr("Fotos de trabajos terminados", "Photos: headshot & sold listings")}</label>
+          <p class="hint" style="margin-top:0">${tr("📲 Pídele al cliente que mande sus mejores fotos por WhatsApp y tú las subes aquí durante la llamada. Fotos reales se ven mucho mejor que las de internet.", "📲 Ask the client to send their best photos by WhatsApp and upload them here during the call. Real photos look far better than stock.")}</p>
           <input type="file" id="photofiles" accept="image/*" multiple>
           <div class="thumbs" id="thumbs"></div>
         </div>
@@ -5680,16 +5685,16 @@ textarea.big{min-height:150px;font-size:16px}
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 6 · Su dominio</p>
-        <h1>Su propio <em>dominio.</em> <small>Opcional — su página ya vive en ${esc(siteDisplay(req, c.slug))}</small></h1>
+        <p class="kick">${tr("Paso 6 · Su dominio", "Step 6 · Your domain")}</p>
+        <h1>${tr("Su propio <em>dominio.</em>", "Your own <em>domain.</em>")} <small>${tr("Opcional — su página ya vive en", "Optional — your site already lives at")} ${esc(siteDisplay(req, c.slug))}</small></h1>
         <div class="fcard">
-          <label>Buscar un dominio disponible</label>
-          <div style="display:flex;gap:8px"><input id="dsearch" placeholder="Nombre del negocio o dominio" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();checkDomain();}"><button type="button" onclick="checkDomain()" id="dsbtn" class="btn-dark" style="white-space:nowrap;background:var(--gold);color:#101B30">Buscar</button></div>
+          <label>${tr("Buscar un dominio disponible", "Search for an available domain")}</label>
+          <div style="display:flex;gap:8px"><input id="dsearch" placeholder="${tr("Nombre del negocio o dominio", "Business name or domain")}" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();checkDomain();}"><button type="button" onclick="checkDomain()" id="dsbtn" class="btn-dark" style="white-space:nowrap;background:var(--gold);color:#101B30">${tr("Buscar", "Search")}</button></div>
           <div id="dresults" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px"></div>
           <p class="hint" id="dsearchhint" style="margin-top:4px"></p>
           <hr style="border:none;border-top:1px solid #EDF0F5;margin:14px 0">
-          <label>Dominio del cliente (conectar)</label>
-          <div style="display:flex;gap:8px"><input id="domain" value="${v(st.domain)}" placeholder="casabellarealty.com" style="flex:1"><button type="button" onclick="connectDomain()" id="dombtn" class="btn-dark" style="white-space:nowrap">Conectar</button></div>
+          <label>${tr("Dominio del cliente (conectar)", "Client-owned domain (connect)")}</label>
+          <div style="display:flex;gap:8px"><input id="domain" value="${v(st.domain)}" placeholder="casabellarealty.com" style="flex:1"><button type="button" onclick="connectDomain()" id="dombtn" class="btn-dark" style="white-space:nowrap">${tr("Conectar", "Connect")}</button></div>
           <div id="dommsg" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -5697,22 +5702,22 @@ textarea.big{min-height:150px;font-size:16px}
 
     <section class="slide">
       <div class="s-in top">
-        <p class="kick">Paso 7 · Listo</p>
-        <h1>Todo listo para <em>enviarlo.</em></h1>
+        <p class="kick">${tr("Paso 7 · Listo", "Step 7 · Done")}</p>
+        <h1>${tr("Todo listo para <em>enviarlo.</em>", "Ready to <em>send it.</em>")}</h1>
         <div class="fcard">
           <div style="text-align:center"><div style="font-size:42px;line-height:1">📨</div></div>
-          <p style="text-align:center;color:#475067;font-weight:600;font-size:14px;margin:8px 0 18px;line-height:1.6">Revisa que todo esté bien. Al enviar, nuestro equipo de diseño arma tu página a mano y te la entregamos lista en <b style="color:#0B1220">10–14 días</b>.</p>
+          <p style="text-align:center;color:#475067;font-weight:600;font-size:14px;margin:8px 0 18px;line-height:1.6">${tr("Revisa que todo esté bien. Al enviar, nuestro equipo de diseño arma tu página a mano y te la entregamos lista en <b style='color:#0B1220'>10–14 días</b>.", "Check that everything looks right. When you send it, our design team builds your site by hand and delivers it in <b style='color:#0B1220'>10–14 days</b>.")}</p>
           <ul class="rev">
-            <li><b>Negocio</b><span id="rvbiz">—</span></li>
-            <li><b>Estilo elegido</b><span id="rvtpl">—</span></li>
-            <li><b>Servicios</b><span id="rvserv">—</span></li>
-            <li><b>Dominio</b><span id="rvdom">su subdominio</span></li>
+            <li><b>${tr("Negocio", "Business")}</b><span id="rvbiz">—</span></li>
+            <li><b>${tr("Estilo elegido", "Chosen style")}</b><span id="rvtpl">—</span></li>
+            <li><b>${tr("Servicios", "Services")}</b><span id="rvserv">—</span></li>
+            <li><b>${tr("Dominio", "Domain")}</b><span id="rvdom">${tr("su subdominio", "their subdomain")}</span></li>
           </ul>
-          <button class="save" id="save" onclick="save()">Enviar al equipo de diseño 🎨</button>
+          <button class="save" id="save" onclick="save()">${tr("Enviar al equipo de diseño 🎨", "Send to the design team 🎨")}</button>
           <div class="ok" id="ok"></div>
           <div id="staff" style="display:${st.template || st.about ? "block" : "none"};margin-top:14px;text-align:center">
-            <a href="/site/${esc(c.slug)}?preview=1" target="_blank" class="linkrow" style="margin-right:14px">👁 Ver borrador (interno)</a>
-            <button onclick="publish()" id="pub" class="btn-dark" style="background:${st.published ? "#1E7B3C" : "#101B30"}">${st.published ? "✓ Publicada — clic para ocultar" : "🚀 Publicar página al cliente"}</button>
+            <a href="/site/${esc(c.slug)}?preview=1" target="_blank" class="linkrow" style="margin-right:14px">👁 ${tr("Ver borrador (interno)", "View draft (internal)")}</a>
+            <button onclick="publish()" id="pub" class="btn-dark" style="background:${st.published ? "#1E7B3C" : "#101B30"}">${st.published ? tr("✓ Publicada — clic para ocultar", "✓ Published — click to hide") : tr("🚀 Publicar página al cliente", "🚀 Publish the site to the client")}</button>
           </div>
         </div>
       </div>
@@ -5720,9 +5725,9 @@ textarea.big{min-height:150px;font-size:16px}
 
   </div>
   <div class="navbar">
-    <button class="nb-btn" id="prevb" onclick="go(STEP-1)">‹ Atrás</button>
+    <button class="nb-btn" id="prevb" onclick="go(STEP-1)">‹ ${tr("Atrás", "Back")}</button>
     <div class="progress"><i id="prog"></i></div>
-    <button class="nb-btn next" id="nextb" onclick="go(STEP+1)">Siguiente ›</button>
+    <button class="nb-btn next" id="nextb" onclick="go(STEP+1)">${tr("Siguiente", "Next")} ›</button>
   </div>
 </main>
 </div>
@@ -5732,28 +5737,28 @@ var PHOTOS = ${JSON.stringify(Array.isArray(st.photos) ? st.photos : [])};
 var TPL = "${["1", "2", "3"].includes(String(st.template)) ? st.template : "1"}";
 var PUBLISHED = ${st.published ? "true" : "false"};
 // ── step navigation (deck-style) ──
-var NAVT=["Bienvenida","Su negocio","Su plantilla","Su historia","Logo y fotos","Su dominio","Listo"];
+var NAVT=${JSON.stringify(en ? ["Welcome", "Your business", "Your template", "Your story", "Logo & photos", "Your domain", "Done"] : ["Bienvenida", "Su negocio", "Su plantilla", "Su historia", "Logo y fotos", "Su dominio", "Listo"])};
 var STEP=0;var MAX=7;
 function go(i){
   if(i<0||i>=MAX)return;STEP=i;
   var sl=document.querySelectorAll('.slide');for(var s=0;s<sl.length;s++){sl[s].classList.toggle('on',s===i);}
   var nv=document.querySelectorAll('.nav-it');for(var n=0;n<nv.length;n++){nv[n].classList.toggle('on',n===i);nv[n].classList.toggle('done',n<i);}
   document.getElementById('prog').style.width=Math.round(((i+1)/MAX)*100)+'%';
-  document.getElementById('mstep').textContent='Paso '+(i+1)+' de '+MAX;
+  document.getElementById('mstep').textContent=${JSON.stringify(en ? "Step " : "Paso ")}+(i+1)+${JSON.stringify(en ? " of " : " de ")}+MAX;
   document.getElementById('mtitle').textContent=NAVT[i];
   document.getElementById('prevb').disabled=(i===0);
   document.getElementById('nextb').style.visibility=(i===MAX-1)?'hidden':'visible';
   if(i===6)review();
   if(sl[i])sl[i].scrollTop=0;
 }
-var TNAME={'1':'El Clásico','2':'El Fuerte','3':'El Limpio'};
+var TNAME=${JSON.stringify(en ? { 1: "The Classic", 2: "The Bold", 3: "The Clean" } : { 1: "El Clásico", 2: "El Fuerte", 3: "El Limpio" })};
 function review(){
   document.getElementById('rvbiz').textContent=document.getElementById('biz').value||'—';
-  document.getElementById('rvtpl').textContent=TNAME[TPL]||('Plantilla '+TPL);
+  document.getElementById('rvtpl').textContent=TNAME[TPL]||(${JSON.stringify(en ? 'Template ' : 'Plantilla ')}+TPL);
   var n=document.querySelectorAll('#services input:checked').length;
-  document.getElementById('rvserv').textContent=n?(n+(n===1?' servicio':' servicios')):'—';
+  document.getElementById('rvserv').textContent=n?(n+(n===1?${JSON.stringify(en ? ' service' : ' servicio')}:${JSON.stringify(en ? ' services' : ' servicios')})):'—';
   var d=document.getElementById('domain').value.trim();
-  document.getElementById('rvdom').textContent=d||'su subdominio';
+  document.getElementById('rvdom').textContent=d||${JSON.stringify(en ? 'their subdomain' : 'su subdominio')};
 }
 // ── template picker: one desktop frame swaps to the chosen template ──
 function paintTpl(){[].forEach.call(document.querySelectorAll('.tpl'),function(el){el.classList.toggle('on',el.dataset.t===TPL)})}
@@ -5762,10 +5767,10 @@ function pickTpl(t){TPL=t;paintTpl();var bf=document.getElementById('bigframe');
 var _rec=null,_recBtn=null;
 function dictate(targetId,btn){
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){alert('Tu navegador no soporta dictado por voz. Usa Google Chrome.');return;}
+  if(!SR){alert(${JSON.stringify(en ? 'Your browser does not support voice dictation. Use Google Chrome.' : 'Tu navegador no soporta dictado por voz. Usa Google Chrome.')});return;}
   if(_rec){_rec.stop();return;}
   var ta=document.getElementById(targetId);var base=ta.value?ta.value.replace(/\\s*$/,'')+' ':'';
-  _rec=new SR();_rec.lang='es-MX';_rec.interimResults=true;_rec.continuous=true;
+  _rec=new SR();_rec.lang=${JSON.stringify(en ? 'en-US' : 'es-MX')};_rec.interimResults=true;_rec.continuous=true;
   _recBtn=btn;btn.classList.add('rec');ta.focus();
   _rec.onresult=function(e){var interim='';for(var i=e.resultIndex;i<e.results.length;i++){var r=e.results[i];if(r.isFinal){base+=r[0].transcript+' ';}else{interim+=r[0].transcript;}}ta.value=base+interim;};
   _rec.onend=function(){if(_recBtn)_recBtn.classList.remove('rec');_rec=null;_recBtn=null;};
@@ -5825,23 +5830,23 @@ document.getElementById('photofiles').onchange=function(e){
 function checkDomain(){
   var btn=document.getElementById('dsbtn'),box=document.getElementById('dresults'),hint=document.getElementById('dsearchhint');
   var q=document.getElementById('dsearch').value.trim();
-  if(!q){hint.textContent='Escribe un nombre o dominio.';return;}
-  btn.disabled=true;btn.textContent='…';box.innerHTML='';hint.style.color='#67718A';hint.textContent='Buscando…';
+  if(!q){hint.textContent=${JSON.stringify(en ? 'Type a name or domain.' : 'Escribe un nombre o dominio.')};return;}
+  btn.disabled=true;btn.textContent='…';box.innerHTML='';hint.style.color='#67718A';hint.textContent=${JSON.stringify(en ? 'Searching…' : 'Buscando…')};
   fetch('/api/onboarding/domaincheck?key=${K}&name='+encodeURIComponent(q))
     .then(function(r){return r.json();}).then(function(j){
-      btn.disabled=false;btn.textContent='Buscar';
-      if(!j||!j.ok||!j.results){hint.textContent='No se pudo buscar — intenta de nuevo.';return;}
-      hint.innerHTML='💡 Precio de costo, sin sobreprecio. Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.';
+      btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Search' : 'Buscar')};
+      if(!j||!j.ok||!j.results){hint.textContent=${JSON.stringify(en ? 'Search failed — try again.' : 'No se pudo buscar — intenta de nuevo.')};return;}
+      hint.innerHTML=${JSON.stringify(en ? '💡 At-cost pricing, no markup. Cloudflare does not sell premium domains — if it will not let you buy one, pick another.' : '💡 Precio de costo, sin sobreprecio. Cloudflare no vende dominios premium — si no te deja comprarlo, elige otro.')};
       box.innerHTML=j.results.map(function(x){
         var bg=x.status==='available'?'#EAF8EF':x.status==='taken'?'#FDECEC':'#F0F2F6';
         var fg=x.status==='available'?'#1E7B3C':x.status==='taken'?'#9B1C10':'#67718A';
-        var tag=x.status==='available'?(x.price?('✓ disponible · $'+Number(x.price).toFixed(2)+'/año'):'✓ disponible'):x.status==='taken'?'✕ ocupado':'? sin verificar';
+        var tag=x.status==='available'?(x.price?(${JSON.stringify(en ? '✓ available · $' : '✓ disponible · $')}+Number(x.price).toFixed(2)+${JSON.stringify(en ? '/yr' : '/año')}):${JSON.stringify(en ? '✓ available' : '✓ disponible')}):x.status==='taken'?${JSON.stringify(en ? '✕ taken' : '✕ ocupado')}:${JSON.stringify(en ? '? unverified' : '? sin verificar')};
         var pill='<span style="background:'+bg+';color:'+fg+';border-radius:10px;padding:8px 12px;font-weight:700;font-size:13px">'+x.domain+' · '+tag+'</span>';
-        if(x.canBuy) return '<span style="display:inline-flex;gap:6px;align-items:center">'+pill+'<button type="button" onclick="buyDomain(\\''+x.domain+'\\','+(x.price||0)+')" style="padding:7px 12px;font-size:12.5px;white-space:nowrap;background:#15244C;color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer">Comprar y conectar</button></span>';
+        if(x.canBuy) return '<span style="display:inline-flex;gap:6px;align-items:center">'+pill+'<button type="button" onclick="buyDomain(\\''+x.domain+'\\','+(x.price||0)+')" style="padding:7px 12px;font-size:12.5px;white-space:nowrap;background:#15244C;color:#fff;border:none;border-radius:10px;font-weight:800;cursor:pointer">'+${JSON.stringify(en ? 'Buy & connect' : 'Comprar y conectar')}+'</button></span>';
         if(x.status==='available') return '<span onclick="useDomain(\\''+x.domain+'\\')" style="cursor:pointer">'+pill+'</span>';
         return pill;
       }).join('');
-    }).catch(function(){btn.disabled=false;btn.textContent='Buscar';hint.textContent='No se pudo buscar — intenta de nuevo.';});
+    }).catch(function(){btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Search' : 'Buscar')};hint.textContent=${JSON.stringify(en ? 'Search failed — try again.' : 'No se pudo buscar — intenta de nuevo.')};});
 }
 function useDomain(d){document.getElementById('domain').value=d;document.getElementById('domain').scrollIntoView({block:'center'});}
 function connectDomain(){
@@ -5850,50 +5855,50 @@ function connectDomain(){
   btn.disabled=true;btn.textContent='…';msg.style.color='#67718A';
   fetch('/api/onboarding/domain?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:${JSON.stringify(c.slug)},domain:d})})
     .then(function(r){return r.json();}).then(function(j){
-      btn.disabled=false;btn.textContent='Conectar';
-      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo');return;}
-      if(!j.domain){msg.style.color='#67718A';msg.textContent='Dominio quitado. Su página sigue en su subdominio.';return;}
-      var cfNote = j.render&&j.render.ok ? 'El certificado SSL se emite automáticamente cuando el DNS apunte.' : (j.render&&j.render.reason==='render_off' ? 'Falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor — agrega el dominio en Render a mano.' : (j.cf&&j.cf.ok ? 'Cloudflare está emitiendo el certificado SSL automáticamente.' : 'Registro en Render pendiente — revisa el panel.'));
+      btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Connect' : 'Conectar')};
+      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||${JSON.stringify(en ? 'try again' : 'intenta de nuevo')});return;}
+      if(!j.domain){msg.style.color='#67718A';msg.textContent=${JSON.stringify(en ? 'Domain removed. Their site stays on the subdomain.' : 'Dominio quitado. Su página sigue en su subdominio.')};return;}
+      var cfNote = j.render&&j.render.ok ? ${JSON.stringify(en ? 'The SSL certificate is issued automatically once DNS points here.' : 'El certificado SSL se emite automáticamente cuando el DNS apunte.')} : (j.render&&j.render.reason==='render_off' ? ${JSON.stringify(en ? 'RENDER_API_KEY/RENDER_SERVICE_ID missing on the server — add the domain in Render manually.' : 'Falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor — agrega el dominio en Render a mano.')} : (j.cf&&j.cf.ok ? ${JSON.stringify(en ? 'Cloudflare is issuing the SSL certificate automatically.' : 'Cloudflare está emitiendo el certificado SSL automáticamente.')} : ${JSON.stringify(en ? 'Render registration pending — check the dashboard.' : 'Registro en Render pendiente — revisa el panel.')}));
       msg.style.color='#1E7B3C';
-      msg.innerHTML='✓ Guardado. Pídele al cliente que agregue este registro en su dominio:<br><b>Tipo:</b> CNAME · <b>Nombre:</b> @ (o www) · <b>Destino:</b> '+j.cname_target+'<br><span style="color:#67718A">'+cfNote+'</span>';
-    }).catch(function(){btn.disabled=false;btn.textContent='Conectar';msg.style.color='#9B1C10';msg.textContent='No se pudo — intenta de nuevo.';});
+      msg.innerHTML=${JSON.stringify(en ? '✓ Saved. Ask the client to add this record on their domain:<br><b>Type:</b> CNAME · <b>Name:</b> @ (or www) · <b>Target:</b> ' : '✓ Guardado. Pídele al cliente que agregue este registro en su dominio:<br><b>Tipo:</b> CNAME · <b>Nombre:</b> @ (o www) · <b>Destino:</b> ')}+j.cname_target+'<br><span style="color:#67718A">'+cfNote+'</span>';
+    }).catch(function(){btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Connect' : 'Conectar')};msg.style.color='#9B1C10';msg.textContent=${JSON.stringify(en ? 'Could not connect — try again.' : 'No se pudo — intenta de nuevo.')};});
 }
 function buyDomain(d,price){
-  var priceTxt=price?('$'+Number(price).toFixed(2)+'/año'):'el precio de costo';
-  if(!confirm('¿Comprar '+d+' ahora por '+priceTxt+'? Se cobra a la cuenta de Cloudflare y no se puede deshacer.'))return;
+  var priceTxt=price?('$'+Number(price).toFixed(2)+${JSON.stringify(en ? '/yr' : '/año')}):${JSON.stringify(en ? 'the at-cost price' : 'el precio de costo')};
+  if(!confirm(${JSON.stringify(en ? 'Buy ' : '¿Comprar ')}+d+${JSON.stringify(en ? ' now for ' : ' ahora por ')}+priceTxt+${JSON.stringify(en ? '? It charges the Cloudflare account and cannot be undone.' : '? Se cobra a la cuenta de Cloudflare y no se puede deshacer.')}))return;
   var msg=document.getElementById('dommsg');
-  msg.style.color='#67718A';msg.textContent='Comprando '+d+'…';
+  msg.style.color='#67718A';msg.textContent=${JSON.stringify(en ? 'Buying ' : 'Comprando ')}+d+'…';
   fetch('/api/onboarding/domain/buy?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:${JSON.stringify(c.slug)},domain:d})})
     .then(function(r){return r.json();}).then(function(j){
-      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||'intenta de nuevo')+(j&&j.detail?' — '+JSON.stringify(j.detail):'');return;}
+      if(!j||!j.ok){msg.style.color='#9B1C10';msg.textContent='Error: '+((j&&j.error)||${JSON.stringify(en ? 'try again' : 'intenta de nuevo')})+(j&&j.detail?' — '+JSON.stringify(j.detail):'');return;}
       document.getElementById('domain').value=j.domain;
-      var dnsNote = j.dns&&j.dns.ok ? 'DNS listo' : 'DNS pendiente ('+((j.dns&&j.dns.reason)||'revisa Cloudflare')+')';
-      var sslNote = j.render&&j.render.ok ? 'SSL en camino (Render, unos minutos)' : (j.render&&j.render.reason==='render_off' ? 'falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor' : 'SSL pendiente — agrega el dominio en Render');
+      var dnsNote = j.dns&&j.dns.ok ? ${JSON.stringify(en ? 'DNS ready' : 'DNS listo')} : ${JSON.stringify(en ? 'DNS pending (' : 'DNS pendiente (')}+((j.dns&&j.dns.reason)||${JSON.stringify(en ? 'check Cloudflare' : 'revisa Cloudflare')})+')';
+      var sslNote = j.render&&j.render.ok ? ${JSON.stringify(en ? 'SSL on the way (Render, a few minutes)' : 'SSL en camino (Render, unos minutos)')} : (j.render&&j.render.reason==='render_off' ? ${JSON.stringify(en ? 'RENDER_API_KEY/RENDER_SERVICE_ID missing on the server' : 'falta RENDER_API_KEY/RENDER_SERVICE_ID en el servidor')} : ${JSON.stringify(en ? 'SSL pending — add the domain in Render' : 'SSL pendiente — agrega el dominio en Render')});
       msg.style.color=(j.dns&&j.dns.ok&&j.render&&j.render.ok)?'#1E7B3C':'#8A6D00';
-      msg.innerHTML='✓ '+j.domain+' comprado. '+dnsNote+' · '+sslNote+'.';
-    }).catch(function(){msg.style.color='#9B1C10';msg.textContent='No se pudo comprar — intenta de nuevo.';});
+      msg.innerHTML='✓ '+j.domain+${JSON.stringify(en ? ' purchased. ' : ' comprado. ')}+dnsNote+' · '+sslNote+'.';
+    }).catch(function(){msg.style.color='#9B1C10';msg.textContent=${JSON.stringify(en ? 'Purchase failed — try again.' : 'No se pudo comprar — intenta de nuevo.')};});
 }
 function aiWrite(){
   var btn=document.getElementById('aibtn'),hint=document.getElementById('aihint');
   var rough=document.getElementById('rough').value.trim();
-  if(!rough){hint.textContent='Escribe unas notas primero ↑';return;}
-  btn.disabled=true;btn.textContent='✨ Escribiendo…';hint.textContent='';
+  if(!rough){hint.textContent=${JSON.stringify(en ? 'Type some notes first ↑' : 'Escribe unas notas primero ↑')};return;}
+  btn.disabled=true;btn.textContent=${JSON.stringify(en ? '✨ Writing…' : '✨ Escribiendo…')};hint.textContent='';
   fetch('/api/onboarding/ai?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     biz:document.getElementById('biz').value,city:document.getElementById('city').value,
     years:document.getElementById('years').value,rough:rough,lang:document.getElementById('sitelang').value
   })}).then(function(r){return r.json();}).then(function(j){
-    btn.disabled=false;btn.textContent='✨ Escribir con IA';
+    btn.disabled=false;btn.textContent=${JSON.stringify(en ? '✨ Write with AI' : '✨ Escribir con IA')};
     if(j&&j.source==='live'){
       if(j.hero)document.getElementById('hero').value=j.hero;
       if(j.tagline)document.getElementById('tagline').value=j.tagline;
       if(j.about)document.getElementById('about').value=j.about;
-      hint.style.color='#1E7B3C';hint.textContent='✓ Listo — revisa y edita';
-    } else if(j&&j.error==='ai_off'){hint.style.color='#9B1C10';hint.textContent='La IA no está activa (falta API key).';}
-    else{hint.style.color='#9B1C10';hint.textContent='No se pudo — intenta de nuevo o escríbelo a mano.';}
-  }).catch(function(){btn.disabled=false;btn.textContent='✨ Escribir con IA';hint.style.color='#9B1C10';hint.textContent='No se pudo — intenta de nuevo.';});
+      hint.style.color='#1E7B3C';hint.textContent=${JSON.stringify(en ? '✓ Done — review and edit' : '✓ Listo — revisa y edita')};
+    } else if(j&&j.error==='ai_off'){hint.style.color='#9B1C10';hint.textContent=${JSON.stringify(en ? 'AI is not active (missing API key).' : 'La IA no está activa (falta API key).')};}
+    else{hint.style.color='#9B1C10';hint.textContent=${JSON.stringify(en ? 'Could not write it — try again or type it by hand.' : 'No se pudo — intenta de nuevo o escríbelo a mano.')};}
+  }).catch(function(){btn.disabled=false;btn.textContent=${JSON.stringify(en ? '✨ Write with AI' : '✨ Escribir con IA')};hint.style.color='#9B1C10';hint.textContent=${JSON.stringify(en ? 'Could not write it — try again.' : 'No se pudo — intenta de nuevo.')};});
 }
 function save(){
-  var btn=document.getElementById('save');btn.disabled=true;btn.textContent='Guardando…';
+  var btn=document.getElementById('save');btn.disabled=true;btn.textContent=${JSON.stringify(en ? 'Saving…' : 'Guardando…')};
   var services=[];[].forEach.call(document.querySelectorAll('#services input:checked'),function(c){services.push(c.value);});
   fetch('/api/onboarding/save?key=${K}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
     slug:${JSON.stringify(c.slug)},template:TPL,color:document.getElementById('color').value,
@@ -5906,15 +5911,15 @@ function save(){
     tagline:document.getElementById('tagline').value,about:document.getElementById('about').value,
     logo:LOGO,photos:PHOTOS
   })}).then(function(r){return r.json();}).then(function(j){
-    btn.disabled=false;btn.textContent='Enviar al equipo de diseño 🎨';
+    btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Send to the design team 🎨' : 'Enviar al equipo de diseño 🎨')};
     var ok=document.getElementById('ok');
     if(j&&j.ok){
       ok.style.background='#EAF8EF';ok.style.borderColor='#34A853';ok.style.color='#1E7B3C';
-      ok.innerHTML='✓ Recibido — el equipo está armando la página. <a href="'+j.site+'?preview=1" target="_blank">Ver borrador →</a>';
+      ok.innerHTML=${JSON.stringify(en ? '✓ Received — the team is building the site. ' : '✓ Recibido — el equipo está armando la página. ')}+'<a href="'+j.site+'?preview=1" target="_blank">'+${JSON.stringify(en ? 'View draft →' : 'Ver borrador →')}+'</a>';
       ok.style.display='block';document.getElementById('staff').style.display='block';
     }
-    else{ok.style.background='#FDECEC';ok.style.borderColor='#D93025';ok.style.color='#9B1C10';ok.textContent='Error: '+((j&&j.error)||'intenta de nuevo');ok.style.display='block';}
-  }).catch(function(){btn.disabled=false;btn.textContent='Enviar al equipo de diseño 🎨';});
+    else{ok.style.background='#FDECEC';ok.style.borderColor='#D93025';ok.style.color='#9B1C10';ok.textContent='Error: '+((j&&j.error)||${JSON.stringify(en ? 'try again' : 'intenta de nuevo')});ok.style.display='block';}
+  }).catch(function(){btn.disabled=false;btn.textContent=${JSON.stringify(en ? 'Send to the design team 🎨' : 'Enviar al equipo de diseño 🎨')};});
 }
 function publish(){
   var pub=document.getElementById('pub');pub.disabled=true;
@@ -5922,7 +5927,7 @@ function publish(){
     .then(function(r){return r.json();}).then(function(j){
       pub.disabled=false;
       if(j&&j.ok){PUBLISHED=j.published;
-        pub.textContent=PUBLISHED?'✓ Publicada — clic para ocultar':'🚀 Publicar página al cliente';
+        pub.textContent=PUBLISHED?${JSON.stringify(en ? '✓ Published — click to hide' : '✓ Publicada — clic para ocultar')}:${JSON.stringify(en ? '🚀 Publish the site to the client' : '🚀 Publicar página al cliente')};
         pub.style.background=PUBLISHED?'#1E7B3C':'#101B30';
       }
     }).catch(function(){pub.disabled=false;});

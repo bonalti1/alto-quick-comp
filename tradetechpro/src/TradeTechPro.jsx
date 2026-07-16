@@ -252,6 +252,85 @@ function CompMap({ subjectLL, comps, satellite, focus, lang, fallbackSrc }) {
   return <div ref={elRef} className="absolute inset-0 w-full h-full" />;
 }
 
+/* ─── In-app drive-time map: the realtor's current location → the property,
+   route drawn + ETA/distance, WITHOUT leaving Quick Comp. Falls back to just
+   the property pin if location is blocked; an "Open in Google Maps" button is
+   there for full turn-by-turn when they actually want to drive. ─── */
+function DriveMap({ dest, label, lang, onClose }) {
+  const elRef = useRef(null);
+  const [info, setInfo] = useState(null);        // { dist, dur } once the route is drawn
+  const [status, setStatus] = useState("loading"); // loading | route | noloc | failed
+  const es = lang === "es";
+  const destParam = encodeURIComponent(dest.address || (dest.lat != null ? `${dest.lat},${dest.lng}` : ""));
+
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogleMaps().then((maps) => {
+      if (cancelled || !elRef.current) return;
+      const map = new maps.Map(elRef.current, {
+        mapTypeId: "roadmap", disableDefaultUI: true, zoomControl: true, gestureHandling: "greedy", clickableIcons: false,
+      });
+      const destPos = (dest.lat != null && dest.lng != null) ? { lat: dest.lat, lng: dest.lng } : null;
+      const pin = (pos) => new maps.Marker({ position: pos, map, zIndex: 999,
+        icon: { path: maps.SymbolPath.CIRCLE, scale: 12, fillColor: "#E8442E", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 3 } });
+      const rend = new maps.DirectionsRenderer({ map, suppressMarkers: false, polylineOptions: { strokeColor: "#1B2A5C", strokeWeight: 5 } });
+      const svc = new maps.DirectionsService();
+      const showProperty = () => {
+        if (destPos) { pin(destPos); map.setCenter(destPos); map.setZoom(16); if (!cancelled) setStatus("noloc"); }
+        else new maps.Geocoder().geocode({ address: dest.address }, (r, st2) => {
+          if (!cancelled && st2 === "OK" && r[0]) { const p = r[0].geometry.location; pin(p); map.setCenter(p); map.setZoom(16); }
+          if (!cancelled) setStatus("noloc");
+        });
+      };
+      const drawRoute = (origin) => {
+        svc.route({ origin, destination: destPos || dest.address || "", travelMode: maps.TravelMode.DRIVING }, (res, st2) => {
+          if (cancelled) return;
+          if (st2 === "OK") {
+            rend.setDirections(res);
+            const leg = res.routes[0]?.legs?.[0];
+            setInfo(leg ? { dist: leg.distance?.text, dur: leg.duration?.text } : null);
+            setStatus("route");
+          } else showProperty();
+        });
+      };
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { if (!cancelled) drawRoute({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
+          () => { if (!cancelled) showProperty(); },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
+        );
+      } else showProperty();
+    }).catch(() => { if (!cancelled) setStatus("failed"); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="no-print absolute inset-0 z-50 flex flex-col" style={{ background: "#0B1226" }}>
+      <div className="flex items-center gap-2 px-4 py-3 shrink-0" style={{ background: QC.navy }}>
+        <button onClick={onClose} aria-label="close" style={{ background: "none", border: "none", color: "#fff", fontSize: 24, cursor: "pointer", lineHeight: 1 }}>‹</button>
+        <span className="flex-1 min-w-0">
+          <span className="block font-extrabold truncate" style={{ color: "#fff", fontSize: 14 }}>🧭 {es ? "Cómo llegar" : "Directions"}</span>
+          <span className="block truncate" style={{ color: "#B9C3DC", fontSize: 11, fontWeight: 600 }}>{label}</span>
+        </span>
+        {info && <span style={{ background: QC.gold, color: QC.navyDeep, borderRadius: 99, padding: "6px 12px", fontWeight: 800, fontSize: 12.5, whiteSpace: "nowrap" }}>🚗 {info.dur} · {info.dist}</span>}
+      </div>
+      <div className="flex-1 relative">
+        <div ref={elRef} className="absolute inset-0" />
+        {status === "loading" && <div className="absolute inset-0 flex items-center justify-center" style={{ color: "#9DA8C4", fontWeight: 700, fontSize: 13 }}>{es ? "Buscando la ruta…" : "Finding the route…"}</div>}
+        {status === "failed" && <div className="absolute inset-0 flex items-center justify-center text-center px-8" style={{ color: "#9DA8C4", fontWeight: 700, fontSize: 13 }}>{es ? "No se pudo cargar el mapa." : "Couldn't load the map."}</div>}
+      </div>
+      <div className="px-4 py-3 flex items-center gap-3 shrink-0" style={{ background: QC.navy }}>
+        {status === "noloc" && <span className="flex-1" style={{ color: "#B9C3DC", fontSize: 11.5, fontWeight: 600, lineHeight: 1.4 }}>{es ? "Activa la ubicación para ver el tiempo de manejo." : "Turn on location to see the drive time."}</span>}
+        <a href={`https://www.google.com/maps/dir/?api=1&destination=${destParam}&travelmode=driving`} target="_blank" rel="noreferrer"
+          className="text-center" style={{ marginLeft: "auto", background: QC.gold, color: QC.navyDeep, borderRadius: 11, padding: "11px 16px", fontWeight: 800, fontSize: 13, textDecoration: "none", whiteSpace: "nowrap" }}>
+          {es ? "Abrir en Google Maps ↗" : "Open in Google Maps ↗"}
+        </a>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Translations ─── */
 const TR = {
   es: {
@@ -1075,6 +1154,7 @@ export default function TradeTechPro() {
      before spending a lookup we show the addresses found at that spot and let
      the realtor pick. Only the 📍 path asks — typed addresses are explicit. */
   const [gpsPick, setGpsPick] = useState(null); // null | {candidates:[{address,placeId}], lat, lng}
+  const [driveTo, setDriveTo] = useState(null); // null | {lat, lng, address} — in-app drive-time map
   const useMyLocation = () => {
     if (!navigator.geolocation) { showToast("⚠️ " + t.locErr); return; }
     showToast("📍 " + t.locating);
@@ -1825,14 +1905,14 @@ export default function TradeTechPro() {
                   </div>
                 ))}
               </div>
-              {/* Driving directions — Maps uses the realtor's live location, so
-                  distance/ETA/traffic come free and nothing is billed to us */}
+              {/* Driving directions — opens an in-app map with the route and
+                  drive time from the realtor's location, no leaving the app */}
               {(subj.address || R.addr || (sLat != null && sLng != null)) && (
-                <a href={`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(subj.address || R.addr || `${sLat},${sLng}`)}&travelmode=driving`}
-                  target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 mt-3 active:translate-y-px transition-transform"
-                  style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, textDecoration: "none" }}>
+                <button onClick={() => setDriveTo({ lat: sLat, lng: sLng, address: subj.address || R.addr || "" })}
+                  className="w-full flex items-center justify-center gap-2 mt-3 active:translate-y-px transition-transform"
+                  style={{ background: QC.bg, color: QC.navy, border: `1.5px solid ${QC.line}`, borderRadius: 10, padding: 10, fontWeight: 800, fontSize: 12.5, cursor: "pointer" }}>
                   🧭 {lang === "es" ? "Cómo llegar — distancia y ruta" : "Directions — distance & route"}
-                </a>
+                </button>
               )}
             </div>
           </div>
@@ -3632,6 +3712,8 @@ export default function TradeTechPro() {
             <span className="rounded-full px-5 py-2.5 font-bold text-sm text-white" style={{ background: C.navyDeep, boxShadow: "0 8px 20px rgba(0,0,0,.3)" }}>{toast}</span>
           </div>
         )}
+        {/* In-app drive-time map: route + ETA without leaving the app */}
+        {driveTo && <DriveMap dest={driveTo} label={driveTo.address} lang={lang} onClose={() => setDriveTo(null)} />}
         {/* GPS confirm sheet — pick the right property before the lookup runs */}
         {gpsPick && (
           <div className="no-print absolute inset-0 z-50 flex items-end justify-center" style={{ background: "rgba(7,12,28,0.72)" }} onClick={() => setGpsPick(null)}>

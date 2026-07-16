@@ -1136,7 +1136,12 @@ export default function TradeTechPro() {
     // on every screen change, and every 60s in between — so when a client fills
     // the form, the pending badge on the front page lights up by itself.
     if (!session) { setLeads((cur) => (cur.length ? cur : DEMO_LEADS)); return; } // seed once — keep demo edits
-    const pull = () => api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => { if (Array.isArray(j?.leads)) setLeads(j.leads); }).catch(() => {});
+    const pull = () => api("/api/leads").then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (!Array.isArray(j?.leads)) return;
+      // Deck mode: keep the live-demo leads the prospect just created on top —
+      // otherwise the 60s/screen-change refresh would wipe the wow moment.
+      setLeads((cur) => (WANT_ROOF ? [...cur.filter((l) => String(l.id).startsWith("demo")), ...j.leads] : j.leads));
+    }).catch(() => {});
     pull();
     const iv = setInterval(pull, 60000);
     return () => clearInterval(iv);
@@ -1152,12 +1157,14 @@ export default function TradeTechPro() {
     setLeads((ls) => ls.map((l) => (l.id === id ? { ...l, info: { ...(l.info || {}), note } } : l)));
     if (session) api(`/api/leads/${id}`, { method: "POST", body: JSON.stringify({ note }) }).catch(() => { /* refetch heals it */ });
   };
-  /* Sales-deck magic (demo mode only, ALTO pattern): the deck's website
-     mockup announces a phone typed into its chat or home-value widget; it
-     appears here as a live lead so the prospect watches their own message
-     land on "their" phone. */
+  /* Sales-deck magic (ALTO pattern): the deck's website mockup announces a
+     phone typed into its chat or home-value widget; it appears here as a live
+     lead so the prospect watches their own message land on "their" phone.
+     Gated by HOW the app was opened (the deck's ?demo= entry), NOT by login —
+     a closer's machine signed into a real account still gets the wow. Normal
+     app opens never listen. */
   useEffect(() => {
-    if (session) return;
+    if (!WANT_ROOF) return;
     const onMsg = (e) => {
       const d = e.data;
       if (!d || d.alto !== "lead" || !d.phone) return;

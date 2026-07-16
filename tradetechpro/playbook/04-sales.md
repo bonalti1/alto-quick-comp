@@ -14,7 +14,7 @@
    real comparable sales right here in 10 seconds."
 2. **Who we are** — the origin story: Quick Comp was born inside **Alto
    Realty Group**, a South Texas real estate company tired of comping all
-   the time; built for its own agents, opened to the public. (The team photo
+   the time; built to solve that, opened to the public. (The team photo
    appears automatically once `landing/team.jpg` exists.)
 3. **The problem** — listings are won at the kitchen table; walking in
    without the number loses them.
